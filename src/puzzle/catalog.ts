@@ -386,10 +386,10 @@ export const FOUR_CIRCLE_CLOVER: PuzzleSpec = {
   name: '4-Circle Clover (90°)',
   category: 'Classic Circles',
   description:
-    '4 intersecting circles in square symmetry intersecting at 90° angles, fully unbandaged for crisp quarter-turn moves.',
+    '4 intersecting circles in square symmetry with 90° stops, distinct blended overlap lenses, and fully unbandaged quarter-turn moves.',
   circles: makeRingCircles(
     4,
-    1.0,
+    (38 / 50) * Math.SQRT2,
     1.0,
     4,
     ['#ef4444', '#facc15', '#16a34a', '#2563eb'],

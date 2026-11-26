@@ -398,7 +398,7 @@ AutoColorParts: 10, 4, 6
 `;
 
 const FOUR_CIRCLE_CLOVER_SCRIPT = `
-Param: s, 35.35533906
+Param: s, 38
 Ring: 1,  s,  s, 50, 90
 Ring: 2,  s, -s, 50, 90
 Ring: 3, -s, -s, 50, 90
@@ -604,21 +604,31 @@ export function buildExactMandorlaPieces(spec: PuzzleSpec): Piece[] {
 }
 
 /**
- * Build properly unbandaged 4-Circle Clover (90° turns, orthogonal circle intersections).
+ * Build properly unbandaged 4-Circle Clover (90° turns, clean non-tangent spacing).
  */
 export function buildExactFourCircleCloverPieces(spec: PuzzleSpec): Piece[] {
   const pieces = buildFromGeraniumsPotScript(FOUR_CIRCLE_CLOVER_SCRIPT, spec, {
     coordScale: 1 / 50,
   });
-  // Color any overlap lens pieces cleanly by nearest circle center for crisp visual clarity
+  // Give each of the 4 adjacent overlap lenses a distinct blended bridge color matching its two parent circles:
+  // A∩B (Red+Yellow) -> Orange, B∩C (Yellow+Green) -> Lime, C∩D (Green+Blue) -> Cyan, D∩A (Blue+Red) -> Purple
+  const pairColors: Record<string, string> = {
+    'A,B': '#f97316',
+    'B,C': '#84cc16',
+    'C,D': '#06b6d4',
+    'A,D': '#a855f7',
+  };
   for (const p of pieces) {
     if (p.color === '#f8fafc') {
-      const members = spec.circles.filter(
-        (c) => classifyRegionAgainstCircle(p.region, c) === 'inside',
-      );
-      if (members.length === 2) {
-        p.color = '#94a3b8';
-        p.homeColor = '#94a3b8';
+      const members = spec.circles
+        .filter((c) => classifyRegionAgainstCircle(p.region, c) === 'inside')
+        .map((c) => c.id)
+        .sort()
+        .join(',');
+      const bridge = pairColors[members];
+      if (bridge) {
+        p.color = bridge;
+        p.homeColor = bridge;
       }
     }
   }

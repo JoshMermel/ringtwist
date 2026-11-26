@@ -365,21 +365,14 @@ export function regionToSvgPath(region: ArcRegion, decimals = 4): string {
 
   for (const e of region.edges) {
     const absSweep = Math.abs(e.sweep);
-    // Split near-full arcs (> 1.9*PI) into two arcs so SVG A-command never degenerates
-    if (absSweep > Math.PI * 1.9) {
-      const mid = edgePointAt(e, 0.5);
-      const end = edgeEnd(e);
-      const sweepFlag = e.sweep > 0 ? 0 : 1;
-      parts.push(`A ${fmt(e.r)} ${fmt(e.r)} 0 0 ${sweepFlag} ${fmt(mid.x)} ${fmt(-mid.y)}`);
-      parts.push(`A ${fmt(e.r)} ${fmt(e.r)} 0 0 ${sweepFlag} ${fmt(end.x)} ${fmt(-end.y)}`);
-    } else {
-      const end = edgeEnd(e);
-      const largeArc = absSweep > Math.PI ? 1 : 0;
-      // In SVG (+y down), math CCW (e.sweep > 0) corresponds to sweep-flag = 0
-      const sweepFlag = e.sweep > 0 ? 0 : 1;
-      parts.push(
-        `A ${fmt(e.r)} ${fmt(e.r)} 0 ${largeArc} ${sweepFlag} ${fmt(end.x)} ${fmt(-end.y)}`,
-      );
+    // In SVG (+y down), math CCW (e.sweep > 0) corresponds to sweep-flag = 0
+    const sweepFlag = e.sweep > 0 ? 0 : 1;
+    // Subdivide arcs > ~80° into exact analytical sub-arcs (≤ 80° each) so browsers/Skia
+    // never suffer arc-endpoint or near-semicircle/origin rendering drift.
+    const segments = Math.max(1, Math.ceil(absSweep / (Math.PI * 0.44)));
+    for (let s = 1; s <= segments; s++) {
+      const pt = s === segments ? edgeEnd(e) : edgePointAt(e, s / segments);
+      parts.push(`A ${fmt(e.r)} ${fmt(e.r)} 0 0 ${sweepFlag} ${fmt(pt.x)} ${fmt(-pt.y)}`);
     }
   }
   parts.push('Z');
