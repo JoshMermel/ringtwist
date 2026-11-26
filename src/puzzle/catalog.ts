@@ -1,7 +1,14 @@
 import { deg2rad } from '../geom/math.ts';
 import {
+  CRAZY_LEKKI_DOC,
+  CUBE4YOU_XO_DOC,
+  GIGAHEX_PLUS_DOC,
+  MOONSPINNER_DOC,
+  OCTOCRYSTAL_DOC,
+} from './definitions.ts';
+import { compileRingTwistDoc } from './formatBuilder.ts';
+import {
   BAUHINIUM_R2,
-  CRAZY_LEKKI_DIST,
   EXACT_GERANIUM_RADIUS,
   GERANIUM_PLUS_COLORS,
   GERANIUM_STD_COLORS,
@@ -11,20 +18,15 @@ import {
   buildExactAreciboPieces,
   buildExactBauhiniumPieces,
   buildExactCohanCirclePieces,
-  buildExactCrazyLekkiPieces,
-  buildExactCube4youXoPieces,
   buildExactEliacPieces,
   buildExactFomalhautPieces,
   buildExactFourCircleCloverPieces,
   buildExactFragmentationRingPieces,
   buildExactGeraniumPieces,
   buildExactGigaHexPieces,
-  buildExactGigaHexPlusPieces,
   buildExactMandorlaPieces,
   buildExactMimosaPieces,
   buildExactMiniGeraniumPieces,
-  buildExactMoonspinnerPieces,
-  buildExactOctoCrystalPieces,
   buildExactPocketGeraniumPieces,
   buildExactPocketQuatriumPieces,
   buildExactSevenCircleFlowerPieces,
@@ -819,55 +821,9 @@ export const FRAGMENTATION_RING: PuzzleSpec = {
 };
 
 /**
- * 24. Cube4you Crazy Lekki (Victor Manuel Wdoviak / Jose Romero — 2-layer 120° + 90°)
+ * 24. Cube4you Crazy Lekki — compiled natively from ringtwist/v1 declarative doc
  */
-const CRAZY_LEKKI_OX = (-84 / 50 + CRAZY_LEKKI_DIST + 58 / 50) / 2;
-
-export const CRAZY_LEKKI: PuzzleSpec = {
-  id: 'crazy-lekki',
-  name: 'Crazy Lekki',
-  category: 'Designer & Exotic',
-  description:
-    'Jose Romero’s Cube4you Crazy Lekki: a 2-layer 120° disk (A inner, 2A outer slice, a wide) paired with a 90° yellow disk (B). Turning B by 90° bandages A’s outer ring until B completes a 180° flip.',
-  circles: [
-    {
-      id: 'A',
-      cx: -CRAZY_LEKKI_OX,
-      cy: 0,
-      r: 84 / 50,
-      layerRadii: [53 / 50, 84 / 50],
-      stopsDeg: evenStops(3),
-      color: '#f97316',
-    },
-    {
-      id: 'B',
-      cx: CRAZY_LEKKI_DIST - CRAZY_LEKKI_OX,
-      cy: 0,
-      r: 58 / 50,
-      stopsDeg: evenStops(4),
-      color: '#facc15',
-    },
-  ],
-  symmetryStepDeg: 0,
-  customBuilder: (spec) => buildExactCrazyLekkiPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: 'Inner-layer commutator [B, A]',
-      alg: '[B, A]',
-      note: 'Turning B 90° leaves A’s inner disk free for a clean 3-cycle',
-    },
-    {
-      name: 'Wide 180° commutator [B2, a]',
-      alg: '[B2, a]',
-      note: 'A 180° flip on B unlocks wide turns (a) of the entire large disk',
-    },
-    {
-      name: 'Blocking demo (B 2A)',
-      alg: 'B 2A',
-      note: 'Quarter-turn B bandages the outer slice 2A while leaving inner disk A free',
-    },
-  ],
-};
+export const CRAZY_LEKKI: PuzzleSpec = compileRingTwistDoc(CRAZY_LEKKI_DOC);
 
 /**
  * 25. Cube4you GigaHex (2 concentric 2-layer 60° circles)
@@ -915,189 +871,24 @@ export const GIGAHEX: PuzzleSpec = {
 };
 
 /**
- * 26. Cube4you GigaHex Plus (3 concentric 2-layer 60° circles in RGB/CMY/White Venn triangle)
+ * 26. Cube4you GigaHex Plus — compiled natively from ringtwist/v1 declarative doc
  */
-const GIGAHEX_PLUS_S = 63 / Math.sqrt(3);
-
-export const GIGAHEX_PLUS: PuzzleSpec = {
-  id: 'gigahex-plus',
-  name: 'GigaHex Plus',
-  category: 'Designer & Exotic',
-  description:
-    'Cube4you GigaHex Plus: three 2-layer 60° circles (A, B, C) in an equilateral Venn triangle with 7-color RGB/CMY/White shading and 139 pieces.',
-  circles: [
-    {
-      id: 'A',
-      cx: 0,
-      cy: GIGAHEX_PLUS_S / 50,
-      r: 1.0,
-      layerRadii: [0.8, 1.0],
-      stopsDeg: evenStops(6),
-      color: '#16a34a',
-    },
-    {
-      id: 'B',
-      cx: 31.5 / 50,
-      cy: -GIGAHEX_PLUS_S / 100,
-      r: 1.0,
-      layerRadii: [0.8, 1.0],
-      stopsDeg: evenStops(6),
-      color: '#2563eb',
-    },
-    {
-      id: 'C',
-      cx: -31.5 / 50,
-      cy: -GIGAHEX_PLUS_S / 100,
-      r: 1.0,
-      layerRadii: [0.8, 1.0],
-      stopsDeg: evenStops(6),
-      color: '#ef4444',
-    },
-  ],
-  symmetryStepDeg: 120,
-  customBuilder: (spec) => buildExactGigaHexPlusPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: 'Outer-slice commutator [2A, 2B]',
-      alg: '[2A, 2B]',
-      note: 'Commutes the outer concentric rings of A and B',
-    },
-    {
-      name: '120° Symmetry conjugate',
-      alg: 'm = [a, B]\n[z: m]',
-      note: 'Applies the wide/inner commutator rotated 120° around the triangle',
-    },
-  ],
-};
+export const GIGAHEX_PLUS: PuzzleSpec = compileRingTwistDoc(GIGAHEX_PLUS_DOC);
 
 /**
- * 27. ThinkFun Moonspinner (Oskar van Deventer — 180° lens circle + 72° exterior turn)
+ * 27. ThinkFun Moonspinner — compiled natively from ringtwist/v1 declarative doc
  */
-export const MOONSPINNER: PuzzleSpec = {
-  id: 'moonspinner',
-  name: 'ThinkFun Moonspinner',
-  category: 'Designer & Exotic',
-  description:
-    'Oskar van Deventer’s ThinkFun Moonspinner in doctrinaire exterior-turn form: A flips the oval lens circle 180°, while B rotates everything outside the fixed crescent-moon circle by 72°.',
-  circles: [
-    {
-      id: 'A',
-      cx: -1 / PHI,
-      cy: 0,
-      r: 1.0,
-      stopsDeg: evenStops(2),
-      color: '#0ea5e9',
-      labelPos: { x: -1 / PHI - 1.24, y: 0 },
-    },
-    {
-      id: 'B',
-      cx: 0,
-      cy: 0,
-      r: 1.0,
-      stopsDeg: evenStops(5),
-      color: '#facc15',
-      turnRegion: 'outside',
-      labelPos: { x: 1.78, y: 0 },
-    },
-  ],
-  symmetryStepDeg: 0,
-  viewBounds: { minX: -1.68, maxX: 1.56, minY: -1.62, maxY: 1.62 },
-  customBuilder: (spec) => buildExactMoonspinnerPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '5-lobe commutator [A, B]',
-      alg: '[A, B]',
-      note: 'Flips the lens disk A 180° and spins the entire 5-lobed exterior frame B by 72°',
-    },
-    {
-      name: 'Double-step walk (A B2 A B2\')',
-      alg: "A B2 A B2'",
-      note: 'Transfers pieces across opposite outer lobes via 144° exterior turns',
-    },
-  ],
-};
+export const MOONSPINNER: PuzzleSpec = compileRingTwistDoc(MOONSPINNER_DOC);
 
 /**
- * 28. Cube4you OctoCrystal (8 equal 45° circles, 64 pieces, jumbling)
+ * 28. Cube4you OctoCrystal — compiled natively from ringtwist/v1 declarative doc
  */
-const OCTOCRYSTAL_PALETTE = [
-  '#ef4444',
-  '#f472b6',
-  '#9333ea',
-  '#1d4ed8',
-  '#06b6d4',
-  '#4ade80',
-  '#facc15',
-  '#f97316',
-];
-
-export const OCTOCRYSTAL: PuzzleSpec = {
-  id: 'octocrystal',
-  name: 'Cube4you OctoCrystal',
-  category: 'Designer & Exotic',
-  description:
-    'Cube4you OctoCrystal: 8 overlapping 45° circles with 8 swirling rainbow arms, 64 pieces, and 135° jumbling moves.',
-  circles: makeRingCircles(8, 1.0, 1.0, 8, OCTOCRYSTAL_PALETTE, 135),
-  symmetryStepDeg: 45,
-  customBuilder: (spec) => buildExactOctoCrystalPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '135° Jumbling exchange (A3 C3)',
-      alg: 'A3 C3',
-      note: 'A 135° turn on A unlocks non-adjacent circle C for jumbling',
-    },
-    {
-      name: '45° Symmetry walk (A3 E3\' z)',
-      alg: "A3 E3' z",
-      note: 'Opposite 135° turns followed by a 45° whole-puzzle rotation',
-    },
-  ],
-};
+export const OCTOCRYSTAL: PuzzleSpec = compileRingTwistDoc(OCTOCRYSTAL_DOC);
 
 /**
- * 29. Cube4you 2D Puzzle – XO (big 90° Red circle + small 180° Sky Blue circle)
+ * 29. Cube4you 2D Puzzle – XO — compiled natively from ringtwist/v1 declarative doc
  */
-const XO_OX = (-1 + 2 * Math.SQRT1_2) / 2;
-
-export const CUBE4YOU_XO: PuzzleSpec = {
-  id: 'cube4you-xo',
-  name: 'Cube4you 2D – XO',
-  category: 'Designer & Exotic',
-  description:
-    'Cube4you 2D Puzzle – XO: a big 90° red circle (A) intersecting a smaller 180° light-blue circle (B) at exact r = d = 1/√2 tangency (33 pieces).',
-  circles: [
-    {
-      id: 'A',
-      cx: -XO_OX,
-      cy: 0,
-      r: 1.0,
-      stopsDeg: evenStops(4),
-      color: '#ef4444',
-    },
-    {
-      id: 'B',
-      cx: Math.SQRT1_2 - XO_OX,
-      cy: 0,
-      r: Math.SQRT1_2,
-      stopsDeg: evenStops(2),
-      color: '#38bdf8',
-    },
-  ],
-  symmetryStepDeg: 0,
-  customBuilder: (spec) => buildExactCube4youXoPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '90°/180° Commutator [A, B]',
-      alg: '[A, B]',
-      note: 'Commutes quarter-turns on the red circle with 180° flips on the blue circle',
-    },
-    {
-      name: 'Lens swap (A2 B A B A)',
-      alg: 'A2 B A B A',
-      note: 'Shuttles narrow lenses between the red and blue circles',
-    },
-  ],
-};
+export const CUBE4YOU_XO: PuzzleSpec = compileRingTwistDoc(CUBE4YOU_XO_DOC);
 
 /**
  * 30. Cube4you UFO 2D / 10 Stars (Evgeniy Grigoriev — 10 decagonal circles, 100 pieces)

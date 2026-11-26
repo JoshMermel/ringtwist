@@ -100,7 +100,7 @@ export interface PuzzleColoringContext {
 export interface PuzzleSpec {
   id: string;
   name: string;
-  category: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles';
+  category: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles' | 'Custom';
   description: string;
   circles: CircleDef[];
   /** Whole-puzzle rotational symmetry step in degrees CW (e.g. 72 for 5-fold). */

@@ -18,7 +18,8 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
   - Commutators `[X, Y]`, conjugates `[X: Y]`, grouping & repeats `(X)3`, algebraic inverses `(...)'`, inline macros `name = expr`, and line comments (`//`, `#`).
   - Stops immediately before a blocked move, underlines the offending token in the editor, and highlights the target circle and every straddling piece on the canvas.
 - **Group-Theory Fast-Forward & Order Analyzer**: Detects shape-preserving permutations (jumping huge repeats in $O(n)$ via cycle powers with exact `BigInt` prime-factor order reduction) and state-hash cycles, plus one-click **Analyze Order** for any algorithm, selection, or macro.
-- **Macro Library & URL Sharing**: Save reusable macros per puzzle (`localStorage`), import/export JSON, and share puzzles + algorithms + macros via live URL hashes (`#p=...`).
+- **Macro Library & URL Sharing**: Save reusable macros per puzzle (`localStorage`), import/export JSON, and share puzzles (including custom JSON puzzles!) + algorithms + macros via live URL hashes (`#p=...`).
+- **Declarative `ringtwist/v1` Format & Puzzle JSON Studio**: Design new 2D circle puzzles or inspect/fork any built-in puzzle directly in the browser via **Choose a Puzzle → `+ Custom JSON`** (or `{ }` on any card) with live validation, starter templates, SVG preview, `localStorage` persistence, and shareable URLs. See [`docs/PUZZLE_FORMAT.md`](docs/PUZZLE_FORMAT.md).
 - **Seeded Scrambles & Solved Reference**: Deterministic seeded scramble generator (numeric or word seeds) and a toggleable **👁 Solved** reference overlay.
 - **Playback & Auxiliary Mouse Input**: Scrubber, step/play/pause, logarithmic `0.25×–4.0×` speed control, cursor-synced preview, and optional click/trackpad-smoothed wheel input with automatic move coalescing and cancellation (`B` + `B'` cancels, `B` + `B` → `B2`).
 
@@ -114,12 +115,12 @@ A GitHub Actions workflow is included at [`.github/workflows/deploy.yml`](.githu
 
 ## Architecture & Adding Puzzles
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module responsibilities, core geometric/evaluator invariants, and a step-by-step guide to adding new puzzles.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module responsibilities and core invariants, and [`docs/PUZZLE_FORMAT.md`](docs/PUZZLE_FORMAT.md) for the `ringtwist/v1` declarative JSON puzzle format.
 
 - `src/geom/` — Analytical circular-arc geometry (`math.ts`, `arcRegion.ts`) and DCEL planar circle slicer (`slicer.ts`).
-- `src/puzzle/` — Non-doctrinaire move/blocking engine (`engine.ts`), `GeraniumsPot` script runner (`geraniumsPotScript.ts`), exact puzzle builders (`geraniumBuilder.ts`), and catalog (`catalog.ts`).
+- `src/puzzle/` — Non-doctrinaire move/blocking engine (`engine.ts`), `ringtwist/v1` format schema/compiler/definitions (`format.ts`, `formatBuilder.ts`, `definitions.ts`), legacy `GeraniumsPot` script runner (`geraniumsPotScript.ts`, `geraniumBuilder.ts`), and catalog (`catalog.ts`).
 - `src/lang/` — Recursive-descent algorithm parser (`parser.ts`), AST (`ast.ts`), and non-doctrinaire evaluator with group-theory fast-forward (`evaluator.ts`).
-- `src/ui/` — Animated SVG renderer & static thumbnails (`svgRenderer.ts`), syntax-highlighted editor (`editor.ts`), visual puzzle picker (`puzzlePicker.ts`), interactive move coalescing (`moveCoalesce.ts`), help modal (`helpModal.ts`), and `localStorage`/URL-hash storage (`storage.ts`).
+- `src/ui/` — Animated SVG renderer & static thumbnails (`svgRenderer.ts`), syntax-highlighted editor (`editor.ts`), visual puzzle picker (`puzzlePicker.ts`), live Puzzle JSON Studio (`customPuzzleModal.ts`), interactive move coalescing (`moveCoalesce.ts`), help modal (`helpModal.ts`), and `localStorage`/URL-hash storage (`storage.ts`).
 
 ---
 

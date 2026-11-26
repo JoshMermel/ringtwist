@@ -1,4 +1,5 @@
 import './style.css';
+import { interiorPointOfRegion } from './geom/arcRegion.ts';
 import { Span } from './lang/ast.ts';
 import {
   EvaluationResult,
@@ -7,7 +8,7 @@ import {
   evaluateProgram,
 } from './lang/evaluator.ts';
 import { buildPuzzle } from './puzzle/builder.ts';
-import { getPuzzleSpec } from './puzzle/catalog.ts';
+import { PUZZLE_CATALOG, getPuzzleSpec } from './puzzle/catalog.ts';
 import {
   MoveLayerSpec,
   MoveResult,
@@ -22,7 +23,13 @@ import {
   turnCircleBySteps,
   turnCircleNextUnblocked,
 } from './puzzle/engine.ts';
+import { RingTwistPuzzleDoc, exportPuzzleToRingTwistDoc } from './puzzle/format.ts';
+import { compileRingTwistDoc } from './puzzle/formatBuilder.ts';
 import { PuzzleSpec, PuzzleState } from './puzzle/types.ts';
+import {
+  CustomPuzzleModalController,
+  createCustomPuzzleModal,
+} from './ui/customPuzzleModal.ts';
 import { AlgorithmEditor } from './ui/editor.ts';
 import { createHelpModal } from './ui/helpModal.ts';
 import { applyInteractiveMoveToText } from './ui/moveCoalesce.ts';
@@ -30,7 +37,9 @@ import { PuzzlePickerController, createPuzzlePickerModal } from './ui/puzzlePick
 import {
   decodeShareHash,
   encodeShareHash,
+  loadCustomPuzzles,
   loadMacros,
+  saveCustomPuzzles,
   saveMacros,
 } from './ui/storage.ts';
 import {
@@ -49,6 +58,8 @@ function escapeHtml(s: string): string {
 
 class RingTwistApp {
   private puzzleCache = new Map<string, PuzzleState>();
+  private customDocs: RingTwistPuzzleDoc[] = [];
+  private customSpecs: PuzzleSpec[] = [];
   private currentSpec: PuzzleSpec;
   private solvedState: PuzzleState;
   private macros: MacroLibraryEntry[] = [];
@@ -69,6 +80,7 @@ class RingTwistApp {
   private editor!: AlgorithmEditor;
   private helpModal!: { open: () => void; close: () => void };
   private puzzlePicker!: PuzzlePickerController;
+  private customPuzzleModal!: CustomPuzzleModalController;
   private puzzleBtnEl!: HTMLButtonElement;
   private rotCwBtnEl!: HTMLButtonElement;
   private rotCcwBtnEl!: HTMLButtonElement;
@@ -95,8 +107,15 @@ class RingTwistApp {
   private toastTimer: number | null = null;
 
   constructor(root: HTMLElement) {
+    this.customDocs = loadCustomPuzzles();
+    this.customSpecs = this.compileCustomDocs(this.customDocs);
+
     const shared = decodeShareHash(window.location.hash);
-    const initialSpec = getPuzzleSpec(shared?.puzzleId ?? 'geranium-plus');
+    if (shared?.customDoc && !this.isBuiltInPuzzle(shared.customDoc.id)) {
+      this.upsertCustomDoc(shared.customDoc, true);
+    }
+
+    const initialSpec = this.findPuzzleSpec(shared?.puzzleId ?? 'geranium-plus');
     this.currentSpec = initialSpec;
     this.solvedState = this.getOrBuildPuzzle(initialSpec);
     this.macros = shared?.macros ?? loadMacros(initialSpec.id);
@@ -104,10 +123,19 @@ class RingTwistApp {
 
     this.mountDOM(root);
     this.helpModal = createHelpModal();
+    this.customPuzzleModal = createCustomPuzzleModal({
+      isBuiltInId: (id) => this.isBuiltInPuzzle(id),
+      onSave: (doc) => this.saveAndSelectCustomPuzzle(doc),
+      onToast: (msg) => this.showToast(msg),
+    });
     this.puzzlePicker = createPuzzlePickerModal({
+      getPuzzles: () => this.getAllPuzzles(),
+      isCustomPuzzle: (id) => this.customDocs.some((d) => d.id === id),
       getOrBuildPuzzle: (spec) => this.getOrBuildPuzzle(spec),
       getCurrentPuzzleId: () => this.currentSpec.id,
       onSelect: (puzzleId) => this.switchPuzzle(puzzleId),
+      onOpenStudio: (forkSpec) => this.openPuzzleStudio(forkSpec),
+      onDeleteCustom: (puzzleId) => this.deleteCustomPuzzle(puzzleId),
     });
 
     const initialAlg = shared?.alg ?? '';
@@ -121,13 +149,98 @@ class RingTwistApp {
     window.addEventListener('hashchange', () => this.applySharedHash());
   }
 
+  private isBuiltInPuzzle(id: string): boolean {
+    return PUZZLE_CATALOG.some((p) => p.id === id);
+  }
+
+  private getAllPuzzles(): PuzzleSpec[] {
+    return [...PUZZLE_CATALOG, ...this.customSpecs];
+  }
+
+  private findPuzzleSpec(id: string): PuzzleSpec {
+    return this.customSpecs.find((p) => p.id === id) ?? getPuzzleSpec(id);
+  }
+
+  private compileCustomDocs(docs: RingTwistPuzzleDoc[]): PuzzleSpec[] {
+    const specs: PuzzleSpec[] = [];
+    for (const doc of docs) {
+      try {
+        specs.push(compileRingTwistDoc(doc));
+      } catch {
+        // Skip invalid persisted custom doc rather than breaking startup
+      }
+    }
+    return specs;
+  }
+
+  private upsertCustomDoc(doc: RingTwistPuzzleDoc, persist: boolean): void {
+    const normalized: RingTwistPuzzleDoc = { ...doc, category: 'Custom' };
+    const idx = this.customDocs.findIndex((d) => d.id === normalized.id);
+    if (idx >= 0) {
+      this.customDocs[idx] = normalized;
+    } else {
+      this.customDocs.push(normalized);
+    }
+    this.customSpecs = this.compileCustomDocs(this.customDocs);
+    this.puzzleCache.delete(normalized.id);
+    this.puzzlePicker?.invalidateThumb(normalized.id);
+    if (persist) {
+      saveCustomPuzzles(this.customDocs);
+    }
+  }
+
+  private saveAndSelectCustomPuzzle(doc: RingTwistPuzzleDoc): void {
+    this.upsertCustomDoc(doc, true);
+    this.switchPuzzle(doc.id);
+    this.showToast(`Loaded custom puzzle "${doc.name}"`);
+  }
+
+  private openPuzzleStudio(forkSpec?: PuzzleSpec): void {
+    if (!forkSpec) {
+      this.customPuzzleModal.open();
+      return;
+    }
+    const existingCustom = this.customDocs.find((d) => d.id === forkSpec.id);
+    if (existingCustom) {
+      this.customPuzzleModal.open(
+        existingCustom,
+        `Editing custom puzzle "${forkSpec.name}"`,
+      );
+      return;
+    }
+    const state = this.getOrBuildPuzzle(forkSpec);
+    const exported = exportPuzzleToRingTwistDoc(state, interiorPointOfRegion);
+    this.customPuzzleModal.open(
+      exported,
+      `Inspecting "${forkSpec.name}" — click Load & Save to fork as a Custom puzzle`,
+    );
+  }
+
+  private deleteCustomPuzzle(puzzleId: string): void {
+    const target = this.customDocs.find((d) => d.id === puzzleId);
+    this.customDocs = this.customDocs.filter((d) => d.id !== puzzleId);
+    this.customSpecs = this.compileCustomDocs(this.customDocs);
+    saveCustomPuzzles(this.customDocs);
+    this.puzzleCache.delete(puzzleId);
+    this.puzzlePicker.invalidateThumb(puzzleId);
+    if (this.currentSpec.id === puzzleId) {
+      this.switchPuzzle('geranium-plus');
+    }
+    this.showToast(
+      target ? `Deleted custom puzzle "${target.name}"` : 'Deleted custom puzzle',
+    );
+  }
+
   private applySharedHash(): void {
     const shared = decodeShareHash(window.location.hash);
     if (!shared) return;
+    if (shared.customDoc && !this.isBuiltInPuzzle(shared.customDoc.id)) {
+      this.upsertCustomDoc(shared.customDoc, true);
+    }
     this.cancelPendingEval();
     this.stopPlayback();
     this.hideAnalysisBanner();
-    this.currentSpec = getPuzzleSpec(shared.puzzleId);
+    this.currentSpec = this.findPuzzleSpec(shared.puzzleId);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = shared.macros ?? loadMacros(this.currentSpec.id);
     this.lastMacroListKey = '';
@@ -767,7 +880,7 @@ class RingTwistApp {
     this.cancelPendingEval();
     this.stopPlayback();
     this.hideAnalysisBanner();
-    this.currentSpec = getPuzzleSpec(puzzleId);
+    this.currentSpec = this.findPuzzleSpec(puzzleId);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = loadMacros(this.currentSpec.id);
     this.lastMacroListKey = '';
@@ -1241,10 +1354,12 @@ class RingTwistApp {
 
   private shareCurrentState(): void {
     this.flushPendingEval();
+    const customDoc = this.customDocs.find((d) => d.id === this.currentSpec.id);
     const hash = encodeShareHash({
       puzzleId: this.currentSpec.id,
       alg: this.editor.getValue(),
       macros: this.macros,
+      ...(customDoc ? { customDoc } : {}),
     });
     window.history.replaceState(null, '', hash);
     const fullUrl = window.location.href;

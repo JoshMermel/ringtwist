@@ -1,7 +1,9 @@
 import { MacroLibraryEntry } from '../lang/evaluator.ts';
+import { RingTwistPuzzleDoc, validateRingTwistDoc } from '../puzzle/format.ts';
 
 const STORAGE_PREFIX = 'ringtwist:macros:v1:';
 const LEGACY_STORAGE_PREFIX = 'circle-sim:macros:v1:';
+const CUSTOM_PUZZLES_KEY = 'ringtwist:custom-puzzles:v1';
 
 const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
   'geranium-plus': [
@@ -43,6 +45,31 @@ export function saveMacros(puzzleId: string, macros: MacroLibraryEntry[]): void 
   }
 }
 
+export function loadCustomPuzzles(): RingTwistPuzzleDoc[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PUZZLES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid: RingTwistPuzzleDoc[] = [];
+    for (const item of parsed) {
+      const check = validateRingTwistDoc(item);
+      if (check.ok) valid.push(check.doc);
+    }
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomPuzzles(docs: RingTwistPuzzleDoc[]): void {
+  try {
+    localStorage.setItem(CUSTOM_PUZZLES_KEY, JSON.stringify(docs));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 /** UTF-8 safe base64url encode (zero external dependencies). */
 function toBase64Url(str: string): string {
   const bytes = new TextEncoder().encode(str);
@@ -64,11 +91,15 @@ export interface SharedPayload {
   puzzleId: string;
   alg: string;
   macros?: MacroLibraryEntry[];
+  customDoc?: RingTwistPuzzleDoc;
 }
 
 export function encodeShareHash(payload: SharedPayload): string {
   const params = new URLSearchParams();
   params.set('p', payload.puzzleId);
+  if (payload.customDoc) {
+    params.set('d', toBase64Url(JSON.stringify(payload.customDoc)));
+  }
   if (payload.alg.trim().length > 0) {
     params.set('a', toBase64Url(payload.alg));
   }
@@ -87,6 +118,7 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     if (!puzzleId) return null;
     const algRaw = params.get('a');
     const macrosRaw = params.get('m');
+    const docRaw = params.get('d');
     const alg = algRaw ? fromBase64Url(algRaw) : '';
     let macros: MacroLibraryEntry[] | undefined;
     if (macrosRaw) {
@@ -98,7 +130,13 @@ export function decodeShareHash(hash: string): SharedPayload | null {
         );
       }
     }
-    return { puzzleId, alg, macros };
+    let customDoc: RingTwistPuzzleDoc | undefined;
+    if (docRaw) {
+      const parsedDoc = JSON.parse(fromBase64Url(docRaw));
+      const check = validateRingTwistDoc(parsedDoc);
+      if (check.ok) customDoc = check.doc;
+    }
+    return { puzzleId, alg, macros, customDoc };
   } catch {
     return null;
   }

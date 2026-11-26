@@ -15,10 +15,13 @@ src/
 │   └── slicer.ts             # Planar DCEL circle slicer, region splitting, and bandaging merges
 ├── puzzle/
 │   ├── types.ts              # PuzzleSpec, CircleDef, Piece, StickerWedge, PuzzleState
-│   ├── engine.ts             # Move execution, blocking checks, state hashing, seeded scrambles
-│   ├── geraniumsPotScript.ts # CSP-safe interpreter for GeraniumsPot .txt puzzle scripts
-│   ├── geraniumBuilder.ts    # Exact 30-puzzle script definitions & analytical custom builders
-│   ├── builder.ts            # Declarative PuzzleSpec builder (dispatches to customBuilder or DCEL)
+│   ├── engine.ts             # Move execution, blocking checks, mirror flips, state hashing, scrambles
+│   ├── format.ts             # RingTwist v1 JSON schema, CSP-safe math expressions, validator & exporter
+│   ├── formatBuilder.ts      # Declarative ringtwist/v1 compiler & analytical geometry pipeline
+│   ├── definitions.ts        # Built-in ringtwist/v1 puzzle definitions & custom starter templates
+│   ├── geraniumsPotScript.ts # CSP-safe interpreter for legacy GeraniumsPot .txt puzzle scripts
+│   ├── geraniumBuilder.ts    # Legacy GeraniumsPot script catalog definitions
+│   ├── builder.ts            # PuzzleSpec builder (dispatches to customBuilder or DCEL)
 │   └── catalog.ts            # Exported PUZZLE_CATALOG, metadata, and verified sample algorithms
 ├── lang/
 │   ├── ast.ts                # AST node and source-span types
@@ -28,9 +31,10 @@ src/
 │   ├── svgRenderer.ts        # Interactive animated SVG stage & static thumbnail renderer
 │   ├── editor.ts             # Transparent-textarea syntax-highlighted editor with span overlays
 │   ├── moveCoalesce.ts       # Interactive click/scroll move merging (B + B -> B2) & cancellation (B + B')
-│   ├── puzzlePicker.ts       # Visual category-filtered puzzle picker modal with cached thumbnails
+│   ├── puzzlePicker.ts       # Visual category-filtered puzzle picker modal with cached thumbnails & JSON fork
+│   ├── customPuzzleModal.ts  # Live split-pane Puzzle JSON Studio (ringtwist/v1) with SVG preview
 │   ├── helpModal.ts          # Notation & controls guide modal
-│   └── storage.ts            # localStorage macro persistence and UTF-8 base64url hash sharing
+│   └── storage.ts            # localStorage macro & custom-puzzle persistence and base64url hash sharing
 ├── main.ts                   # RingTwistApp controller wiring state, playback, and DOM controls
 └── style.css                 # Dark-theme layout and component styling
 ```
@@ -59,14 +63,12 @@ src/
 
 ## Adding a New Puzzle
 
-1. **Define the construction script or builder** in [`src/puzzle/geraniumBuilder.ts`](../src/puzzle/geraniumBuilder.ts):
-   - Most 2D twisty circle puzzles can be expressed directly as a `GeraniumsPot` script (`Param:`, `Ring:`, `CopyRing:`, `AutoCutParts:`, `CutCircles:`, `HideParts:`, `CopyParts:`, `AutoColorParts:`, `SetColorParts:`) executed via `buildFromGeraniumsPotScript()`.
-   - Remember that `GeraniumsPot` scripts use native radii (typically `50` or `70`), normalized to RingTwist's unit scale via `coordScale` and `originOffset`.
-2. **Register a `PuzzleSpec`** in [`src/puzzle/catalog.ts`](../src/puzzle/catalog.ts):
-   - Set `id`, `name`, `category` (`'Geranium Family'` or `'Classic Circles'`), `description`, `circles` (with spatial IDs `A..Z`, stop angles `stopsDeg`, and home colors), `symmetryStepDeg` (`0` if asymmetric), `customBuilder`, and `sampleAlgorithms`.
-   - Append the spec to `PUZZLE_CATALOG`.
-3. **Verify automatically with `npm test`:**
-   - [`src/puzzle/catalog.test.ts`](../src/puzzle/catalog.test.ts) automatically tests **every** entry in `PUZZLE_CATALOG` for:
+1. **Author a declarative `ringtwist/v1` JSON document** (recommended — see [`docs/PUZZLE_FORMAT.md`](PUZZLE_FORMAT.md)):
+   - You can prototype it live inside the app via **Choose a Puzzle → `+ Custom JSON`** (with instant validation and SVG preview), then export/copy the JSON directly into [`src/puzzle/definitions.ts`](../src/puzzle/definitions.ts).
+   - Register it in [`src/puzzle/catalog.ts`](../src/puzzle/catalog.ts) with `compileRingTwistDoc(MY_PUZZLE_DOC)`.
+   - Legacy `GeraniumsPot` `.txt` scripts are still supported via `buildFromGeraniumsPotScript()` in [`src/puzzle/geraniumBuilder.ts`](../src/puzzle/geraniumBuilder.ts).
+2. **Verify automatically with `npm test`:**
+   - [`src/puzzle/catalog.test.ts`](../src/puzzle/catalog.test.ts) and [`src/puzzle/format.test.ts`](../src/puzzle/format.test.ts) automatically test every puzzle for:
      - Zero straddling pieces in the solved state,
      - Exact analytical area conservation against the union of circles,
      - Deterministic seeded scramble generation and legal execution,
