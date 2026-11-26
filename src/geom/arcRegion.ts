@@ -6,7 +6,6 @@ import {
   TWO_PI,
   angleOffsetOnArc,
   circlesEqual,
-  dist,
   intersectCircles,
   normAngle,
   pointOnCircle,
@@ -34,6 +33,10 @@ export interface ArcRegion {
   edges: ArcEdge[];
   /** Optional cached bounding circle enclosing the region (rotation-invariant radius). */
   _bounds?: Circle;
+  /** Optional lazily cached SVG path string (for default decimals = 4). */
+  _svgPath?: string;
+  /** Optional lazily cached canonical silhouette key (for default quantum = 1e-3). */
+  _silhouetteKey?: string;
 }
 
 /** Return (and lazily cache) a tight enclosing circle for `region`. */
@@ -357,8 +360,8 @@ export function classifyRegionAgainstCircle(
           // Verify crossing by checking points slightly before and after u
           const pBefore = edgePointAt(e, Math.max(0, u - 1e-3));
           const pAfter = edgePointAt(e, Math.min(1, u + 1e-3));
-          const dBefore = dist(pBefore, { x: circle.cx, y: circle.cy }) - circle.r;
-          const dAfter = dist(pAfter, { x: circle.cx, y: circle.cy }) - circle.r;
+          const dBefore = Math.hypot(pBefore.x - circle.cx, pBefore.y - circle.cy) - circle.r;
+          const dAfter = Math.hypot(pAfter.x - circle.cx, pAfter.y - circle.cy) - circle.r;
           if ((dBefore < -eps && dAfter > eps) || (dBefore > eps && dAfter < -eps)) {
             return 'straddling';
           }
@@ -369,7 +372,7 @@ export function classifyRegionAgainstCircle(
     // Sample interior points of edge e (quarter, mid, three-quarter) and endpoints
     for (const t of [0, 0.25, 0.5, 0.75, 1]) {
       const pt = edgePointAt(e, t);
-      const d = dist(pt, { x: circle.cx, y: circle.cy });
+      const d = Math.hypot(pt.x - circle.cx, pt.y - circle.cy);
       if (d < circle.r - eps) hasInside = true;
       else if (d > circle.r + eps) hasOutside = true;
     }
@@ -393,6 +396,7 @@ export function classifyRegionAgainstCircle(
  * string (in SVG +y-down coordinates via y_svg = -y_math).
  */
 export function regionToSvgPath(region: ArcRegion, decimals = 4): string {
+  if (decimals === 4 && region._svgPath !== undefined) return region._svgPath;
   if (region.edges.length === 0) return '';
   const fmt = (n: number) => Number(n.toFixed(decimals)).toString();
   const start = edgeStart(region.edges[0]);
@@ -411,7 +415,9 @@ export function regionToSvgPath(region: ArcRegion, decimals = 4): string {
     }
   }
   parts.push('Z');
-  return parts.join(' ');
+  const path = parts.join(' ');
+  if (decimals === 4) region._svgPath = path;
+  return path;
 }
 
 /**
@@ -419,6 +425,9 @@ export function regionToSvgPath(region: ArcRegion, decimals = 4): string {
  * shape-invariance checks and state hashing).
  */
 export function regionSilhouetteKey(region: ArcRegion, quantum = 1e-3): string {
+  if (quantum === 1e-3 && region._silhouetteKey !== undefined) {
+    return region._silhouetteKey;
+  }
   // Sort edge midpoints + lengths + signed curvature canonically
   const tokens = region.edges.map((e) => {
     const m = edgePointAt(e, 0.5);
@@ -429,7 +438,9 @@ export function regionSilhouetteKey(region: ArcRegion, quantum = 1e-3): string {
     return `${mx},${my},${r},${s}`;
   });
   tokens.sort();
-  return tokens.join(';');
+  const key = tokens.join(';');
+  if (quantum === 1e-3) region._silhouetteKey = key;
+  return key;
 }
 
 /**

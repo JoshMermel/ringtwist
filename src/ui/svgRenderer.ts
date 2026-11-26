@@ -219,6 +219,7 @@ export class PuzzleSvgRenderer {
   private labelsLayer: SVGGElement;
   private callbacks: SvgRendererCallbacks;
   private animFrameId: number | null = null;
+  private flashTimerId: number | null = null;
   private currentSpec: PuzzleSpec | null = null;
   private currentState: PuzzleState | null = null;
   private currentStatuses: Record<string, CircleStatus> = {};
@@ -384,6 +385,10 @@ export class PuzzleSvgRenderer {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    if (this.flashTimerId !== null) {
+      clearTimeout(this.flashTimerId);
+      this.flashTimerId = null;
+    }
   }
 
   private updateViewBox(spec: PuzzleSpec): void {
@@ -412,23 +417,27 @@ export class PuzzleSvgRenderer {
     anim: TurnAnimationSpec,
     highlightAfter: RenderHighlight,
     onDone?: () => void,
+    statusesAfter?: Record<string, CircleStatus>,
   ): void {
+    const prevStatuses =
+      this.currentState === anim.fromState ? this.currentStatuses : undefined;
     this.cancelAnimation();
     if (anim.durationMs <= 16 || Math.abs(anim.angleDeg) < 1e-4) {
-      this.render(anim.toState, highlightAfter);
+      this.render(anim.toState, highlightAfter, statusesAfter);
       onDone?.();
       return;
     }
 
     this.currentSpec = anim.fromState.spec;
     this.currentState = anim.fromState;
+    this.currentStatuses = prevStatuses ?? getAllCircleStatuses(anim.fromState);
     this.updateViewBox(anim.fromState.spec);
 
     const movedSet = new Set(anim.movedPieceIds);
     this.drawPieces(anim.fromState, new Set(), movedSet);
     this.drawRimsAndLabels(
       anim.fromState.spec,
-      getAllCircleStatuses(anim.fromState),
+      this.currentStatuses,
       undefined,
     );
 
@@ -451,7 +460,7 @@ export class PuzzleSvgRenderer {
       } else {
         this.animFrameId = null;
         this.movingLayer.removeAttribute('transform');
-        this.render(anim.toState, highlightAfter);
+        this.render(anim.toState, highlightAfter, statusesAfter);
         onDone?.();
       }
     };
@@ -462,13 +471,20 @@ export class PuzzleSvgRenderer {
   /** Briefly flash a blocked circle + its blocking pieces when clicked directly. */
   public flashBlocked(circleId: string, blockingPieceIds: number[]): void {
     if (!this.currentState) return;
-    this.render(this.currentState, {
-      blockedCircleId: circleId,
-      blockingPieceIds,
-    });
-    window.setTimeout(() => {
-      if (this.currentState) {
-        this.render(this.currentState, {});
+    const flashedState = this.currentState;
+    const flashedStatuses = this.currentStatuses;
+    this.render(
+      flashedState,
+      {
+        blockedCircleId: circleId,
+        blockingPieceIds,
+      },
+      flashedStatuses,
+    );
+    this.flashTimerId = window.setTimeout(() => {
+      this.flashTimerId = null;
+      if (this.currentState === flashedState) {
+        this.render(flashedState, {}, flashedStatuses);
       }
     }, 900);
   }

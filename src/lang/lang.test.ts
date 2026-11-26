@@ -10,7 +10,7 @@ import {
   TWIN_RINGS,
   TWO_CIRCLE_VENN,
 } from '../puzzle/catalog.ts';
-import { hashPuzzleState } from '../puzzle/engine.ts';
+import { generateScramble, hashPuzzleState } from '../puzzle/engine.ts';
 import { analyzeAlgorithm, evaluateProgram } from './evaluator.ts';
 import { parseAlgorithm } from './parser.ts';
 
@@ -152,5 +152,63 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
         }
       }
     }
+  });
+
+  it('handles prime-factor order analysis, sticker orientation, parser modifiers, and 160-move zero-drift round-trips', () => {
+    // 1. High-order shape-preserving Hex Flower algorithm via BigInt prime-factor reduction
+    const hex = buildPuzzle(SIX_CIRCLE_HEX);
+    const hexAnalysis = analyzeAlgorithm(hex, 'A B C D E F');
+    expect(hexAnalysis.status).toBe('shape-preserving');
+    expect(hexAnalysis.order).toBeGreaterThan(1);
+    expect(hexAnalysis.cycleSummary).toBeTruthy();
+
+    const hexPow = evaluateProgram(hex, `(A B C D E F)${hexAnalysis.order}`);
+    expect(hexPow.blocked).toBeUndefined();
+    expect(hexPow.solved).toBe(true);
+    expect(hashPuzzleState(hexPow.finalState)).toBe(hashPuzzleState(hex));
+
+    // 2. Geranium Plus whole-puzzle rotation `r` respects 5-color central pentagon orientation (order 5)
+    const plus = buildPuzzle(GERANIUM_PLUS);
+    const rotAnalysis = analyzeAlgorithm(plus, 'r');
+    expect(rotAnalysis.status).toBe('periodic');
+    expect(rotAnalysis.order).toBe(5);
+
+    // 3. Parser modifier symmetry (`A>'2` === `A>2'`), `A>0` no-op, and digit-suffixed macro def `m2 = ...`
+    const a1 = parseAlgorithm("A>'2", ['A']);
+    const a2 = parseAlgorithm("A>2'", ['A']);
+    expect(a1.errors).toEqual([]);
+    expect(a2.errors).toEqual([]);
+    const s1 = a1.statements[0];
+    const s2 = a2.statements[0];
+    expect(s1.kind === 'exprStmt' && s1.expr.kind === 'sequence' && s1.expr.items[0]).toMatchObject({
+      kind: 'nextUnblocked',
+      circleId: 'A',
+      direction: -1,
+      count: 2,
+    });
+    expect(s2.kind === 'exprStmt' && s2.expr.kind === 'sequence' && s2.expr.items[0]).toMatchObject({
+      kind: 'nextUnblocked',
+      circleId: 'A',
+      direction: -1,
+      count: 2,
+    });
+
+    const noopRes = evaluateProgram(plus, 'A>0');
+    expect(noopRes.blocked).toBeUndefined();
+    expect(noopRes.steps.length).toBe(0);
+    expect(noopRes.solved).toBe(true);
+
+    const venn = buildPuzzle(TWO_CIRCLE_VENN);
+    const digitMacro = evaluateProgram(venn, 'm2 = [A, B]\nm2 m2\'');
+    expect(digitMacro.parseErrors).toEqual([]);
+    expect(digitMacro.runtimeError).toBeUndefined();
+    expect(digitMacro.solved).toBe(true);
+
+    // 4. 160-move seeded scramble + exact inverse round-trip on Geranium Plus has zero float drift
+    const scramble = generateScramble(plus, 80, 'zero-drift-r2');
+    const roundTrip = evaluateProgram(plus, `s = ${scramble}\ns s'`);
+    expect(roundTrip.blocked).toBeUndefined();
+    expect(roundTrip.solved).toBe(true);
+    expect(hashPuzzleState(roundTrip.finalState)).toBe(hashPuzzleState(plus));
   });
 });

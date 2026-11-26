@@ -298,19 +298,30 @@ export function turnCircleNextUnblocked(
     };
   }
 
-  const neighbors = overlappingCircleIds(state.spec, circle);
+  const neighborIds = overlappingCircleIds(state.spec, circle);
+  const neighborDefs = neighborIds
+    .map((nid) => getCircleDef(state.spec, nid))
+    .filter((c): c is CircleDef => c !== undefined);
+  const curIdx = state.circleStopIndex[circleId] ?? 0;
   const nStops = circle.stopsDeg.length;
   let found = 0;
 
   for (let step = 1; step <= nStops * Math.max(1, count); step++) {
-    const candidate = turnCircleBySteps(state, circleId, direction * step);
+    const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(circle, curIdx, direction * step);
+    const candidate = turnCircleByAngle(
+      state,
+      circleId,
+      deltaDeg,
+      nextStopIdx,
+      status.insidePieceIds,
+    );
     if (!candidate.ok) return candidate;
 
     // A stop counts as an unblocked alignment if at least one overlapping neighbor is free
     // (or if there are no neighbors at all, every stop counts)
     const neighborFree =
-      neighbors.length === 0 ||
-      neighbors.some((nid) => !getCircleStatus(candidate.nextState, nid).blocked);
+      neighborDefs.length === 0 ||
+      neighborDefs.some((nb) => !isCircleBlocked(candidate.nextState, nb));
 
     if (neighborFree) {
       found++;
@@ -321,7 +332,14 @@ export function turnCircleNextUnblocked(
   }
 
   // If no stop unlocked any neighbor, advance by `count` stops so the move still works predictably
-  return turnCircleBySteps(state, circleId, direction * count);
+  const fallback = computeStopDeltaDeg(circle, curIdx, direction * count);
+  return turnCircleByAngle(
+    state,
+    circleId,
+    fallback.deltaDeg,
+    fallback.nextStopIdx,
+    status.insidePieceIds,
+  );
 }
 
 /**
@@ -375,21 +393,30 @@ export function rotateWholePuzzle(state: PuzzleState, steps: number): MoveResult
 }
 
 /**
+ * Canonical snapped signature of a piece's multi-color orientation stickers
+ * (empty string if the piece has no orientation stickers).
+ */
+export function pieceStickerKey(p: Piece): string {
+  if (!p.stickers || p.stickers.length === 0) return '';
+  return p.stickers
+    .map((s) => {
+      const m = edgePointAt(s.arc, 0.5);
+      return `${snapFloat(m.x, 1e-3).toFixed(3)},${snapFloat(m.y, 1e-3).toFixed(3)}:${s.color}`;
+    })
+    .sort()
+    .join(',');
+}
+
+/**
  * Canonical hash of the full puzzle state (piece silhouettes + colors),
  * invariant to piece array ordering and interchangeable same-color pieces.
  */
 export function hashPuzzleState(state: PuzzleState): string {
   const entries = state.pieces.map((p) => {
     let base = `${regionSilhouetteKey(p.region)}|${p.color}`;
-    if (p.stickers && p.stickers.length > 0) {
-      const sKeys = p.stickers
-        .map((s) => {
-          const m = edgePointAt(s.arc, 0.5);
-          return `${snapFloat(m.x, 1e-3).toFixed(3)},${snapFloat(m.y, 1e-3).toFixed(3)}:${s.color}`;
-        })
-        .sort()
-        .join(',');
-      base += `|S[${sKeys}]`;
+    const sKey = pieceStickerKey(p);
+    if (sKey) {
+      base += `|S[${sKey}]`;
     }
     return base;
   });

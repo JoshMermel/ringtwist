@@ -58,6 +58,7 @@ class CircleSimApp {
   private speedMultiplier = 1.0;
   private solvedPeekVisible = false;
   private solvedPeekExpanded = false;
+  private lastMacroListKey = '';
 
   // UI elements
   private renderer!: PuzzleSvgRenderer;
@@ -111,6 +112,24 @@ class CircleSimApp {
     this.renderMacroList();
     this.reevaluate(true);
     this.bindGlobalShortcuts();
+    window.addEventListener('hashchange', () => this.applySharedHash());
+  }
+
+  private applySharedHash(): void {
+    const shared = decodeShareHash(window.location.hash);
+    if (!shared) return;
+    this.stopPlayback();
+    this.hideAnalysisBanner();
+    this.currentSpec = getPuzzleSpec(shared.puzzleId);
+    this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
+    this.macros = shared.macros ?? loadMacros(this.currentSpec.id);
+    this.lastMacroListKey = '';
+    this.editor.setValue(shared.alg);
+    this.syncPuzzleButton();
+    this.syncSolvedRefCard();
+    this.renderSamples();
+    this.reevaluate(true);
+    this.showToast(`Loaded shared ${this.currentSpec.name} state`);
   }
 
   private getOrBuildPuzzle(spec: PuzzleSpec): PuzzleState {
@@ -620,9 +639,13 @@ class CircleSimApp {
   }
 
   private renderMacroList(): void {
+    const inlineEntries = Object.entries(this.evalResult.inlineMacros);
+    const key = JSON.stringify([this.macros, inlineEntries]);
+    if (key === this.lastMacroListKey) return;
+    this.lastMacroListKey = key;
+
     this.macroListEl.innerHTML = '';
 
-    const inlineEntries = Object.entries(this.evalResult.inlineMacros);
     if (this.macros.length === 0 && inlineEntries.length === 0) {
       this.macroListEl.innerHTML =
         '<div class="empty-state">No macros yet. Save useful commutators or conjugates here, or define them inline with <code>name = ...</code>.</div>';
@@ -880,6 +903,7 @@ class CircleSimApp {
       },
       highlightAfter,
       onDone,
+      statusesAfter,
     );
   }
 
@@ -905,6 +929,8 @@ class CircleSimApp {
         durationMs,
       },
       highlightAfter,
+      undefined,
+      statusesAfter,
     );
   }
 
@@ -1048,7 +1074,8 @@ class CircleSimApp {
 
     if (deltaAnim && deltaAnim.ok && !this.evalResult.blocked) {
       // Smoothly animate the incremental turn (works cleanly for append, merge B->B2, AND cancel B+B'!)
-      this.updateChrome(finalAfter, getAllCircleStatuses(finalAfter));
+      const statusesAfter = getAllCircleStatuses(finalAfter);
+      this.updateChrome(finalAfter, statusesAfter);
       this.renderer.animateTurn(
         {
           fromState: prevFinalState,
@@ -1059,10 +1086,13 @@ class CircleSimApp {
           durationMs: this.turnDurationMs(deltaAnim.angleDeg, false, 360),
         },
         highlightAfter,
+        undefined,
+        statusesAfter,
       );
     } else if (newTotal === prevCount + 1) {
       const step = this.evalResult.steps[newTotal - 1];
-      this.updateChrome(step.stateAfter, getAllCircleStatuses(step.stateAfter));
+      const statusesAfter = getAllCircleStatuses(step.stateAfter);
+      this.updateChrome(step.stateAfter, statusesAfter);
       this.renderer.animateTurn(
         {
           fromState: prevFinalState,
@@ -1073,6 +1103,8 @@ class CircleSimApp {
           durationMs: this.turnDurationMs(step.angleDeg, step.fastForwarded, 400),
         },
         highlightAfter,
+        undefined,
+        statusesAfter,
       );
     } else {
       this.renderCurrentStep();

@@ -5,12 +5,13 @@ import {
   hashPuzzleShape,
   hashPuzzleState,
   isPuzzleSolved,
+  pieceStickerKey,
   rotateWholePuzzle,
   turnCircleBySteps,
   turnCircleNextUnblocked,
 } from '../puzzle/engine.ts';
 import { Piece, PuzzleState } from '../puzzle/types.ts';
-import { ExprNode, ParseError, Span } from './ast.ts';
+import { ExprNode, ParseError, ProgramAST, Span } from './ast.ts';
 import { invertExpr, parseAlgorithm } from './parser.ts';
 
 export interface MacroLibraryEntry {
@@ -83,9 +84,6 @@ function extractShapePermutation(
 ): number[] | null {
   const n = before.pieces.length;
   if (after.pieces.length !== n) return null;
-  // Pieces with multi-color orientation stickers can twist in place without changing
-  // silhouette, so defer to exact state-hash cycle detection when present.
-  if (before.pieces.some((p) => p.stickers && p.stickers.length > 0)) return null;
 
   // Map silhouette key -> list of piece indices in `before`
   const beforeMap = new Map<string, number[]>();
@@ -111,13 +109,23 @@ function extractShapePermutation(
     if (used[j]) return null;
     used[j] = 1;
     perm[i] = j;
+
+    // If a piece carries multi-color orientation stickers (e.g. Geranium center pentagon),
+    // pure silhouette permutation is exact iff that sticker piece stayed fixed with the same orientation;
+    // otherwise defer to exact state-hash cycle detection.
+    const bp = before.pieces[i];
+    if (bp.stickers && bp.stickers.length > 0) {
+      if (j !== i || pieceStickerKey(after.pieces[i]) !== pieceStickerKey(bp)) {
+        return null;
+      }
+    }
   }
 
   return perm;
 }
 
-/** Compute `perm^k` in O(n) via cycle decomposition (works for huge k!). */
-function powPermutation(perm: number[], k: number): number[] {
+/** Compute `perm^k` in O(n) via cycle decomposition (works for huge or BigInt k!). */
+function powPermutation(perm: number[], k: number | bigint): number[] {
   const n = perm.length;
   const result = new Array<number>(n);
   const visited = new Uint8Array(n);
@@ -132,7 +140,10 @@ function powPermutation(perm: number[], k: number): number[] {
       cur = perm[cur];
     }
     const len = cycle.length;
-    const shift = ((k % len) + len) % len;
+    const shift =
+      typeof k === 'bigint'
+        ? Number(((k % BigInt(len)) + BigInt(len)) % BigInt(len))
+        : ((k % len) + len) % len;
     for (let idx = 0; idx < len; idx++) {
       result[cycle[idx]] = cycle[(idx + shift) % len];
     }
@@ -146,7 +157,7 @@ function applyShapePermutation(
   afterOneState: PuzzleState,
   permPow: number[],
   totalRotDeltaDeg: number,
-  k: number,
+  k: number | bigint,
 ): PuzzleState {
   const pieces: Piece[] = baseState.pieces.map((p, i) => ({
     ...p,
@@ -164,50 +175,54 @@ function applyShapePermutation(
           n +
           n) %
         n;
-      nextStops[c.id] = (((baseState.circleStopIndex[c.id] ?? 0) + d * k) % n + n) % n;
+      const kModN =
+        typeof k === 'bigint'
+          ? Number(((k % BigInt(n)) + BigInt(n)) % BigInt(n))
+          : ((k % n) + n) % n;
+      nextStops[c.id] = (((baseState.circleStopIndex[c.id] ?? 0) + d * kModN) % n + n) % n;
     }
   }
+
+  const rotOffset =
+    totalRotDeltaDeg === 0
+      ? 0
+      : totalRotDeltaDeg * (typeof k === 'bigint' ? Number(k % 360000n) : k);
 
   return {
     ...baseState,
     pieces,
     circleStopIndex: nextStops,
-    puzzleRotationDeg:
-      (((baseState.puzzleRotationDeg + totalRotDeltaDeg * k) % 360) + 360) % 360,
+    puzzleRotationDeg: (((baseState.puzzleRotationDeg + rotOffset) % 360) + 360) % 360,
   };
 }
 
-function gcd(a: number, b: number): number {
-  let x = Math.abs(a);
-  let y = Math.abs(b);
-  while (y !== 0) {
+function gcdBig(a: bigint, b: bigint): bigint {
+  let x = a < 0n ? -a : a;
+  let y = b < 0n ? -b : b;
+  while (y !== 0n) {
     const t = x % y;
     x = y;
     y = t;
   }
-  return x || 1;
+  return x === 0n ? 1n : x;
 }
 
-function lcm(a: number, b: number): number {
-  return (a / gcd(a, b)) * b;
+function lcmBig(a: bigint, b: bigint): bigint {
+  return (a / gcdBig(a, b)) * b;
 }
 
-/**
- * Evaluate a full algorithm program against `initialState`.
- * Stops immediately on the first blocked move and surfaces full blocking diagnostics.
- */
-export function evaluateProgram(
-  initialState: PuzzleState,
+interface CompiledProgram {
+  ast: ProgramAST;
+  baseEnv: MacroEnv;
+  parseErrors: ParseError[];
+}
+
+function compileProgram(
   source: string,
-  externalMacros: MacroLibraryEntry[] = [],
-  options: EvaluateOptions = {},
-): EvaluationResult {
-  const maxExpandedSteps = options.maxExpandedSteps ?? 1500;
-  const solvedRef = options.solvedReference ?? initialState;
-  const validCircles = initialState.spec.circles.map((c) => c.id);
-
-  // Build macro environment from external sidebar macros first
-  const env: MacroEnv = new Map();
+  externalMacros: MacroLibraryEntry[],
+  validCircles: string[],
+): CompiledProgram {
+  const baseEnv: MacroEnv = new Map();
   for (const m of externalMacros) {
     const parsed = parseAlgorithm(m.body, validCircles);
     const exprs = parsed.statements
@@ -222,12 +237,30 @@ export function evaluateProgram(
               items: exprs,
               span: { start: 0, end: m.body.length },
             };
-      env.set(m.name, { expr: combined, source: m.body });
+      baseEnv.set(m.name, { expr: combined, source: m.body });
     }
   }
-
   const ast = parseAlgorithm(source, validCircles);
-  const parseErrors: ParseError[] = [...ast.errors];
+  return { ast, baseEnv, parseErrors: [...ast.errors] };
+}
+
+interface RunCompiledOptions extends EvaluateOptions {
+  recordSteps?: boolean;
+  checkSolved?: boolean;
+}
+
+function runCompiledProgram(
+  initialState: PuzzleState,
+  compiled: CompiledProgram,
+  options: RunCompiledOptions = {},
+): EvaluationResult {
+  const maxExpandedSteps = options.maxExpandedSteps ?? 1500;
+  const solvedRef = options.solvedReference ?? initialState;
+  const shouldRecordSteps = options.recordSteps ?? true;
+  const shouldCheckSolved = options.checkSolved ?? true;
+
+  const env: MacroEnv = new Map(compiled.baseEnv);
+  const parseErrors: ParseError[] = [...compiled.parseErrors];
   const inlineMacros: Record<string, string> = {};
 
   const steps: ExecutedStep[] = [];
@@ -438,6 +471,7 @@ export function evaluateProgram(
       }
 
       case 'nextUnblocked': {
+        if (node.count <= 0) return true;
         const arrow = node.direction === 1 ? '>' : '<';
         const label = `${node.circleId}${arrow}${node.count === 1 ? '' : node.count}`;
         const res = turnCircleNextUnblocked(
@@ -551,12 +585,12 @@ export function evaluateProgram(
     }
   };
 
-  for (const stmt of ast.statements) {
+  for (const stmt of compiled.ast.statements) {
     if (stmt.kind === 'macroDef') {
       env.set(stmt.name, { expr: stmt.body, source: stmt.bodySource });
       inlineMacros[stmt.name] = stmt.bodySource;
     } else {
-      if (!evalNode(stmt.expr, stmt.span, [], true)) {
+      if (!evalNode(stmt.expr, stmt.span, [], shouldRecordSteps)) {
         break;
       }
     }
@@ -566,13 +600,32 @@ export function evaluateProgram(
     initialState,
     steps,
     finalState: currentState,
-    solved: isPuzzleSolved(currentState, solvedRef),
+    solved: shouldCheckSolved ? isPuzzleSolved(currentState, solvedRef) : false,
     parseErrors,
     runtimeError,
     blocked,
     inlineMacros,
     usedFastForward,
   };
+}
+
+/**
+ * Evaluate a full algorithm program against `initialState`.
+ * Stops immediately on the first blocked move and surfaces full blocking diagnostics.
+ */
+export function evaluateProgram(
+  initialState: PuzzleState,
+  source: string,
+  externalMacros: MacroLibraryEntry[] = [],
+  options: EvaluateOptions = {},
+): EvaluationResult {
+  const validCircles = initialState.spec.circles.map((c) => c.id);
+  const compiled = compileProgram(source, externalMacros, validCircles);
+  return runCompiledProgram(initialState, compiled, {
+    ...options,
+    recordSteps: true,
+    checkSolved: true,
+  });
 }
 
 export interface AlgorithmAnalysis {
@@ -596,7 +649,12 @@ export function analyzeAlgorithm(
   externalMacros: MacroLibraryEntry[] = [],
   maxReps = 200,
 ): AlgorithmAnalysis {
-  const first = evaluateProgram(state, algSource, externalMacros);
+  const validCircles = state.spec.circles.map((c) => c.id);
+  const compiled = compileProgram(algSource, externalMacros, validCircles);
+  const first = runCompiledProgram(state, compiled, {
+    recordSteps: false,
+    checkSolved: false,
+  });
   if (first.parseErrors.length > 0) {
     return {
       status: 'error',
@@ -661,28 +719,37 @@ export function analyzeAlgorithm(
         }
       }
 
-      // Exact piece-permutation order = LCM of cycle lengths
-      let permOrder = 1;
-      for (const l of cycleLens) permOrder = lcm(permOrder, l);
-
-      // Check smallest divisor of permOrder that restores visible colors
-      let visibleOrder = permOrder;
-      const divisors: number[] = [];
-      for (let d = 1; d * d <= permOrder; d++) {
-        if (permOrder % d === 0) {
-          divisors.push(d);
-          if (d * d !== permOrder) divisors.push(permOrder / d);
+      // Exact piece-permutation order = BigInt LCM of cycle lengths, plus its prime factors
+      // (each cycle length <= piece count, so factoring is instant).
+      let permOrder = 1n;
+      const primeFactors = new Set<bigint>();
+      for (const l of cycleLens) {
+        permOrder = lcmBig(permOrder, BigInt(l));
+        let m = l;
+        for (let p = 2; p * p <= m; p++) {
+          if (m % p === 0) {
+            primeFactors.add(BigInt(p));
+            while (m % p === 0) m /= p;
+          }
         }
+        if (m > 1) primeFactors.add(BigInt(m));
       }
-      divisors.sort((a, b) => a - b);
+
+      // Find exact smallest divisor of permOrder that restores visible colors in O(Omega(N))
+      // via greedy prime-factor reduction (exact because {k : P^k preserves colors} is a subgroup of Z).
+      let visibleOrder = permOrder;
       const rotDelta =
         (((first.finalState.puzzleRotationDeg - state.puzzleRotationDeg) % 360) + 360) % 360;
-      for (const d of divisors) {
-        const pow = powPermutation(perm, d);
-        const testState = applyShapePermutation(state, first.finalState, pow, rotDelta, d);
-        if (hashPuzzleState(testState) === h0) {
-          visibleOrder = d;
-          break;
+      for (const p of primeFactors) {
+        while (visibleOrder % p === 0n) {
+          const cand = visibleOrder / p;
+          const pow = powPermutation(perm, cand);
+          const testState = applyShapePermutation(state, first.finalState, pow, rotDelta, cand);
+          if (hashPuzzleState(testState) === h0) {
+            visibleOrder = cand;
+          } else {
+            break;
+          }
         }
       }
 
@@ -694,21 +761,26 @@ export function analyzeAlgorithm(
         .map(([len, cnt]) => (cnt > 1 ? `${cnt}×${len}-cycle` : `${len}-cycle`))
         .join(', ');
 
+      const safeOrder =
+        visibleOrder <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(visibleOrder) : undefined;
       return {
         status: 'shape-preserving',
-        order: visibleOrder,
+        order: safeOrder,
         changedPieces,
         shapePreserving: true,
         cycleSummary,
-        message: `Order ${visibleOrder} (shape-preserving · ${changedPieces} pieces: ${cycleSummary || 'orientation only'})`,
+        message: `Order ${visibleOrder.toString()} (shape-preserving · ${changedPieces} pieces: ${cycleSummary || 'orientation only'})`,
       };
     }
   }
 
-  // General non-shape-preserving repeat scan
+  // General non-shape-preserving repeat scan (reuses compiled AST, skips step recording & solved check)
   let cur = first.finalState;
   for (let rep = 2; rep <= maxReps; rep++) {
-    const next = evaluateProgram(cur, algSource, externalMacros);
+    const next = runCompiledProgram(cur, compiled, {
+      recordSteps: false,
+      checkSolved: false,
+    });
     if (next.blocked) {
       return {
         status: 'blocked',

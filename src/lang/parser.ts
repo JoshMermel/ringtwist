@@ -36,6 +36,33 @@ interface Token {
   end: number;
 }
 
+const SINGLE_CHAR_TOKENS: Record<string, TokenKind> = {
+  "'": 'PRIME',
+  '’': 'PRIME',
+  '>': 'GT',
+  '<': 'LT',
+  '(': 'LPAREN',
+  ')': 'RPAREN',
+  '[': 'LBRACKET',
+  ']': 'RBRACKET',
+  ',': 'COMMA',
+  ':': 'COLON',
+  '=': 'EQUALS',
+  ';': 'SEMI',
+};
+
+function isIdentStart(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+}
+
+function isIdentContinue(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 95;
+}
+
+const CIRCLE_OR_ROT_DIGITS_RE = /^([A-Z]|r)(\d+)$/;
+
 function tokenize(source: string): { tokens: Token[]; errors: ParseError[] } {
   const tokens: Token[] = [];
   const errors: ParseError[] = [];
@@ -65,22 +92,9 @@ function tokenize(source: string): { tokens: Token[]; errors: ParseError[] } {
     }
 
     // Single-character punctuation
-    const singleMap: Record<string, TokenKind> = {
-      "'": 'PRIME',
-      '’': 'PRIME',
-      '>': 'GT',
-      '<': 'LT',
-      '(': 'LPAREN',
-      ')': 'RPAREN',
-      '[': 'LBRACKET',
-      ']': 'RBRACKET',
-      ',': 'COMMA',
-      ':': 'COLON',
-      '=': 'EQUALS',
-      ';': 'SEMI',
-    };
-    if (singleMap[ch]) {
-      tokens.push({ kind: singleMap[ch], value: ch, start: i, end: i + 1 });
+    const singleKind = SINGLE_CHAR_TOKENS[ch];
+    if (singleKind) {
+      tokens.push({ kind: singleKind, value: ch, start: i, end: i + 1 });
       i++;
       continue;
     }
@@ -94,15 +108,17 @@ function tokenize(source: string): { tokens: Token[]; errors: ParseError[] } {
     }
 
     // Identifiers (circle letters, 'r', or macro names)
-    if (/[A-Za-z_]/.test(ch)) {
+    if (isIdentStart(ch)) {
       const start = i;
-      while (i < n && /[A-Za-z0-9_]/.test(source[i])) i++;
+      while (i < n && isIdentContinue(source[i])) i++;
       // Special split: if token looks like a single uppercase circle + digits (e.g. A2, B10)
       // or 'r' + digits (e.g. r2, r3), split the trailing digits into a separate NUMBER token
       // ONLY if it's NOT followed by '=' (macro def like `s2 = ...`).
       const raw = source.slice(start, i);
-      const lookahead = source.slice(i).match(/^[ \t]*=/);
-      if (!lookahead && /^([A-Z]|r)(\d+)$/.test(raw)) {
+      let j = i;
+      while (j < n && (source[j] === ' ' || source[j] === '\t')) j++;
+      const followedByEquals = j < n && source[j] === '=';
+      if (!followedByEquals && CIRCLE_OR_ROT_DIGITS_RE.test(raw)) {
         const letter = raw[0];
         const digits = raw.slice(1);
         tokens.push({ kind: 'IDENT', value: letter, start, end: start + 1 });
@@ -363,27 +379,14 @@ class Parser {
         const next = this.peek();
         if ((next.kind === 'GT' || next.kind === 'LT') && next.start === tok.end) {
           this.advance();
-          let count = 1;
-          let end = next.end;
-          let invert = false;
-          const after = this.peek();
-          if (after.kind === 'NUMBER' && after.start === end) {
-            this.advance();
-            count = Math.max(1, parseInt(after.value, 10));
-            end = after.end;
-          }
-          if (this.peek().kind === 'PRIME' && this.peek().start === end) {
-            this.advance();
-            invert = true;
-            end = this.peek(-1).end;
-          }
-          const dir: 1 | -1 = (next.kind === 'GT' ? 1 : -1) * (invert ? -1 : 1) as 1 | -1;
+          const mod = this.parseModifierSuffix(next.end);
+          const dir: 1 | -1 = ((next.kind === 'GT' ? 1 : -1) * (mod.invert ? -1 : 1)) as 1 | -1;
           const node: NextUnblockedMoveNode = {
             kind: 'nextUnblocked',
             circleId: tok.value,
             direction: dir,
-            count,
-            span: { start: tok.start, end },
+            count: mod.repeat,
+            span: { start: tok.start, end: mod.end },
           };
           return node;
         }
