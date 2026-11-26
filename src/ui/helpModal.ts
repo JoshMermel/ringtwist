@@ -21,9 +21,16 @@ export function createHelpModal(): { open: () => void; close: () => void } {
           <tr><td>A&gt;2, A&lt;2</td><td>Advance to the <b>2nd</b> unblocked alignment stop in that direction.</td></tr>
         </table>
 
+        <h3>Multi-Layer Concentric Circles (Twizzle Convention)</h3>
+        <table class="help-table">
+          <tr><td>A</td><td>On concentric 2-layer puzzles (like GigaHex / Crazy Lekki), turns the <b>innermost disk</b> ("outer" cap of the infinite sphere).</td></tr>
+          <tr><td>a, a2, a'</td><td><b>Wide turn</b>: turns the inner disk + outer ring together as one full circle.</td></tr>
+          <tr><td>2A, 2A2, 2A'</td><td><b>Slice turn</b>: turns only the outer annulus ring (layer 2 underneath cap <code>A</code>).</td></tr>
+        </table>
+
         <h3>Whole-Puzzle Rotations</h3>
         <table class="help-table">
-          <tr><td>r, r', r2</td><td>Rotate the entire puzzle by <b>1 symmetry step</b> (72° on 5-fold Geranium &amp; Super Geranium, 60° on Hex, 90° on Clover, 180° on 2-Circle Venn &amp; Twin Rings). Spatial circle labels <code>A, B, C, ...</code> stay fixed on screen, so macros work symmetrically via <code>[r: myMacro]</code>! (Asymmetric inline puzzles like Pocket &amp; Mini Geranium have no rotational symmetry.)</td></tr>
+          <tr><td>z, z', z2</td><td>Rotate the entire puzzle clockwise/CCW by <b>1 symmetry step</b> (matching Twizzle's in-plane <code>z</code> axis: 72° on 5-fold Geranium &amp; Super Geranium, 60° on Hex/Flower, 90° on Clover, 120° on 3-Circle Clover, 180° on 2-Circle Venn &amp; Twin Rings). Spatial labels <code>A, B, C, ...</code> stay fixed on screen, so macros work symmetrically via <code>[z: myMacro]</code>!</td></tr>
         </table>
 
         <h3>Combinators, Commutators &amp; Conjugates</h3>
@@ -31,7 +38,7 @@ export function createHelpModal(): { open: () => void; close: () => void } {
           <tr><td>(A3 E3)2</td><td>Repeat a grouped sequence N times.</td></tr>
           <tr><td>(A3 E3)'</td><td>Algebraic inverse: reverses order and inverts each move (<code>E3' A3'</code>).</td></tr>
           <tr><td>[X, Y]</td><td><b>Commutator</b>: expands to <code>X Y X' Y'</code>. Supports suffixes like <code>[X, Y]2</code> or <code>[X, Y]'</code>.</td></tr>
-          <tr><td>[X: Y]</td><td><b>Conjugate</b>: expands to <code>X Y X'</code> (great for setup moves and symmetry: <code>[r: myAlg]</code>).</td></tr>
+          <tr><td>[X: Y]</td><td><b>Conjugate</b>: expands to <code>X Y X'</code> (great for setup moves and symmetry: <code>[z: myAlg]</code>).</td></tr>
         </table>
 
         <h3>Macros &amp; Comments</h3>

@@ -1,14 +1,25 @@
 import { deg2rad } from '../geom/math.ts';
 import {
+  BAUHINIUM_R2,
   EXACT_GERANIUM_RADIUS,
   GERANIUM_PLUS_COLORS,
   GERANIUM_STD_COLORS,
+  MIMOSA_D,
+  MIMOSA_R1,
   PHI,
+  buildExactAreciboPieces,
+  buildExactBauhiniumPieces,
+  buildExactCohanCirclePieces,
+  buildExactEliacPieces,
+  buildExactFomalhautPieces,
   buildExactFourCircleCloverPieces,
+  buildExactFragmentationRingPieces,
   buildExactGeraniumPieces,
   buildExactMandorlaPieces,
+  buildExactMimosaPieces,
   buildExactMiniGeraniumPieces,
   buildExactPocketGeraniumPieces,
+  buildExactPocketQuatriumPieces,
   buildExactSevenCircleFlowerPieces,
   buildExactSixCircleHexPieces,
   buildExactSuperGeraniumPieces,
@@ -66,9 +77,9 @@ export const GERANIUM_PLUS: PuzzleSpec = {
       note: "A (36° CW) unlocks D; D3 (108°) exchanges pieces; A' restores alignment",
     },
     {
-      name: 'Symmetry Macro [r: conj]',
-      alg: 'conj = [A: D3]\n[r: conj]',
-      note: 'Defines a macro and applies it rotated 72° CW via whole-puzzle rotation r',
+      name: 'Symmetry Macro [z: conj]',
+      alg: 'conj = [A: D3]\n[z: conj]',
+      note: 'Defines a macro and applies it rotated 72° CW via whole-puzzle rotation z',
     },
     {
       name: 'Next-unblocked walk',
@@ -151,7 +162,7 @@ export const SUPER_GERANIUM_PLUS: PuzzleSpec = {
     },
     {
       name: 'Star symmetry macro',
-      alg: 'm = [F2: A3]\n[r: m]',
+      alg: 'm = [F2: A3]\n[z: m]',
       note: 'Applies an outer-inner conjugate rotated 72° CW around the 5-fold star',
     },
   ],
@@ -340,7 +351,7 @@ export const TWO_CIRCLE_VENN: PuzzleSpec = {
     },
     {
       name: '180° flip conjugate',
-      alg: '[r: A B]',
+      alg: '[z: A B]',
       note: 'Whole-puzzle 180° rotation swaps A and B',
     },
   ],
@@ -368,8 +379,8 @@ export const TWIN_RINGS: PuzzleSpec = {
       note: '180° turn A2 keeps B unblocked for clean concentric ring exchanges',
     },
     {
-      name: 'Symmetric conjugate [r: A2 B2]',
-      alg: '[r: A2 B2]',
+      name: 'Symmetric conjugate [z: A2 B2]',
+      alg: '[z: A2 B2]',
       note: 'Rotates the puzzle 180° to swap A and B, then runs 180° half-turns',
     },
     {
@@ -406,8 +417,8 @@ export const THREE_CIRCLE_CLOVER: PuzzleSpec = {
       note: 'Clean 60° commutator across the Tri-Venn overlap',
     },
     {
-      name: '3-fold symmetry [r: [A, B]]',
-      alg: 'c = [A, B]\n[r: c]',
+      name: '3-fold symmetry [z: [A, B]]',
+      alg: 'c = [A, B]\n[z: c]',
       note: 'Applies the commutator rotated 120° CW around the clover',
     },
   ],
@@ -439,8 +450,8 @@ export const FOUR_CIRCLE_CLOVER: PuzzleSpec = {
       note: 'Clean quarter-turn commutator between adjacent circles',
     },
     {
-      name: '4-fold symmetry [r: A B]',
-      alg: '[r: A B]',
+      name: '4-fold symmetry [z: A B]',
+      alg: '[z: A B]',
       note: 'Applies A B rotated 90° CW around the clover',
     },
   ],
@@ -466,7 +477,7 @@ export const SIX_CIRCLE_HEX: PuzzleSpec = {
     },
     {
       name: 'Symmetry conjugate',
-      alg: 'm = [A, B]\n[r2: m]',
+      alg: 'm = [A, B]\n[z2: m]',
       note: 'Applies m rotated 120° CW around the hex flower',
     },
   ],
@@ -501,6 +512,304 @@ export const SEVEN_CIRCLE_FLOWER: PuzzleSpec = {
   ],
 };
 
+/**
+ * 14. Bauhinium (James Li — 180° + 72° unequal-radius circles)
+ */
+const BAUHINIUM_OX = (50 + BAUHINIUM_R2 * 2) / 2;
+
+export const BAUHINIUM: PuzzleSpec = {
+  id: 'bauhinium',
+  name: 'Bauhinium',
+  category: 'Designer & Exotic',
+  description:
+    'James Li’s 2-circle Bauhinium: a 180° red disk paired with a smaller 72° blue pentagonal disk.',
+  circles: [
+    { id: 'A', cx: (50 - BAUHINIUM_OX) / 50, cy: 0, r: 1.0, stopsDeg: evenStops(2), color: '#ef4444' },
+    {
+      id: 'B',
+      cx: (50 + BAUHINIUM_R2 - BAUHINIUM_OX) / 50,
+      cy: 0,
+      r: BAUHINIUM_R2 / 50,
+      stopsDeg: evenStops(5),
+      color: '#2563eb',
+    },
+  ],
+  symmetryStepDeg: 0,
+  customBuilder: (spec) => buildExactBauhiniumPieces(spec, false),
+  sampleAlgorithms: [
+    {
+      name: '72°/180° Conjugate [B\': A]',
+      alg: "[B': A]",
+      note: 'Turns blue pentagonal disk B 72° CCW, flips red disk A 180°, then restores B',
+    },
+    {
+      name: 'Pentagonal walk (B\' A B2 A)',
+      alg: "B' A B2 A",
+      note: 'Alternates 72°/144° turns on B with 180° flips on A',
+    },
+  ],
+};
+
+/**
+ * 15. Bauhinium Plus (James Li — 3-circle symmetric 72° / 180° / 72°)
+ */
+export const BAUHINIUM_PLUS: PuzzleSpec = {
+  id: 'bauhinium-plus',
+  name: 'Bauhinium Plus',
+  category: 'Designer & Exotic',
+  description:
+    'James Li’s 3-circle Bauhinium Plus: a central 180° red disk flanked symmetrically by two 72° green pentagonal disks.',
+  circles: [
+    { id: 'A', cx: (50 - 92.1) / 50, cy: 0, r: 42 / 50, stopsDeg: evenStops(5), color: '#16a34a' },
+    { id: 'B', cx: 0, cy: 0, r: 1.0, stopsDeg: evenStops(2), color: '#ef4444' },
+    { id: 'C', cx: (134.2 - 92.1) / 50, cy: 0, r: 42 / 50, stopsDeg: evenStops(5), color: '#16a34a' },
+  ],
+  symmetryStepDeg: 180,
+  customBuilder: (spec) => buildExactBauhiniumPieces(spec, true),
+  sampleAlgorithms: [
+    {
+      name: 'Symmetric flip [z: [B: A]]',
+      alg: 'm = [B: A]\n[z: m]',
+      note: 'Flips central disk B, turns A 72°, restores B, then mirrors onto C via z',
+    },
+    {
+      name: 'Wing walk (A C A2\' C2)',
+      alg: "A C A2' C2",
+      note: 'Independent 72° turns on the two outer green pentagonal wings',
+    },
+  ],
+};
+
+/**
+ * 16. Pocket Quatrium (James Li — 2 overlapping 90° circles)
+ */
+export const POCKET_QUATRIUM: PuzzleSpec = {
+  id: 'pocket-quatrium',
+  name: 'Pocket Quatrium',
+  category: 'Designer & Exotic',
+  description:
+    'James Li’s 2-circle 90° Pocket Quatrium with rich quarter-turn blocking and a contrasting overlap lens.',
+  circles: [
+    { id: 'A', cx: -29 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#16a34a' },
+    { id: 'B', cx: 29 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#ef4444' },
+  ],
+  symmetryStepDeg: 180,
+  customBuilder: (spec) => buildExactPocketQuatriumPieces(spec, false),
+  sampleAlgorithms: [
+    {
+      name: '180°/90° Commutator [A2, B]',
+      alg: '[A2, B]',
+      note: 'Half-turn A2 keeps B unblocked for clean quarter-turn exchanges',
+    },
+    {
+      name: 'Blocking demo (A B)',
+      alg: 'A B',
+      note: 'Quarter-turn A leaves pieces straddling B',
+    },
+  ],
+};
+
+/**
+ * 17. Pocket Quatrium Plus (James Li — 3 inline 90° circles)
+ */
+export const POCKET_QUATRIUM_PLUS: PuzzleSpec = {
+  id: 'pocket-quatrium-plus',
+  name: 'Pocket Quatrium Plus',
+  category: 'Designer & Exotic',
+  description:
+    'James Li’s 3-circle inline 90° Pocket Quatrium Plus with pink, light-blue, and yellow circles plus blended overlap lenses.',
+  circles: [
+    { id: 'A', cx: -58 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#f472b6' },
+    { id: 'B', cx: 0, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#38bdf8' },
+    { id: 'C', cx: 58 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#facc15' },
+  ],
+  symmetryStepDeg: 180,
+  customBuilder: (spec) => buildExactPocketQuatriumPieces(spec, true),
+  sampleAlgorithms: [
+    {
+      name: 'Inline walk (A B C2 B\')',
+      alg: "A B C2 B'",
+      note: 'Quarter-turns and half-turns ripple across all three inline 90° circles',
+    },
+    {
+      name: '180° Symmetry [z: A2 B2 C2]',
+      alg: '[z: A2 B2 C2]',
+      note: 'Mirrors half-turns across the 3-circle line via z',
+    },
+  ],
+};
+
+/**
+ * 18. Starcopter / Fomalhaut (Dmitry Andreev / Pluton — 72° unequal circles)
+ */
+export const FOMALHAUT: PuzzleSpec = {
+  id: 'fomalhaut',
+  name: 'Starcopter (Fomalhaut)',
+  category: 'Designer & Exotic',
+  description:
+    'Dmitry Andreev’s Fomalhaut (Starcopter): two unequal 72° pentagonal circles with intricate star-petal bandaging.',
+  circles: [
+    { id: 'A', cx: (50 - 86) / 50, cy: 0, r: 1.0, stopsDeg: evenStops(5), color: '#facc15' },
+    { id: 'B', cx: (114 - 86) / 50, cy: 0, r: 58 / 50, stopsDeg: evenStops(5), color: '#2563eb' },
+  ],
+  symmetryStepDeg: 0,
+  customBuilder: (spec) => buildExactFomalhautPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: '72° Commutator [A, B\']',
+      alg: "[A, B']",
+      note: '72° commutator across the unequal Fomalhaut overlap',
+    },
+  ],
+};
+
+/**
+ * 19. Curvystar / Mimosa (Dmitry Andreev & Andrey Yerashkevich — 72° + 180°)
+ */
+const MIMOSA_OX = (-MIMOSA_R1 + (MIMOSA_D + 50)) / 2;
+
+export const MIMOSA: PuzzleSpec = {
+  id: 'mimosa',
+  name: 'Curvystar (Mimosa)',
+  category: 'Designer & Exotic',
+  description:
+    'Pluton’s Mimosa (Curvystar): a 72° red pentagonal disk paired with an overlapping 180° green disk.',
+  circles: [
+    { id: 'A', cx: -MIMOSA_OX / 50, cy: 0, r: MIMOSA_R1 / 50, stopsDeg: evenStops(5), color: '#ef4444' },
+    { id: 'B', cx: (MIMOSA_D - MIMOSA_OX) / 50, cy: 0, r: 1.0, stopsDeg: evenStops(2), color: '#16a34a' },
+  ],
+  symmetryStepDeg: 0,
+  customBuilder: (spec) => buildExactMimosaPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: '72°/180° Conjugate [A2\': B]',
+      alg: "[A2': B]",
+      note: 'Aligns star cuts with A2\', flips B 180°, then restores A',
+    },
+    {
+      name: 'Blocking demo (A B)',
+      alg: 'A B',
+      note: 'A single 72° turn A leaves star petals straddling B',
+    },
+  ],
+};
+
+/**
+ * 20. Cohan Circle / Arusloky (Hooshang Cohan — 60° 3-color Venn)
+ */
+export const COHAN_CIRCLE: PuzzleSpec = {
+  id: 'cohan-circle',
+  name: 'Cohan Circle / Arusloky (Venn)',
+  category: 'Designer & Exotic',
+  description:
+    'Hooshang Cohan’s classic 1986 60° two-circle puzzle (Arusloky) in a 3-color Venn diagram scheme (Red, Blue, and Purple overlap).',
+  circles: [
+    { id: 'A', cx: -0.5, cy: 0, r: 1.0, stopsDeg: evenStops(6), color: '#ef4444' },
+    { id: 'B', cx: 0.5, cy: 0, r: 1.0, stopsDeg: evenStops(6), color: '#2563eb' },
+  ],
+  symmetryStepDeg: 180,
+  customBuilder: (spec) => buildExactCohanCirclePieces(spec),
+  sampleAlgorithms: [
+    {
+      name: '60° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Classic 60° commutator across the Cohan Circle overlap',
+    },
+    {
+      name: '180° Symmetry [z: [A, B]]',
+      alg: 'c = [A, B]\n[z: c]',
+      note: 'Mirrors the commutator via 180° whole-puzzle rotation z',
+    },
+  ],
+};
+
+/**
+ * 21. Arecibo (El Cubitero — deep-overlap 120° two-circle puzzle)
+ */
+export const ARECIBO: PuzzleSpec = {
+  id: 'arecibo',
+  name: 'Arecibo',
+  category: 'Designer & Exotic',
+  description:
+    'El Cubitero’s Arecibo: two deeply overlapping 120° circles with dense dish-like curved cuts in Red, Light Blue, and Yellow.',
+  circles: [
+    { id: 'A', cx: -20.5 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(3), color: '#ef4444' },
+    { id: 'B', cx: 20.5 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(3), color: '#38bdf8' },
+  ],
+  symmetryStepDeg: 180,
+  customBuilder: (spec) => buildExactAreciboPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: '120° Conjugate [A\': B]',
+      alg: "[A': B]",
+      note: 'CCW 120° turn A\' keeps B unblocked for deep-dish piece exchanges',
+    },
+    {
+      name: 'Blocking demo (A B)',
+      alg: 'A B',
+      note: 'CW 120° turn A leaves dish wedges straddling B',
+    },
+  ],
+};
+
+/**
+ * 22. Eliac (Galen Ivanov / Del Rubikeo — 90° + 180° deep-overlap circles)
+ */
+export const ELIAC: PuzzleSpec = {
+  id: 'eliac',
+  name: 'Eliac',
+  category: 'Designer & Exotic',
+  description:
+    'Galen Ivanov & Del Rubikeo’s Eliac: two deeply overlapping equal circles with 90° turns on A and 180° half-turns on B.',
+  circles: [
+    { id: 'A', cx: -17.75 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#f97316' },
+    { id: 'B', cx: 17.75 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(2), color: '#9333ea' },
+  ],
+  symmetryStepDeg: 0,
+  customBuilder: (spec) => buildExactEliacPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: '90°/180° Conjugate [A\': B]',
+      alg: "[A': B]",
+      note: 'Quarter-turn A\' aligns cuts for a 180° flip on B',
+    },
+    {
+      name: 'Blocking demo (A B)',
+      alg: 'A B',
+      note: 'CW quarter-turn A blocks B',
+    },
+  ],
+};
+
+/**
+ * 23. Fragmentation Ring (James Li — 72° jumbling/bandaged two-circle puzzle)
+ */
+export const FRAGMENTATION_RING: PuzzleSpec = {
+  id: 'fragmentation-ring',
+  name: 'Fragmentation Ring',
+  category: 'Designer & Exotic',
+  description:
+    'James Li’s Fragmentation Ring: two 72° pentagonal circles with intricate non-doctrinaire blocking and jumbling exchanges.',
+  circles: [
+    { id: 'A', cx: -31 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(5), color: '#ef4444' },
+    { id: 'B', cx: 31 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(5), color: '#38bdf8' },
+  ],
+  symmetryStepDeg: 0,
+  customBuilder: (spec) => buildExactFragmentationRingPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: 'Jumbling exchange (A\' B)',
+      alg: "A' B",
+      note: 'CCW 72° turn A\' unlocks B for a 72° jumbling transfer',
+    },
+    {
+      name: 'Blocking demo (A B)',
+      alg: 'A B',
+      note: 'CW 72° turn A leaves fragments straddling B',
+    },
+  ],
+};
+
 export const PUZZLE_CATALOG: PuzzleSpec[] = [
   GERANIUM_PLUS,
   GERANIUM_STANDARD,
@@ -509,6 +818,16 @@ export const PUZZLE_CATALOG: PuzzleSpec[] = [
   POCKET_GERANIUM,
   MINI_GERANIUM_PLUS,
   MINI_GERANIUM,
+  BAUHINIUM,
+  BAUHINIUM_PLUS,
+  POCKET_QUATRIUM,
+  POCKET_QUATRIUM_PLUS,
+  FOMALHAUT,
+  MIMOSA,
+  COHAN_CIRCLE,
+  ARECIBO,
+  ELIAC,
+  FRAGMENTATION_RING,
   TWO_CIRCLE_VENN,
   TWIN_RINGS,
   THREE_CIRCLE_CLOVER,

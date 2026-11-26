@@ -67,20 +67,91 @@ export function getCircleDef(spec: PuzzleSpec, circleId: string): CircleDef | un
   return spec.circles.find((c) => c.id === circleId);
 }
 
+export interface MoveLayerSpec {
+  /** 1-based layer index (1 = innermost disk / spherical cap, 2 = outer annulus slice `2A`). */
+  layer?: number;
+  /** Wide turn (`a`) rotating layers 1..layer (or all layers if `layer` omitted) together. */
+  wide?: boolean;
+}
+
+interface ResolvedLayerBounds {
+  innerR: number;
+  outerR: number;
+  turnRegion: 'inside' | 'outside';
+}
+
+export function resolveLayerBounds(
+  circle: CircleDef,
+  layerOpt?: MoveLayerSpec,
+): ResolvedLayerBounds {
+  const radii = circle.layerRadii;
+  if (!radii || radii.length <= 1) {
+    return {
+      innerR: 0,
+      outerR: circle.r,
+      turnRegion: circle.turnRegion ?? 'inside',
+    };
+  }
+  if (layerOpt?.wide) {
+    const idx =
+      layerOpt.layer !== undefined
+        ? Math.min(radii.length, Math.max(1, layerOpt.layer)) - 1
+        : radii.length - 1;
+    return { innerR: 0, outerR: radii[idx], turnRegion: 'inside' };
+  }
+  const idx = Math.min(radii.length, Math.max(1, layerOpt?.layer ?? 1)) - 1;
+  return {
+    innerR: idx === 0 ? 0 : radii[idx - 1],
+    outerR: radii[idx],
+    turnRegion: 'inside',
+  };
+}
+
+function classifyRegionForBounds(
+  region: Piece['region'],
+  circle: CircleDef,
+  bounds: ResolvedLayerBounds,
+): 'inside' | 'outside' | 'straddling' {
+  if (bounds.turnRegion === 'outside') {
+    const cls = classifyRegionAgainstCircle(region, circle);
+    if (cls === 'straddling') return 'straddling';
+    return cls === 'outside' ? 'inside' : 'outside';
+  }
+  const outerCircle =
+    bounds.outerR === circle.r ? circle : { cx: circle.cx, cy: circle.cy, r: bounds.outerR };
+  const cOut = classifyRegionAgainstCircle(region, outerCircle);
+  if (bounds.innerR <= 0) return cOut;
+  if (cOut === 'outside' || cOut === 'straddling') return cOut;
+
+  const cIn = classifyRegionAgainstCircle(region, {
+    cx: circle.cx,
+    cy: circle.cy,
+    r: bounds.innerR,
+  });
+  if (cIn === 'straddling') return 'straddling';
+  return cIn === 'outside' ? 'inside' : 'outside';
+}
+
 /**
- * Determine whether a circle is currently free to turn or blocked by straddling pieces.
+ * Determine whether a circle (or specific concentric layer/slice) is currently free to turn
+ * or blocked by straddling pieces.
  */
-export function getCircleStatus(state: PuzzleState, circleId: string): CircleStatus {
+export function getCircleStatus(
+  state: PuzzleState,
+  circleId: string,
+  layerOpt?: MoveLayerSpec,
+): CircleStatus {
   const circle = getCircleDef(state.spec, circleId);
   if (!circle) {
     return { circleId, blocked: true, blockingPieceIds: [], insidePieceIds: [] };
   }
 
+  const bounds = resolveLayerBounds(circle, layerOpt);
   const blockingPieceIds: number[] = [];
   const insidePieceIds: number[] = [];
 
   for (const p of state.pieces) {
-    const cls = classifyRegionAgainstCircle(p.region, circle);
+    const cls = classifyRegionForBounds(p.region, circle, bounds);
     if (cls === 'inside') {
       insidePieceIds.push(p.id);
     } else if (cls === 'straddling') {
@@ -152,11 +223,16 @@ export function computeStopDeltaDeg(
 }
 
 /**
- * Fast short-circuiting check for whether `circle` has any straddling piece.
+ * Fast short-circuiting check for whether `circle` (or layer) has any straddling piece.
  */
-function isCircleBlocked(state: PuzzleState, circle: CircleDef): boolean {
+function isCircleBlocked(
+  state: PuzzleState,
+  circle: CircleDef,
+  layerOpt?: MoveLayerSpec,
+): boolean {
+  const bounds = resolveLayerBounds(circle, layerOpt);
   for (const p of state.pieces) {
-    if (classifyRegionAgainstCircle(p.region, circle) === 'straddling') {
+    if (classifyRegionForBounds(p.region, circle, bounds) === 'straddling') {
       return true;
     }
   }
@@ -164,7 +240,7 @@ function isCircleBlocked(state: PuzzleState, circle: CircleDef): boolean {
 }
 
 /**
- * Rotate all pieces inside `circleId` clockwise by `cwDeg` degrees.
+ * Rotate all pieces inside `circleId` (or the selected concentric layer/slice) clockwise by `cwDeg` degrees.
  * Optionally accepts precomputed `knownInsideIds` (when caller already verified the circle is free).
  */
 export function turnCircleByAngle(
@@ -173,6 +249,7 @@ export function turnCircleByAngle(
   cwDeg: number,
   nextStopIdx?: number,
   knownInsideIds?: number[],
+  layerOpt?: MoveLayerSpec,
 ): MoveResult {
   const circle = getCircleDef(state.spec, circleId);
   if (!circle) {
@@ -186,7 +263,7 @@ export function turnCircleByAngle(
 
   let insidePieceIds = knownInsideIds;
   if (!insidePieceIds) {
-    const status = getCircleStatus(state, circleId);
+    const status = getCircleStatus(state, circleId, layerOpt);
     if (status.blocked) {
       return {
         ok: false,
@@ -231,12 +308,13 @@ export function turnCircleByAngle(
 }
 
 /**
- * Turn circle `circleId` by `steps` discrete stops (+ = CW, - = CCW).
+ * Turn circle `circleId` (or concentric layer/slice) by `steps` discrete stops (+ = CW, - = CCW).
  */
 export function turnCircleBySteps(
   state: PuzzleState,
   circleId: string,
   steps: number,
+  layerOpt?: MoveLayerSpec,
 ): MoveResult {
   const circle = getCircleDef(state.spec, circleId);
   if (!circle) {
@@ -249,7 +327,7 @@ export function turnCircleBySteps(
   }
   const curIdx = state.circleStopIndex[circleId] ?? 0;
   const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(circle, curIdx, steps);
-  return turnCircleByAngle(state, circleId, deltaDeg, nextStopIdx);
+  return turnCircleByAngle(state, circleId, deltaDeg, nextStopIdx, undefined, layerOpt);
 }
 
 /**
@@ -275,6 +353,7 @@ export function turnCircleNextUnblocked(
   circleId: string,
   direction: 1 | -1,
   count = 1,
+  layerOpt?: MoveLayerSpec,
 ): MoveResult {
   const circle = getCircleDef(state.spec, circleId);
   if (!circle) {
@@ -286,7 +365,7 @@ export function turnCircleNextUnblocked(
     };
   }
 
-  const status = getCircleStatus(state, circleId);
+  const status = getCircleStatus(state, circleId, layerOpt);
   if (status.blocked) {
     return {
       ok: false,
@@ -314,6 +393,7 @@ export function turnCircleNextUnblocked(
       deltaDeg,
       nextStopIdx,
       status.insidePieceIds,
+      layerOpt,
     );
     if (!candidate.ok) return candidate;
 
@@ -339,11 +419,12 @@ export function turnCircleNextUnblocked(
     fallback.deltaDeg,
     fallback.nextStopIdx,
     status.insidePieceIds,
+    layerOpt,
   );
 }
 
 /**
- * Whole-puzzle rotation (`r` = +1 symmetry step CW, `r'` = -1 step CCW).
+ * Whole-puzzle rotation (`z` = +1 symmetry step CW, `z'` = -1 step CCW).
  * Physically rotates all pieces CW by `steps * symmetryStepDeg` around the
  * symmetry center so spatial circle labels (A, B, C, ...) stay fixed on screen.
  */
@@ -351,9 +432,9 @@ export function rotateWholePuzzle(state: PuzzleState, steps: number): MoveResult
   if (!state.spec.symmetryStepDeg || state.spec.symmetryStepDeg <= 0) {
     return {
       ok: false,
-      circleId: 'r',
+      circleId: 'z',
       blockingPieceIds: [],
-      reason: `${state.spec.name} has no rotational symmetry (r is unavailable)`,
+      reason: `${state.spec.name} has no rotational symmetry (z is unavailable)`,
     };
   }
   const symCenter = state.spec.symmetryCenter ?? { x: 0, y: 0 };
@@ -590,9 +671,19 @@ export function generateScramble(
   return tokens.join(' ');
 }
 
-/** Format a circle move `(cid, steps)` into standard notation (e.g. `A`, `A2`, `A'`, `A3'`). */
-export function formatMoveToken(circleId: string, steps: number): string {
+/** Format a circle move into standard Twizzle-style notation (e.g. `A`, `A2`, `A'`, `a`, `a2'`, `2A`, `2A3'`). */
+export function formatMoveToken(
+  circleId: string,
+  steps: number,
+  layerOpt?: MoveLayerSpec,
+): string {
   const abs = Math.abs(steps);
   const prime = steps < 0 ? "'" : '';
-  return `${circleId}${abs === 1 ? '' : abs}${prime}`;
+  const stepStr = abs === 1 ? '' : String(abs);
+  if (layerOpt?.wide) {
+    const prefix = layerOpt.layer && layerOpt.layer > 2 ? String(layerOpt.layer) : '';
+    return `${prefix}${circleId.toLowerCase()}${stepStr}${prime}`;
+  }
+  const prefix = layerOpt?.layer && layerOpt.layer > 1 ? String(layerOpt.layer) : '';
+  return `${prefix}${circleId}${stepStr}${prime}`;
 }

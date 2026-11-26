@@ -19,7 +19,7 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
     const ast = parseAlgorithm(
       `// Demo script
       comm = [A3, E3]
-      [r: comm]2 (A> D<)'`,
+      [z: comm]2 (A> D<)'`,
       ['A', 'B', 'C', 'D', 'E'],
     );
     expect(ast.errors).toEqual([]);
@@ -55,13 +55,13 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
     expect(src.slice(res.blocked!.topSpan.start, res.blocked!.topSpan.end)).toBe('B');
   });
 
-  it('supports inline macros, sidebar macros, whole-puzzle rotation r, and next-unblocked > on Geranium Plus', () => {
+  it('supports inline macros, sidebar macros, whole-puzzle rotation z, and next-unblocked > on Geranium Plus', () => {
     const solved = buildPuzzle(GERANIUM_PLUS);
 
     const res = evaluateProgram(
       solved,
       `seq = [A: D3]
-       seq seq' [r: seq] [r: seq]'`,
+       seq seq' [z: seq] [z: seq]'`,
     );
     expect(res.blocked).toBeUndefined();
     expect(res.solved).toBe(true);
@@ -167,9 +167,9 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
     expect(hexPow.solved).toBe(true);
     expect(hashPuzzleState(hexPow.finalState)).toBe(hashPuzzleState(hex));
 
-    // 2. Geranium Plus whole-puzzle rotation `r` respects 5-color central pentagon orientation (order 5)
+    // 2. Geranium Plus whole-puzzle rotation `z` respects 5-color central pentagon orientation (order 5)
     const plus = buildPuzzle(GERANIUM_PLUS);
-    const rotAnalysis = analyzeAlgorithm(plus, 'r');
+    const rotAnalysis = analyzeAlgorithm(plus, 'z');
     expect(rotAnalysis.status).toBe('periodic');
     expect(rotAnalysis.order).toBe(5);
 
@@ -210,5 +210,17 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
     expect(roundTrip.blocked).toBeUndefined();
     expect(roundTrip.solved).toBe(true);
     expect(hashPuzzleState(roundTrip.finalState)).toBe(hashPuzzleState(plus));
+
+    // 5. Inverted-sphere Twizzle multi-layer notation: A (inner cap), a (wide), 2A (outer slice)
+    const multiAst = parseAlgorithm("A a2' 2A3' 2A> z'", ['A', 'B'], ['A']);
+    expect(multiAst.errors).toEqual([]);
+    const st0 = multiAst.statements[0];
+    expect(st0.kind === 'exprStmt' && st0.expr.kind === 'sequence' && st0.expr.items).toMatchObject([
+      { kind: 'circleMove', circleId: 'A', steps: 1 },
+      { kind: 'circleMove', circleId: 'A', steps: -2, wide: true },
+      { kind: 'circleMove', circleId: 'A', steps: -3, layer: 2 },
+      { kind: 'nextUnblocked', circleId: 'A', direction: 1, count: 1, layer: 2 },
+      { kind: 'rotation', steps: -1 },
+    ]);
   });
 });

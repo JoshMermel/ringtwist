@@ -362,30 +362,40 @@ export function buildFromGeraniumsPotScript(
   /**
    * Apply a GeraniumsPot turn specification to a list of parts:
    * - `(ringNum, deg)` or chained `(r1, deg1, r2, deg2, ...)` (positive deg = CW)
-   * - `1R3` / `2L` (uses ring's stop angle with freeze=true)
+   * - `(1L, 2L, 1R2)` chained ring-step commands (uses each ring's stop angle with freeze=true)
+   * - `1R3` / `2L` single ring-step command (freeze=true)
    */
   const applyTurnSpec = (targetParts: GpotPart[], turnSpec: string) => {
+    const applyRingCmd = (cmd: { ringNum: number; dir: 1 | -1; step: number }) => {
+      const ring = ringMap.get(cmd.ringNum);
+      if (ring) {
+        // freeze = true (does not mutate ring.anglePos), multiplied by step count
+        const stepDeg = findAngleRotate(ring, cmd.dir, true);
+        const totalDeg = stepDeg * cmd.step;
+        for (const p of targetParts) rotatePartInRing(p, ring, totalDeg, cmd.dir);
+      }
+    };
+
     const trimmed = turnSpec.trim();
     if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
       const tokens = splitTopLevel(unwrapParens(trimmed));
-      for (let t = 0; t + 1 < tokens.length; t += 2) {
-        const ring = ringMap.get(parseInt(tokens[t], 10));
-        const deg = evalParamExpr(tokens[t + 1], params);
-        if (ring) {
-          for (const p of targetParts) rotatePartInRing(p, ring, deg, 1);
+      if (tokens.length > 0 && parseRingCommand(tokens[0])) {
+        for (const tok of tokens) {
+          const cmd = parseRingCommand(tok);
+          if (cmd) applyRingCmd(cmd);
+        }
+      } else {
+        for (let t = 0; t + 1 < tokens.length; t += 2) {
+          const ring = ringMap.get(parseInt(tokens[t], 10));
+          const deg = evalParamExpr(tokens[t + 1], params);
+          if (ring) {
+            for (const p of targetParts) rotatePartInRing(p, ring, deg, 1);
+          }
         }
       }
     } else {
       const cmd = parseRingCommand(trimmed);
-      if (cmd) {
-        const ring = ringMap.get(cmd.ringNum);
-        if (ring) {
-          // freeze = true (does not mutate ring.anglePos), multiplied by step count
-          const stepDeg = findAngleRotate(ring, cmd.dir, true);
-          const totalDeg = stepDeg * cmd.step;
-          for (const p of targetParts) rotatePartInRing(p, ring, totalDeg, cmd.dir);
-        }
-      }
+      if (cmd) applyRingCmd(cmd);
     }
   };
 

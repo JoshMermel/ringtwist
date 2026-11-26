@@ -221,10 +221,11 @@ function compileProgram(
   source: string,
   externalMacros: MacroLibraryEntry[],
   validCircles: string[],
+  multiLayerCircles: string[],
 ): CompiledProgram {
   const baseEnv: MacroEnv = new Map();
   for (const m of externalMacros) {
-    const parsed = parseAlgorithm(m.body, validCircles);
+    const parsed = parseAlgorithm(m.body, validCircles, multiLayerCircles);
     const exprs = parsed.statements
       .filter((s) => s.kind === 'exprStmt')
       .map((s) => s.expr);
@@ -240,7 +241,7 @@ function compileProgram(
       baseEnv.set(m.name, { expr: combined, source: m.body });
     }
   }
-  const ast = parseAlgorithm(source, validCircles);
+  const ast = parseAlgorithm(source, validCircles, multiLayerCircles);
   return { ast, baseEnv, parseErrors: [...ast.errors] };
 }
 
@@ -464,21 +465,33 @@ function runCompiledProgram(
 
       case 'circleMove': {
         if (node.steps === 0) return true;
-        const label = formatMoveToken(node.circleId, node.steps);
-        const res = turnCircleBySteps(currentState, node.circleId, node.steps);
+        const layerOpt =
+          node.layer !== undefined || node.wide
+            ? { layer: node.layer, wide: node.wide }
+            : undefined;
+        const label = formatMoveToken(node.circleId, node.steps, layerOpt);
+        const res = turnCircleBySteps(currentState, node.circleId, node.steps, layerOpt);
         const spanToUse = macroStack.length === 0 ? node.span : topSpan;
         return execMove(res, label, node.circleId, node.span, spanToUse, macroStack, recordSteps);
       }
 
       case 'nextUnblocked': {
         if (node.count <= 0) return true;
+        const layerOpt =
+          node.layer !== undefined || node.wide
+            ? { layer: node.layer, wide: node.wide }
+            : undefined;
         const arrow = node.direction === 1 ? '>' : '<';
-        const label = `${node.circleId}${arrow}${node.count === 1 ? '' : node.count}`;
+        const base = node.wide
+          ? `${node.layer && node.layer > 2 ? node.layer : ''}${node.circleId.toLowerCase()}`
+          : `${node.layer && node.layer > 1 ? node.layer : ''}${node.circleId}`;
+        const label = `${base}${arrow}${node.count === 1 ? '' : node.count}`;
         const res = turnCircleNextUnblocked(
           currentState,
           node.circleId,
           node.direction,
           node.count,
+          layerOpt,
         );
         const spanToUse = macroStack.length === 0 ? node.span : topSpan;
         return execMove(res, label, node.circleId, node.span, spanToUse, macroStack, recordSteps);
@@ -487,10 +500,10 @@ function runCompiledProgram(
       case 'rotation': {
         if (node.steps === 0) return true;
         const abs = Math.abs(node.steps);
-        const label = `r${abs === 1 ? '' : abs}${node.steps < 0 ? "'" : ''}`;
+        const label = `z${abs === 1 ? '' : abs}${node.steps < 0 ? "'" : ''}`;
         const res = rotateWholePuzzle(currentState, node.steps);
         const spanToUse = macroStack.length === 0 ? node.span : topSpan;
-        return execMove(res, label, 'r', node.span, spanToUse, macroStack, recordSteps);
+        return execMove(res, label, 'z', node.span, spanToUse, macroStack, recordSteps);
       }
 
       case 'group': {
@@ -620,7 +633,10 @@ export function evaluateProgram(
   options: EvaluateOptions = {},
 ): EvaluationResult {
   const validCircles = initialState.spec.circles.map((c) => c.id);
-  const compiled = compileProgram(source, externalMacros, validCircles);
+  const multiLayerCircles = initialState.spec.circles
+    .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+    .map((c) => c.id);
+  const compiled = compileProgram(source, externalMacros, validCircles, multiLayerCircles);
   return runCompiledProgram(initialState, compiled, {
     ...options,
     recordSteps: true,
@@ -650,7 +666,10 @@ export function analyzeAlgorithm(
   maxReps = 200,
 ): AlgorithmAnalysis {
   const validCircles = state.spec.circles.map((c) => c.id);
-  const compiled = compileProgram(algSource, externalMacros, validCircles);
+  const multiLayerCircles = state.spec.circles
+    .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+    .map((c) => c.id);
+  const compiled = compileProgram(algSource, externalMacros, validCircles, multiLayerCircles);
   const first = runCompiledProgram(state, compiled, {
     recordSteps: false,
     checkSolved: false,

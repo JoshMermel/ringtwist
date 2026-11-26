@@ -196,8 +196,8 @@ class RingTwistApp {
 
           <div class="stage-wrap" id="stage-wrap">
             <div class="stage-overlay-tl">
-              <button class="btn btn-sm" id="btn-rot-ccw" title="Whole-puzzle rotation CCW (r')">↺ r'</button>
-              <button class="btn btn-sm" id="btn-rot-cw" title="Whole-puzzle rotation CW (r)">↻ r</button>
+              <button class="btn btn-sm" id="btn-rot-ccw" title="Whole-puzzle rotation CCW (z')">↺ z'</button>
+              <button class="btn btn-sm" id="btn-rot-cw" title="Whole-puzzle rotation CW (z)">↻ z</button>
             </div>
             <div class="stage-overlay-tr">
               <button type="button" class="btn btn-sm solved-peek-btn" id="btn-solved-peek" title="Toggle a reference preview of the solved puzzle">👁 Solved</button>
@@ -408,13 +408,13 @@ class RingTwistApp {
 
     // Whole-puzzle rotation quick buttons
     root.querySelector('#btn-rot-cw')!.addEventListener('click', () => {
-      this.appendInteractiveMove('r', {
+      this.appendInteractiveMove('z', {
         allowCoalesce: true,
         incrementalMove: (st) => rotateWholePuzzle(st, 1),
       });
     });
     root.querySelector('#btn-rot-ccw')!.addEventListener('click', () => {
-      this.appendInteractiveMove("r'", {
+      this.appendInteractiveMove("z'", {
         allowCoalesce: true,
         incrementalMove: (st) => rotateWholePuzzle(st, -1),
       });
@@ -495,7 +495,13 @@ class RingTwistApp {
       const body = this.macroBodyInput.value.trim();
       if (!name || !body) return;
 
-      const reserved = new Set([...this.currentSpec.circles.map((c) => c.id), 'r']);
+      const reserved = new Set([
+        ...this.currentSpec.circles.map((c) => c.id),
+        ...this.currentSpec.circles
+          .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+          .map((c) => c.id.toLowerCase()),
+        'z',
+      ]);
       if (reserved.has(name)) {
         this.showToast(`"${name}" is a reserved move name`);
         return;
@@ -530,7 +536,13 @@ class RingTwistApp {
       try {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
-        const reserved = new Set([...this.currentSpec.circles.map((c) => c.id), 'r']);
+        const reserved = new Set([
+        ...this.currentSpec.circles.map((c) => c.id),
+        ...this.currentSpec.circles
+          .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+          .map((c) => c.id.toLowerCase()),
+        'z',
+      ]);
         const valid = parsed
           .filter(
             (m): m is MacroLibraryEntry =>
@@ -621,10 +633,10 @@ class RingTwistApp {
     this.rotCwBtnEl.disabled = !hasSym;
     this.rotCcwBtnEl.disabled = !hasSym;
     this.rotCwBtnEl.title = hasSym
-      ? `Whole-puzzle rotation CW by ${this.currentSpec.symmetryStepDeg}° (r)`
+      ? `Whole-puzzle rotation CW by ${this.currentSpec.symmetryStepDeg}° (z)`
       : `${this.currentSpec.name} has no rotational symmetry`;
     this.rotCcwBtnEl.title = hasSym
-      ? `Whole-puzzle rotation CCW by ${this.currentSpec.symmetryStepDeg}° (r')`
+      ? `Whole-puzzle rotation CCW by ${this.currentSpec.symmetryStepDeg}° (z')`
       : `${this.currentSpec.name} has no rotational symmetry`;
   }
 

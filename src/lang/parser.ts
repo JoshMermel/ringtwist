@@ -61,9 +61,13 @@ function isIdentContinue(ch: string): boolean {
   return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 95;
 }
 
-const CIRCLE_OR_ROT_DIGITS_RE = /^([A-Z]|r)(\d+)$/;
+const CIRCLE_OR_ROT_DIGITS_RE = /^([A-Z]|z)(\d+)$/;
+const LOWER_DIGITS_RE = /^([a-y])(\d+)$/;
 
-function tokenize(source: string): { tokens: Token[]; errors: ParseError[] } {
+function tokenize(
+  source: string,
+  multiLayerCircles?: Set<string>,
+): { tokens: Token[]; errors: ParseError[] } {
   const tokens: Token[] = [];
   const errors: ParseError[] = [];
   let i = 0;
@@ -107,18 +111,22 @@ function tokenize(source: string): { tokens: Token[]; errors: ParseError[] } {
       continue;
     }
 
-    // Identifiers (circle letters, 'r', or macro names)
+    // Identifiers (circle letters, 'z', wide circle letters, or macro names)
     if (isIdentStart(ch)) {
       const start = i;
       while (i < n && isIdentContinue(source[i])) i++;
-      // Special split: if token looks like a single uppercase circle + digits (e.g. A2, B10)
-      // or 'r' + digits (e.g. r2, r3), split the trailing digits into a separate NUMBER token
-      // ONLY if it's NOT followed by '=' (macro def like `s2 = ...`).
+      // Special split: if token looks like a single uppercase circle + digits (e.g. A2, B10),
+      // 'z' + digits (e.g. z2, z3), or a multi-layer wide letter + digits (e.g. a2),
+      // split the trailing digits into a separate NUMBER token ONLY if NOT followed by '='.
       const raw = source.slice(start, i);
       let j = i;
       while (j < n && (source[j] === ' ' || source[j] === '\t')) j++;
       const followedByEquals = j < n && source[j] === '=';
-      if (!followedByEquals && CIRCLE_OR_ROT_DIGITS_RE.test(raw)) {
+      const isSplitWide =
+        multiLayerCircles !== undefined &&
+        LOWER_DIGITS_RE.test(raw) &&
+        multiLayerCircles.has(raw[0].toUpperCase());
+      if (!followedByEquals && (CIRCLE_OR_ROT_DIGITS_RE.test(raw) || isSplitWide)) {
         const letter = raw[0];
         const digits = raw.slice(1);
         tokens.push({ kind: 'IDENT', value: letter, start, end: start + 1 });
@@ -145,6 +153,7 @@ class Parser {
   private tokens: Token[];
   private source: string;
   private validCircles: Set<string>;
+  private multiLayerCircles: Set<string>;
   public errors: ParseError[];
 
   constructor(
@@ -152,6 +161,7 @@ class Parser {
     tokens: Token[],
     errors: ParseError[],
     validCircleIds?: string[],
+    multiLayerCircleIds?: string[],
   ) {
     this.source = source;
     this.tokens = tokens;
@@ -159,6 +169,7 @@ class Parser {
     this.validCircles = new Set(
       validCircleIds ?? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''),
     );
+    this.multiLayerCircles = new Set(multiLayerCircleIds ?? []);
   }
 
   private peek(offset = 0): Token {
@@ -192,7 +203,14 @@ class Parser {
       if (this.peek().kind === 'IDENT' && this.peek(1).kind === 'EQUALS') {
         const nameTok = this.advance();
         this.advance(); // '='
-        if (this.validCircles.has(nameTok.value) || nameTok.value === 'r') {
+        if (
+          this.validCircles.has(nameTok.value) ||
+          nameTok.value === 'z' ||
+          (nameTok.value.length === 1 &&
+            nameTok.value >= 'a' &&
+            nameTok.value <= 'y' &&
+            this.multiLayerCircles.has(nameTok.value.toUpperCase()))
+        ) {
           this.errors.push({
             message: `Cannot name macro "${nameTok.value}" (reserved move name)`,
             span: { start: nameTok.start, end: nameTok.end },
@@ -359,12 +377,32 @@ class Parser {
       }
     }
 
-    // Identifier: whole-puzzle rotation 'r', circle move 'A'..'Z', or macro call
+    // Leading layer prefix for multi-layer slice / wide turns: e.g. `2A`, `2A3'`, `2A>`, `2a`
+    if (
+      tok.kind === 'NUMBER' &&
+      this.peek(1).kind === 'IDENT' &&
+      tok.end === this.peek(1).start
+    ) {
+      const idTok = this.peek(1);
+      const isUpperCircle = /^[A-Z]$/.test(idTok.value);
+      const isLowerWide =
+        /^[a-y]$/.test(idTok.value) && this.multiLayerCircles.has(idTok.value.toUpperCase());
+      if (isUpperCircle || isLowerWide) {
+        this.advance(); // NUMBER
+        this.advance(); // IDENT
+        const layer = Math.max(1, parseInt(tok.value, 10));
+        const circleId = idTok.value.toUpperCase();
+        const wide = isLowerWide;
+        return this.parseCircleMoveBody(circleId, tok.start, idTok.end, layer, wide);
+      }
+    }
+
+    // Identifier: whole-puzzle rotation 'z', circle move 'A'..'Z', wide move 'a'..'y', or macro call
     if (tok.kind === 'IDENT') {
       this.advance();
 
-      // Whole-puzzle rotation: r, r', r2, r2'
-      if (tok.value === 'r') {
+      // Whole-puzzle rotation: z, z', z2, z2'
+      if (tok.value === 'z') {
         const mod = this.parseModifierSuffix(tok.end);
         const node: RotationMoveNode = {
           kind: 'rotation',
@@ -374,31 +412,14 @@ class Parser {
         return node;
       }
 
-      // Single uppercase letter => circle move (or next-unblocked A> / A<)
+      // Single uppercase letter => circle move (layer 1 / innermost cap)
       if (/^[A-Z]$/.test(tok.value)) {
-        const next = this.peek();
-        if ((next.kind === 'GT' || next.kind === 'LT') && next.start === tok.end) {
-          this.advance();
-          const mod = this.parseModifierSuffix(next.end);
-          const dir: 1 | -1 = ((next.kind === 'GT' ? 1 : -1) * (mod.invert ? -1 : 1)) as 1 | -1;
-          const node: NextUnblockedMoveNode = {
-            kind: 'nextUnblocked',
-            circleId: tok.value,
-            direction: dir,
-            count: mod.repeat,
-            span: { start: tok.start, end: mod.end },
-          };
-          return node;
-        }
+        return this.parseCircleMoveBody(tok.value, tok.start, tok.end, undefined, false);
+      }
 
-        const mod = this.parseModifierSuffix(tok.end);
-        const node: CircleMoveNode = {
-          kind: 'circleMove',
-          circleId: tok.value,
-          steps: mod.invert ? -mod.repeat : mod.repeat,
-          span: { start: tok.start, end: mod.end },
-        };
-        return node;
+      // Single lowercase letter on a multi-layer circle => wide move (e.g. `a`, `a2`, `a'`)
+      if (/^[a-y]$/.test(tok.value) && this.multiLayerCircles.has(tok.value.toUpperCase())) {
+        return this.parseCircleMoveBody(tok.value.toUpperCase(), tok.start, tok.end, undefined, true);
       }
 
       // Macro invocation
@@ -421,11 +442,55 @@ class Parser {
     this.advance();
     return null;
   }
+
+  private parseCircleMoveBody(
+    circleId: string,
+    spanStart: number,
+    idEnd: number,
+    layer: number | undefined,
+    wide: boolean,
+  ): CircleMoveNode | NextUnblockedMoveNode {
+    const next = this.peek();
+    if ((next.kind === 'GT' || next.kind === 'LT') && next.start === idEnd) {
+      this.advance();
+      const mod = this.parseModifierSuffix(next.end);
+      const dir: 1 | -1 = ((next.kind === 'GT' ? 1 : -1) * (mod.invert ? -1 : 1)) as 1 | -1;
+      const node: NextUnblockedMoveNode = {
+        kind: 'nextUnblocked',
+        circleId,
+        direction: dir,
+        count: mod.repeat,
+        ...(layer !== undefined ? { layer } : {}),
+        ...(wide ? { wide: true } : {}),
+        span: { start: spanStart, end: mod.end },
+      };
+      return node;
+    }
+
+    const mod = this.parseModifierSuffix(idEnd);
+    const node: CircleMoveNode = {
+      kind: 'circleMove',
+      circleId,
+      steps: mod.invert ? -mod.repeat : mod.repeat,
+      ...(layer !== undefined ? { layer } : {}),
+      ...(wide ? { wide: true } : {}),
+      span: { start: spanStart, end: mod.end },
+    };
+    return node;
+  }
 }
 
-export function parseAlgorithm(source: string, validCircleIds?: string[]): ProgramAST {
-  const { tokens, errors } = tokenize(source);
-  const parser = new Parser(source, tokens, errors, validCircleIds);
+export function parseAlgorithm(
+  source: string,
+  validCircleIds?: string[],
+  multiLayerCircleIds?: string[],
+): ProgramAST {
+  const multiSet =
+    multiLayerCircleIds && multiLayerCircleIds.length > 0
+      ? new Set(multiLayerCircleIds)
+      : undefined;
+  const { tokens, errors } = tokenize(source, multiSet);
+  const parser = new Parser(source, tokens, errors, validCircleIds, multiLayerCircleIds);
   return parser.parseProgram();
 }
 

@@ -23,6 +23,17 @@ export interface CircleDef extends Circle {
   stopsDeg: number[];
   /** Primary display color associated with this circle. */
   color: string;
+  /**
+   * Optional inner-to-outer concentric layer radii for multi-layer circles (e.g. GigaHex, Crazy Lekki).
+   * Layer 1 (`A`) is the innermost disk (`0..layerRadii[0]`, the "outer" cap on an infinite sphere);
+   * wide (`a`) turns layers `1..N` together; slice `2A` turns only the outer annulus (`layerRadii[0]..layerRadii[1]`).
+   */
+  layerRadii?: number[];
+  /**
+   * Optional turn region mode (defaults to `'inside'`).
+   * `'outside'` rotates everything strictly outside the circle (e.g. ThinkFun Moonspinner).
+   */
+  turnRegion?: 'inside' | 'outside';
 }
 
 export interface OrbitSliceStep {
@@ -87,7 +98,7 @@ export interface PuzzleColoringContext {
 export interface PuzzleSpec {
   id: string;
   name: string;
-  category: 'Geranium Family' | 'Classic Circles';
+  category: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles';
   description: string;
   circles: CircleDef[];
   /** Whole-puzzle rotational symmetry step in degrees CW (e.g. 72 for 5-fold). */

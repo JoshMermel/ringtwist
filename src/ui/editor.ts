@@ -43,7 +43,7 @@ export class AlgorithmEditor {
     this.textarea.autocomplete = 'off';
     this.textarea.autocapitalize = 'off';
     this.textarea.placeholder =
-      '// Type moves, e.g. [A: D3], A>, r, or define macros:\nconj = [A: D3]\n[r: conj]';
+      '// Type moves, e.g. [A: D3], A>, z, or define macros:\nconj = [A: D3]\n[z: conj]';
 
     wrap.append(this.backdrop, this.textarea);
     container.appendChild(wrap);
@@ -163,8 +163,8 @@ export class AlgorithmEditor {
         while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
         let cls = '';
         if (src[j] === '=') cls = 'tok-macro-def';
-        else if (/^r(?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-rot';
-        else if (/^[A-Z][<>](?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-next';
+        else if (/^z(?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-rot';
+        else if (/^[A-Za-y][<>](?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-next';
         for (let k = start; k < i; k++) syntax[k] = cls;
         continue;
       }

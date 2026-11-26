@@ -41,7 +41,7 @@ describe('interactive move coalescing & cancellation', () => {
     expect(s1.nextText).toBe("A3'");
   });
 
-  it('cancels next-unblocked (> / <) and whole-puzzle rotations (r / r prime)', () => {
+  it('cancels next-unblocked (> / <) and whole-puzzle rotations (z / z prime)', () => {
     const n1 = applyInteractiveMoveToText('A>', 2, 'A<', GERANIUM_PLUS);
     expect(n1.action).toBe('cancelled');
     expect(n1.nextText).toBe('');
@@ -50,15 +50,15 @@ describe('interactive move coalescing & cancellation', () => {
     expect(n2.action).toBe('merged');
     expect(n2.nextText).toBe('A>2');
 
-    const r1 = applyInteractiveMoveToText('A r', 3, "r'", GERANIUM_PLUS);
+    const r1 = applyInteractiveMoveToText('A z', 3, "z'", GERANIUM_PLUS);
     expect(r1.action).toBe('cancelled');
     expect(r1.nextText).toBe('A');
 
-    // Full 5-fold rotation on Geranium Plus cancels (r2 + r + r + r -> '')
-    const r2 = applyInteractiveMoveToText("r2'", 3, "r'", GERANIUM_PLUS);
-    expect(r2.nextText).toBe('r2');
+    // Full 5-fold rotation on Geranium Plus cancels (z2' + z' -> z2)
+    const r2 = applyInteractiveMoveToText("z2'", 3, "z'", GERANIUM_PLUS);
+    expect(r2.nextText).toBe('z2');
 
-    // Pocket Geranium has symmetryStepDeg = 0 so r does not coalesce
+    // Pocket Geranium has symmetryStepDeg = 0 so z does not coalesce
     const rNone = applyInteractiveMoveToText('A', 1, 'B', POCKET_GERANIUM);
     expect(rNone.action).toBe('appended');
     expect(rNone.nextText).toBe('A B');

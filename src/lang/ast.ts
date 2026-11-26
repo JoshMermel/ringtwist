@@ -24,6 +24,10 @@ export interface CircleMoveNode {
   circleId: string;
   /** Signed stop steps (+ CW, - CCW). */
   steps: number;
+  /** Optional 1-based layer depth (e.g. 2 for slice `2A`; defaults to 1 = innermost cap). */
+  layer?: number;
+  /** True for wide turns (`a`, `2a`) turning layers 1..depth together. */
+  wide?: boolean;
   span: Span;
 }
 
@@ -32,6 +36,8 @@ export interface NextUnblockedMoveNode {
   circleId: string;
   direction: 1 | -1; // 1 for '>', -1 for '<'
   count: number;
+  layer?: number;
+  wide?: boolean;
   span: Span;
 }
 

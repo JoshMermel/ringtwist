@@ -32,8 +32,10 @@ function describeStops(spec: PuzzleSpec): string {
 const CATEGORY_BLURBS: Record<string, string> = {
   'Geranium Family':
     'Authentic VeryPuzzle Geranium puzzles with golden-ratio circle spacing, blocking cuts, and unbandaged Plus variants.',
+  'Designer & Exotic':
+    'Community and boutique 2D twisty puzzles from James Li, Dmitry Andreev (Pluton), El Cubitero, Galen Ivanov, Hooshang Cohan, Cube4you, and ThinkFun.',
   'Classic Circles':
-    'Unbandaged and concentric 2-, 4-, and 6-circle puzzles great for exploring commutators, conjugates, and symmetries.',
+    'Unbandaged and concentric 2-, 3-, 4-, 6-, and 7-circle puzzles great for exploring commutators, conjugates, and symmetries.',
 };
 
 /**

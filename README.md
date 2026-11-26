@@ -14,7 +14,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 
 - **Analytical 2D Arc-Region Geometry**: Exact circular-arc piece representation (`ArcRegion`), planar DCEL circle slicing, analytical Green's-theorem areas, and zero-drift canonical snapping across 600+ move round-trips.
 - **Twizzle-Style Notation & Non-Doctrinaire Execution**:
-  - Fixed stop turns (`A`, `A2`, `A'`), next-unblocked alignment (`A>`, `A<`), and whole-puzzle symmetry rotations (`r`, `r'`) that keep spatial labels `A..Z` fixed on screen.
+  - Fixed stop turns (`A`, `A2`, `A'`), concentric multi-layer turns using inverted-sphere Twizzle notation (`A` = innermost cap, `a` = wide full circle, `2A` = outer annulus slice), next-unblocked alignment (`A>`, `A<`), and whole-puzzle symmetry rotations (`z`, `z'`) that keep spatial labels `A..Y` fixed on screen.
   - Commutators `[X, Y]`, conjugates `[X: Y]`, grouping & repeats `(X)3`, algebraic inverses `(...)'`, inline macros `name = expr`, and line comments (`//`, `#`).
   - Stops immediately before a blocked move, underlines the offending token in the editor, and highlights the target circle and every straddling piece on the canvas.
 - **Group-Theory Fast-Forward & Order Analyzer**: Detects shape-preserving permutations (jumping huge repeats in $O(n)$ via cycle powers with exact `BigInt` prime-factor order reduction) and state-hash cycles, plus one-click **Analyze Order** for any algorithm, selection, or macro.
@@ -37,6 +37,20 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | **Mini Geranium Plus** | 2 | 56 | Uneven `(108°, 36°, ...)` |
 | **Mini Geranium** | 2 | 46 | Uneven `(108°, 36°, ...)` |
 
+### Designer & Exotic
+| Puzzle | Circles | Pieces | Stops |
+| --- | :---: | :---: | --- |
+| **Bauhinium** | 2 | 25 | 180° / 72° |
+| **Bauhinium Plus** | 3 | 28 | 72° / 180° / 72° |
+| **Pocket Quatrium** | 2 | 34 | 90° |
+| **Pocket Quatrium Plus** | 3 | 49 | 90° |
+| **Starcopter (Fomalhaut)** | 2 | 90 | 72° |
+| **Curvystar (Mimosa)** | 2 | 71 | 72° / 180° |
+| **Cohan Circle / Arusloky (Venn)** | 2 | 28 | 60° (3-color Venn) |
+| **Arecibo** | 2 | 67 | 120° |
+| **Eliac** | 2 | 55 | 90° / 180° |
+| **Fragmentation Ring** | 2 | 45 | 72° (jumbling) |
+
 ### Classic Circles
 | Puzzle | Circles | Pieces | Stops |
 | --- | :---: | :---: | --- |
@@ -54,14 +68,15 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 ```text
 // Comments start with // or #
 conj = [A: D3]          // Inline macro: A D3 A'
-[r: conj]               // Conjugate by 1 whole-puzzle rotation CW (72° on Geranium)
+[z: conj]               // Conjugate by 1 whole-puzzle rotation CW (72° on Geranium)
 [A3, E3]2               // Commutator repeated twice: (A3 E3 A3' E3')2
 (A> D3 A')'             // Next-unblocked move (>) and algebraic inverse (')
 ```
 
-- `A`, `B`, `C`, … — Turn the circle **1 stop clockwise** (`A2` = 2 stops, `A'` = 1 stop CCW).
+- `A`, `B`, `C`, … — Turn the circle (or innermost cap on multi-layer puzzles) **1 stop clockwise** (`A2` = 2 stops, `A'` = 1 stop CCW).
+- `a`, `2A` — On concentric multi-layer circles, lowercase `a` is a **wide** turn (inner + outer layers together) and `2A` turns only the **outer annulus slice**.
 - `A>`, `A<` — Turn CW (`>`) or CCW (`<`) to the **next stop where an overlapping neighbor becomes unblocked**.
-- `r`, `r'` — Rotate the entire puzzle by 1 symmetry step CW/CCW (spatial labels stay fixed).
+- `z`, `z'` — Rotate the entire puzzle by 1 symmetry step CW/CCW (spatial labels stay fixed).
 - `[X, Y]` = `X Y X' Y'` (commutator); `[X: Y]` = `X Y X'` (conjugate).
 
 ---

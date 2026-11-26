@@ -32,7 +32,7 @@ function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimp
     return { kind: 'circle', circleId, steps: circleMatch[3] === "'" ? -count : count };
   }
 
-  const rotMatch = trimmed.match(/^r(\d*)('?)$/);
+  const rotMatch = trimmed.match(/^z(\d*)('?)$/);
   if (rotMatch && spec.symmetryStepDeg > 0) {
     const count = rotMatch[1] ? parseInt(rotMatch[1], 10) : 1;
     if (count === 0) return null;
@@ -52,7 +52,7 @@ function shortestSignedMod(sum: number, modulus: number): number {
 function formatRotationToken(steps: number): string {
   const abs = Math.abs(steps);
   const prime = steps < 0 ? "'" : '';
-  return `r${abs === 1 ? '' : abs}${prime}`;
+  return `z${abs === 1 ? '' : abs}${prime}`;
 }
 
 function formatNextToken(circleId: string, steps: number): string {
