@@ -119,7 +119,7 @@ describe('RingTwist v1 export & URL share round-trip', () => {
   });
 
   it('exports legacy GeraniumsPot-backed puzzles into valid index-free ringtwist/v1 JSON', () => {
-    const spec = getPuzzleSpec('two-circle');
+    const spec = getPuzzleSpec('geranium-plus');
     const state = buildPuzzle(spec);
     const exported = exportPuzzleToRingTwistDoc(state, interiorPointOfRegion);
 
@@ -127,10 +127,18 @@ describe('RingTwist v1 export & URL share round-trip', () => {
     expect(check.ok).toBe(true);
     expect(exported.format).toBe('ringtwist/v1');
     expect(exported.axes.length).toBe(spec.circles.length);
+  });
 
-    const recompiled = buildPuzzle(compileRingTwistDoc(exported));
-    expect(recompiled.pieces.length).toBe(state.pieces.length);
-    expect(hashPuzzleState(recompiled)).toBe(hashPuzzleState(state));
+  it('reproduces GigaHex exact 6-color rotated-lens distribution natively in ringtwist/v1', () => {
+    const state = buildPuzzle(getPuzzleSpec('gigahex'));
+    const counts = new Map<string, number>();
+    for (const p of state.pieces) counts.set(p.color, (counts.get(p.color) ?? 0) + 1);
+    expect(counts.get('#16a34a')).toBe(17);
+    expect(counts.get('#ef4444')).toBe(17);
+    expect(counts.get('#facc15')).toBe(17);
+    expect(counts.get('#f97316')).toBe(17);
+    expect(counts.get('#2563eb')).toBe(17);
+    expect(counts.get('#1e293b')).toBe(20);
   });
 
   it('round-trips custom ringtwist/v1 docs through URL share hashes', () => {

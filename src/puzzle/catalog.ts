@@ -7,12 +7,19 @@ import {
   CRAZY_LEKKI_DOC,
   CUBE4YOU_XO_DOC,
   ELIAC_DOC,
+  FOMALHAUT_DOC,
+  FOUR_CIRCLE_CLOVER_DOC,
+  GIGAHEX_DOC,
   GIGAHEX_PLUS_DOC,
   MIMOSA_DOC,
   MOONSPINNER_DOC,
   OCTOCRYSTAL_DOC,
   POCKET_QUATRIUM_DOC,
+  POCKET_QUATRIUM_PLUS_DOC,
+  SEVEN_CIRCLE_FLOWER_DOC,
+  SIX_CIRCLE_HEX_DOC,
   THREE_CIRCLE_CLOVER_DOC,
+  TWO_CIRCLE_VENN_DOC,
 } from './definitions.ts';
 import { compileRingTwistDoc } from './formatBuilder.ts';
 import {
@@ -20,17 +27,10 @@ import {
   GERANIUM_PLUS_COLORS,
   GERANIUM_STD_COLORS,
   PHI,
-  buildExactFomalhautPieces,
-  buildExactFourCircleCloverPieces,
   buildExactFragmentationRingPieces,
   buildExactGeraniumPieces,
-  buildExactGigaHexPieces,
-  buildExactMandorlaPieces,
   buildExactMiniGeraniumPieces,
   buildExactPocketGeraniumPieces,
-  buildExactPocketQuatriumPieces,
-  buildExactSevenCircleFlowerPieces,
-  buildExactSixCircleHexPieces,
   buildExactSuperGeraniumPieces,
   buildExactTwinRingsPieces,
   buildExactUfo2dPieces,
@@ -338,33 +338,9 @@ export const MINI_GERANIUM: PuzzleSpec = {
 };
 
 /**
- * 8. 2-Circle Venn / Mandorla (Exact fully unbandaged 120° 2-circle puzzle, 21 pieces)
+ * 8. 2-Circle Venn / Mandorla — compiled natively from ringtwist/v1 declarative doc (21 pcs)
  */
-export const TWO_CIRCLE_VENN: PuzzleSpec = {
-  id: 'two-circle',
-  name: '2-Circle Venn (Mandorla 120°)',
-  category: 'Classic Circles',
-  description:
-    'Fully unbandaged 21-piece 2-circle Venn puzzle (Mandorla) with 120° stops. Every turn aligns cleanly — ideal for learning commutators and conjugates.',
-  circles: [
-    { id: 'A', cx: -25.05 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(3), color: '#38bdf8' },
-    { id: 'B', cx: 25.05 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(3), color: '#16a34a' },
-  ],
-  symmetryStepDeg: 180,
-  customBuilder: (spec) => buildExactMandorlaPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '120° Commutator [A, B]',
-      alg: '[A, B]',
-      note: 'Clean 120° commutator across the unbandaged Mandorla lens',
-    },
-    {
-      name: '180° flip conjugate',
-      alg: '[z: A B]',
-      note: 'Whole-puzzle 180° rotation swaps A and B',
-    },
-  ],
-};
+export const TWO_CIRCLE_VENN: PuzzleSpec = compileRingTwistDoc(TWO_CIRCLE_VENN_DOC);
 
 /**
  * 9. Twin Rings (Exact unbandaged 90° 2-circle puzzle with inner rings, 67 pieces)
@@ -406,92 +382,19 @@ export const TWIN_RINGS: PuzzleSpec = {
 export const THREE_CIRCLE_CLOVER: PuzzleSpec = compileRingTwistDoc(THREE_CIRCLE_CLOVER_DOC);
 
 /**
- * 11. 4-Circle Clover (Unbandaged 90° orthogonal circles)
+ * 11. 4-Circle Clover — compiled natively from ringtwist/v1 declarative doc (16 pcs)
  */
-export const FOUR_CIRCLE_CLOVER: PuzzleSpec = {
-  id: 'four-circle-clover',
-  name: '4-Circle Clover (90°)',
-  category: 'Classic Circles',
-  description:
-    '4 intersecting circles in square symmetry with 90° stops, distinct blended overlap lenses, and fully unbandaged quarter-turn moves.',
-  circles: makeRingCircles(
-    4,
-    (38 / 50) * Math.SQRT2,
-    1.0,
-    4,
-    ['#ef4444', '#facc15', '#16a34a', '#2563eb'],
-    45,
-  ),
-  symmetryStepDeg: 90,
-  customBuilder: (spec) => buildExactFourCircleCloverPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '90° Commutator [A, B]',
-      alg: '[A, B]',
-      note: 'Clean quarter-turn commutator between adjacent circles',
-    },
-    {
-      name: '4-fold symmetry [z: A B]',
-      alg: '[z: A B]',
-      note: 'Applies A B rotated 90° CW around the clover',
-    },
-  ],
-};
+export const FOUR_CIRCLE_CLOVER: PuzzleSpec = compileRingTwistDoc(FOUR_CIRCLE_CLOVER_DOC);
 
 /**
- * 11. 6-Circle Hex Flower (Unbandaged 60° hexagonal circles)
+ * 12. 6-Circle Hex Flower — compiled natively from ringtwist/v1 declarative doc (66 pcs)
  */
-export const SIX_CIRCLE_HEX: PuzzleSpec = {
-  id: 'six-circle-hex',
-  name: '6-Circle Hex Flower (60°)',
-  category: 'Classic Circles',
-  description:
-    '6 overlapping circles in hexagonal symmetry with 60° stops, unbandaged across the full hexagonal lattice.',
-  circles: makeRingCircles(6, 1.0, 1.0, 6, PALETTE_6, 90),
-  symmetryStepDeg: 60,
-  customBuilder: (spec) => buildExactSixCircleHexPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '60° Commutator [A, B]',
-      alg: '[A, B]',
-      note: 'Clean 60° commutator across adjacent hexagonal circles',
-    },
-    {
-      name: 'Symmetry conjugate',
-      alg: 'm = [A, B]\n[z2: m]',
-      note: 'Applies m rotated 120° CW around the hex flower',
-    },
-  ],
-};
+export const SIX_CIRCLE_HEX: PuzzleSpec = compileRingTwistDoc(SIX_CIRCLE_HEX_DOC);
 
 /**
- * 13. 7-Circle Flower (1 central ring G + 6 outer rings A..F, 60° stops)
+ * 13. 7-Circle Flower — compiled natively from ringtwist/v1 declarative doc (66 pcs)
  */
-export const SEVEN_CIRCLE_FLOWER: PuzzleSpec = {
-  id: 'seven-circle-flower',
-  name: '7-Circle Flower (60°)',
-  category: 'Classic Circles',
-  description:
-    '6 hexagonal outer rings (A–F) surrounding a playable central ring (G) with 60° stops — spin the center flower to route pieces between all six arms.',
-  circles: [
-    ...makeRingCircles(6, 1.0, 1.0, 6, PALETTE_6, 90),
-    { id: 'G', cx: 0, cy: 0, r: 1.0, stopsDeg: evenStops(6), color: '#14b8a6' },
-  ],
-  symmetryStepDeg: 60,
-  customBuilder: (spec) => buildExactSevenCircleFlowerPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: 'Center-arm commutator [G, A]',
-      alg: '[G, A]',
-      note: 'Commutes the playable center ring G with outer ring A',
-    },
-    {
-      name: '6-fold swirl (G A)3',
-      alg: '(G A)3',
-      note: 'Alternates center ring G and outer ring A in 60° steps',
-    },
-  ],
-};
+export const SEVEN_CIRCLE_FLOWER: PuzzleSpec = compileRingTwistDoc(SEVEN_CIRCLE_FLOWER_DOC);
 
 /**
  * 14. Bauhinium — compiled natively from ringtwist/v1 declarative doc (28 pcs, mirror=[x])
@@ -509,58 +412,14 @@ export const BAUHINIUM_PLUS: PuzzleSpec = compileRingTwistDoc(BAUHINIUM_PLUS_DOC
 export const POCKET_QUATRIUM: PuzzleSpec = compileRingTwistDoc(POCKET_QUATRIUM_DOC);
 
 /**
- * 17. Pocket Quatrium Plus (James Li — 3 inline 90° circles)
+ * 17. Pocket Quatrium Plus — compiled natively from ringtwist/v1 declarative doc (49 pcs)
  */
-export const POCKET_QUATRIUM_PLUS: PuzzleSpec = {
-  id: 'pocket-quatrium-plus',
-  name: 'Pocket Quatrium Plus',
-  category: 'Designer & Exotic',
-  description:
-    'James Li’s 3-circle inline 90° Pocket Quatrium Plus with pink, light-blue, and yellow circles plus blended overlap lenses.',
-  circles: [
-    { id: 'A', cx: -58 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#f472b6' },
-    { id: 'B', cx: 0, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#38bdf8' },
-    { id: 'C', cx: 58 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#facc15' },
-  ],
-  symmetryStepDeg: 180,
-  customBuilder: (spec) => buildExactPocketQuatriumPieces(spec, true),
-  sampleAlgorithms: [
-    {
-      name: 'Inline walk (A B C2 B\')',
-      alg: "A B C2 B'",
-      note: 'Quarter-turns and half-turns ripple across all three inline 90° circles',
-    },
-    {
-      name: '180° Symmetry [z: A2 B2 C2]',
-      alg: '[z: A2 B2 C2]',
-      note: 'Mirrors half-turns across the 3-circle line via z',
-    },
-  ],
-};
+export const POCKET_QUATRIUM_PLUS: PuzzleSpec = compileRingTwistDoc(POCKET_QUATRIUM_PLUS_DOC);
 
 /**
- * 18. Starcopter / Fomalhaut (Dmitry Andreev / Pluton — 72° unequal circles)
+ * 18. Starcopter / Fomalhaut — compiled natively from ringtwist/v1 declarative doc (90 pcs)
  */
-export const FOMALHAUT: PuzzleSpec = {
-  id: 'fomalhaut',
-  name: 'Starcopter (Fomalhaut)',
-  category: 'Designer & Exotic',
-  description:
-    'Dmitry Andreev’s Fomalhaut (Starcopter): two unequal 72° pentagonal circles with intricate star-petal bandaging.',
-  circles: [
-    { id: 'A', cx: (50 - 86) / 50, cy: 0, r: 1.0, stopsDeg: evenStops(5), color: '#facc15' },
-    { id: 'B', cx: (114 - 86) / 50, cy: 0, r: 58 / 50, stopsDeg: evenStops(5), color: '#2563eb' },
-  ],
-  symmetryStepDeg: 0,
-  customBuilder: (spec) => buildExactFomalhautPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '72° Commutator [A, B\']',
-      alg: "[A, B']",
-      note: '72° commutator across the unequal Fomalhaut overlap',
-    },
-  ],
-};
+export const FOMALHAUT: PuzzleSpec = compileRingTwistDoc(FOMALHAUT_DOC);
 
 /**
  * 19. Curvystar / Mimosa — compiled natively from ringtwist/v1 declarative doc (73 pcs, mirror=[x])
@@ -617,49 +476,9 @@ export const FRAGMENTATION_RING: PuzzleSpec = {
 export const CRAZY_LEKKI: PuzzleSpec = compileRingTwistDoc(CRAZY_LEKKI_DOC);
 
 /**
- * 25. Cube4you GigaHex (2 concentric 2-layer 60° circles)
+ * 25. Cube4you GigaHex — compiled natively from ringtwist/v1 declarative doc (105 pcs)
  */
-export const GIGAHEX: PuzzleSpec = {
-  id: 'gigahex',
-  name: 'GigaHex',
-  category: 'Designer & Exotic',
-  description:
-    'Cube4you GigaHex: two overlapping 2-layer 60° circles (A/B inner disks, 2A/2B outer slices, a/b wide turns) with 105 pieces.',
-  circles: [
-    {
-      id: 'A',
-      cx: -31.5 / 50,
-      cy: 0,
-      r: 1.0,
-      layerRadii: [0.8, 1.0],
-      stopsDeg: evenStops(6),
-      color: '#16a34a',
-    },
-    {
-      id: 'B',
-      cx: 31.5 / 50,
-      cy: 0,
-      r: 1.0,
-      layerRadii: [0.8, 1.0],
-      stopsDeg: evenStops(6),
-      color: '#f97316',
-    },
-  ],
-  symmetryStepDeg: 180,
-  customBuilder: (spec) => buildExactGigaHexPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: 'Wide/inner commutator [a, B]',
-      alg: '[a, B]',
-      note: 'Commutes wide turn a with inner disk B in 60° steps',
-    },
-    {
-      name: 'Outer-slice exchange [2A, 2B]',
-      alg: '[2A, 2B]',
-      note: 'Swaps pieces between the two concentric outer rings 2A and 2B',
-    },
-  ],
-};
+export const GIGAHEX: PuzzleSpec = compileRingTwistDoc(GIGAHEX_DOC);
 
 /**
  * 26. Cube4you GigaHex Plus — compiled natively from ringtwist/v1 declarative doc

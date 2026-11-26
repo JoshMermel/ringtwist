@@ -1,7 +1,6 @@
 import {
   ArcRegion,
   classifyRegionAgainstCircle,
-  interiorPointOfRegion,
   regionSignedArea,
   rotateRegion,
 } from '../geom/arcRegion.ts';
@@ -391,63 +390,6 @@ AutoColorParts: 6, 5, 5
 SetColorParts: (14,17,23,24,32,37,10,39,26,15,20,28,29,38,35,42,13),0, (41,45,34,27,19,12),6
 `;
 
-const MANDORLA_SCRIPT = `
-Ring: 1, 50, 50, 50, 120
-Ring: 2, 100.1, 50, 50, 120
-AutoCutParts: Random,30
-AutoColorParts: 10, 4, 6
-`;
-
-const FOUR_CIRCLE_CLOVER_SCRIPT = `
-Param: s, 38
-Ring: 1,  s,  s, 50, 90
-Ring: 2,  s, -s, 50, 90
-Ring: 3, -s, -s, 50, 90
-Ring: 4, -s,  s, 50, 90
-AutoCutParts: (1R,2R,3R,4R),4
-AutoColorParts: 3, 6, 4, 5
-`;
-
-const SIX_CIRCLE_HEX_SCRIPT = `
-Param: h, 50*sqrt(3)/2
-Ring: 1,  0,  50, 50, 60
-Ring: 2,  h,  25, 50, 60
-Ring: 3,  h, -25, 50, 60
-Ring: 4,  0, -50, 50, 60
-Ring: 5, -h, -25, 50, 60
-Ring: 6, -h,  25, 50, 60
-AutoCutParts: (1R,2R,3R,4R,5R,6R),6
-AutoColorParts: 3, 9, 6, 4, 5, 7
-`;
-
-const SEVEN_CIRCLE_FLOWER_SCRIPT = `
-Param: h, 50*sqrt(3)/2
-Ring: 1,  0,  50, 50, 60
-Ring: 2,  h,  25, 50, 60
-Ring: 3,  h, -25, 50, 60
-Ring: 4,  0, -50, 50, 60
-Ring: 5, -h, -25, 50, 60
-Ring: 6, -h,  25, 50, 60
-Ring: 7,  0,   0, 50, 60
-AutoCutParts: (1R,2R,3R,4R,5R,6R,7R),6
-AutoColorParts: 3, 9, 6, 4, 5, 7, 8
-`;
-
-const POCKET_QUATRIUM_PLUS_SCRIPT = `
-Ring: 1, 50, 50, 50, 90
-Ring: 2, 108, 50, 50, 90
-Ring: 3, 166, 50, 50, 90
-AutoCutParts: (1R,2R,3R),6
-AutoColorParts: 11, 10, 6, 7, 0, 9
-`;
-
-const FOMALHAUT_SCRIPT = `
-Ring: 1, 50, 50, 50, 72
-Ring: 2, 114, 50, 58, 72
-AutoCutParts: (1R,2L),20
-AutoColorParts: 6, 5, 6
-`;
-
 const FRAGMENTATION_RING_SCRIPT = `
 Ring: 1,  50, 50, 50, 72
 Ring: 2, 112, 50, 50, 72
@@ -638,154 +580,10 @@ export function buildExactTwinRingsPieces(spec: PuzzleSpec): Piece[] {
   });
 }
 
-/**
- * Build exact unbandaged 2-Circle Venn / Mandorla (21 pieces, 120° turns).
- */
-export function buildExactMandorlaPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(MANDORLA_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 75.05, y: 50 },
-  });
-}
-
-/**
- * Build properly unbandaged 4-Circle Clover (90° turns, clean non-tangent spacing).
- */
-export function buildExactFourCircleCloverPieces(spec: PuzzleSpec): Piece[] {
-  const pieces = buildFromGeraniumsPotScript(FOUR_CIRCLE_CLOVER_SCRIPT, spec, {
-    coordScale: 1 / 50,
-  });
-  // Give each of the 4 adjacent overlap lenses a distinct blended bridge color matching its two parent circles:
-  // A∩B (Red+Yellow) -> Orange, B∩C (Yellow+Green) -> Lime, C∩D (Green+Blue) -> Cyan, D∩A (Blue+Red) -> Purple
-  const pairColors: Record<string, string> = {
-    'A,B': '#f97316',
-    'B,C': '#84cc16',
-    'C,D': '#06b6d4',
-    'A,D': '#a855f7',
-  };
-  for (const p of pieces) {
-    if (p.color === '#f8fafc') {
-      const members = spec.circles
-        .filter((c) => classifyRegionAgainstCircle(p.region, c) === 'inside')
-        .map((c) => c.id)
-        .sort()
-        .join(',');
-      const bridge = pairColors[members];
-      if (bridge) {
-        p.color = bridge;
-        p.homeColor = bridge;
-      }
-    }
-  }
-  return pieces;
-}
-
-/**
- * Build properly unbandaged 6-Circle Hex Flower (60° turns, hexagonal lattice).
- */
-export function buildExactSixCircleHexPieces(spec: PuzzleSpec): Piece[] {
-  const pieces = buildFromGeraniumsPotScript(SIX_CIRCLE_HEX_SCRIPT, spec, {
-    coordScale: 1 / 50,
-  });
-  for (const p of pieces) {
-    if (p.color === '#f8fafc') {
-      const members = spec.circles.filter(
-        (c) => classifyRegionAgainstCircle(p.region, c) === 'inside',
-      );
-      if (members.length === 2) {
-        p.color = '#cbd5e1';
-        p.homeColor = '#cbd5e1';
-      }
-    }
-  }
-  return pieces;
-}
-
-/**
- * Build properly unbandaged 7-Circle Flower (1 central ring G + 6 outer rings A..F, 60° turns).
- */
-export function buildExactSevenCircleFlowerPieces(spec: PuzzleSpec): Piece[] {
-  const pieces = buildFromGeraniumsPotScript(SEVEN_CIRCLE_FLOWER_SCRIPT, spec, {
-    coordScale: 1 / 50,
-  });
-  const outerCircles = spec.circles.slice(0, 6);
-  const centerCircle = spec.circles[6];
-  for (const p of pieces) {
-    const inCenter = classifyRegionAgainstCircle(p.region, centerCircle) === 'inside';
-    const outerMembers = outerCircles.filter(
-      (c) => classifyRegionAgainstCircle(p.region, c) === 'inside',
-    );
-    if (outerMembers.length === 1) {
-      // Pure outer petal: home color of its outer ring
-      p.color = outerMembers[0].color;
-      p.homeColor = outerMembers[0].color;
-    } else if (inCenter && outerMembers.length === 3) {
-      // 6 central flower petals inside G: color each by the middle/nearest outer ring so turning G swirls the rainbow core!
-      const pt = interiorPointOfRegion(p.region);
-      let best = outerMembers[0];
-      let bestD = Infinity;
-      for (const c of outerMembers) {
-        const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
-        if (d < bestD) {
-          bestD = d;
-          best = c;
-        }
-      }
-      p.color = best.color;
-      p.homeColor = best.color;
-    } else if (inCenter && outerMembers.length === 2) {
-      // 6 inner star tips bordering G's rim: crisp teal accent matching G
-      p.color = '#14b8a6';
-      p.homeColor = '#14b8a6';
-    } else if (!inCenter && outerMembers.length === 2) {
-      // Outer 2-circle overlap lenses outside G: soft slate bridge
-      p.color = '#cbd5e1';
-      p.homeColor = '#cbd5e1';
-    }
-  }
-  return pieces;
-}
-
-
-export function buildExactPocketQuatriumPieces(spec: PuzzleSpec, _plus: boolean): Piece[] {
-  return buildFromGeraniumsPotScript(POCKET_QUATRIUM_PLUS_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 108, y: 50 },
-  });
-}
-
-export function buildExactFomalhautPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(FOMALHAUT_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 86, y: 50 },
-  });
-}
-
 export function buildExactFragmentationRingPieces(spec: PuzzleSpec): Piece[] {
   return buildFromGeraniumsPotScript(FRAGMENTATION_RING_SCRIPT, spec, {
     coordScale: 1 / 50,
     originOffset: { x: 81, y: 50 },
-  });
-}
-
-// Verbatim Cubitero/GigaHex.txt (105 pieces, 2 concentric 2-layer 60° circles)
-const GIGAHEX_SCRIPT = `
-Ring: 1,  50, 50, 50, 60
-Ring: 2,  50, 50, 40, 60
-Ring: 3, 113, 50, 50, 60
-Ring: 4, 113, 50, 40, 60
-AutoCutParts: (1R,3R),9
-AutoColorParts: 4,4, 9,9
-SetColorParts: (8,21,36,51,48,49,50,69,84,97),1, (9,22,37,55,70,85,98,56,57,58),1
-SetColorParts: (11,14,20,25,32,15,26,35,40,45),4, (62,59,63,68,77,89,101,72,76,83,88,94,75,87,96,100,104,101),3
-SetColorParts: (16,27,33,28,41,46,42,52,53,54,64,60,65,78,73,79,90),6
-SetColorParts: (12,18,23,30,34,17,29,38,43,47),9, (102,91,80,71,66,61,67,105,95,92,86,81,74,82,103,99,93),5
-`;
-
-export function buildExactGigaHexPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(GIGAHEX_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 81.5, y: 50 },
   });
 }
 

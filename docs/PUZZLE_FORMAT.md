@@ -131,7 +131,7 @@ Evaluated sequentially — later rules override earlier ones:
 - **`{ "type": "fill", "color": "#..." }`**: Sets all pieces to one color.
 - **`{ "type": "venn", "circles": ["A", "B", "C"], "palette": { "100": "#...", "110": "#...", ... } }`**: Bitmask coloring by circle containment.
 - **`{ "type": "cyclicArm", "axis": "A", "count": 8, "armColor": "#...", "colors": [...] }`**: Colors pieces by angular sector around the puzzle center (used by OctoCrystal).
-- **`{ "type": "region", "allOf": [...], "anyOf": [...], "noneOf": [...], "color": "#..." }`**: Geometric set predicate! Circle refs can even be rotated copies: `{ "axis": "A", "rotateAround": "B", "angleDeg": 120 }`.
+- **`{ "type": "region", "inside": [...], "outside": [...], "color": "#..." }`**: Geometric set predicate! Circle refs can even be rotated copies: `{ "axis": "A", "around": "B", "angleDeg": 120 }`.
 - **`{ "type": "points", "probes": [{ "x": 0.2, "y": -0.3, "color": "#..." }] }`**: Index-free point-in-piece probes.
 
 ---

@@ -786,6 +786,440 @@ export const THREE_CIRCLE_CLOVER_DOC: RingTwistPuzzleDoc = {
   ],
 };
 
+/**
+ * 14. 2-Circle Venn / Mandorla (120°, 21 pieces, mirror=[x,y])
+ */
+export const TWO_CIRCLE_VENN_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'two-circle',
+  name: '2-Circle Venn (Mandorla 120°)',
+  category: 'Classic Circles',
+  description:
+    'Fully unbandaged 21-piece 2-circle Venn puzzle (Mandorla) with 120° stops. Every turn aligns cleanly — ideal for learning commutators and conjugates.',
+  symmetryStepDeg: 180,
+  axes: [
+    { id: 'A', cx: '-25.05 / 50', cy: 0, r: 1, stops: 3, color: '#38bdf8' },
+    { id: 'B', cx: '25.05 / 50', cy: 0, r: 1, stops: 3, color: '#16a34a' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 8 },
+        { moves: ["A'", "B'"], repeat: 8 },
+        { moves: ['A', "B'"], repeat: 8 },
+        { moves: ["A'", 'B'], repeat: 8 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#38bdf8', B: '#16a34a', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '120° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Clean 120° commutator across the unbandaged Mandorla lens',
+    },
+    {
+      name: '180° flip conjugate',
+      alg: '[z: A B]',
+      note: 'Whole-puzzle 180° rotation swaps A and B',
+    },
+  ],
+};
+
+/**
+ * 15. 4-Circle Clover (90° square symmetry, 16 pieces, mirror=[x,y])
+ */
+export const FOUR_CIRCLE_CLOVER_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'four-circle-clover',
+  name: '4-Circle Clover (90°)',
+  category: 'Classic Circles',
+  description:
+    '4 intersecting circles in square symmetry with 90° stops, distinct blended overlap lenses, and fully unbandaged quarter-turn moves.',
+  symmetryStepDeg: 90,
+  axes: [
+    {
+      ring: {
+        ids: 'ABCD',
+        centerRadius: '(38 / 50) * sqrt2',
+        r: 1,
+        startAngleDeg: 45,
+        stops: 4,
+        colors: ['#ef4444', '#facc15', '#16a34a', '#2563eb'],
+      },
+    },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 6,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D'], repeat: 4 },
+        { moves: ["A'", "B'", "C'", "D'"], repeat: 4 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: {
+        A: '#ef4444',
+        B: '#facc15',
+        C: '#16a34a',
+        D: '#2563eb',
+        AB: '#f97316',
+        BC: '#84cc16',
+        CD: '#06b6d4',
+        AD: '#a855f7',
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '90° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Clean quarter-turn commutator between adjacent circles',
+    },
+    {
+      name: '4-fold symmetry [z: A B]',
+      alg: '[z: A B]',
+      note: 'Applies A B rotated 90° CW around the clover',
+    },
+  ],
+};
+
+/**
+ * 16. 6-Circle Hex Flower (60° hexagonal lattice, 66 pieces, mirror=[x,y])
+ */
+export const SIX_CIRCLE_HEX_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'six-circle-hex',
+  name: '6-Circle Hex Flower (60°)',
+  category: 'Classic Circles',
+  description:
+    '6 overlapping circles in hexagonal symmetry with 60° stops, unbandaged across the full hexagonal lattice.',
+  symmetryStepDeg: 60,
+  axes: [
+    {
+      ring: {
+        ids: 'ABCDEF',
+        centerRadius: 1,
+        r: 1,
+        startAngleDeg: 90,
+        stops: 6,
+        colors: ['#ef4444', '#f97316', '#facc15', '#16a34a', '#2563eb', '#9333ea'],
+      },
+    },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 6,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D', 'E', 'F'], repeat: 6 },
+        { moves: ["A'", "B'", "C'", "D'", "E'", "F'"], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#f8fafc' },
+    {
+      type: 'venn',
+      colors: {
+        A: '#ef4444',
+        B: '#f97316',
+        C: '#facc15',
+        D: '#16a34a',
+        E: '#2563eb',
+        F: '#9333ea',
+        AB: '#cbd5e1',
+        BC: '#cbd5e1',
+        CD: '#cbd5e1',
+        DE: '#cbd5e1',
+        EF: '#cbd5e1',
+        AF: '#cbd5e1',
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '60° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Clean 60° commutator across adjacent hexagonal circles',
+    },
+    {
+      name: 'Symmetry conjugate',
+      alg: 'm = [A, B]\n[z2: m]',
+      note: 'Applies m rotated 120° CW around the hex flower',
+    },
+  ],
+};
+
+/**
+ * 17. 7-Circle Flower (1 central ring G + 6 outer rings A..F, 60°, 66 pieces, mirror=[x,y])
+ */
+export const SEVEN_CIRCLE_FLOWER_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'seven-circle-flower',
+  name: '7-Circle Flower (60°)',
+  category: 'Classic Circles',
+  description:
+    '6 hexagonal outer rings (A–F) surrounding a playable central ring (G) with 60° stops — spin the center flower to route pieces between all six arms.',
+  symmetryStepDeg: 60,
+  axes: [
+    {
+      ring: {
+        ids: 'ABCDEF',
+        centerRadius: 1,
+        r: 1,
+        startAngleDeg: 90,
+        stops: 6,
+        colors: ['#ef4444', '#f97316', '#facc15', '#16a34a', '#2563eb', '#9333ea'],
+      },
+    },
+    { id: 'G', cx: 0, cy: 0, r: 1, stops: 6, color: '#14b8a6' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 6,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D', 'E', 'F', 'G'], repeat: 6 },
+        { moves: ["A'", "B'", "C'", "D'", "E'", "F'", "G'"], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: {
+        A: '#ef4444',
+        B: '#f97316',
+        C: '#facc15',
+        D: '#16a34a',
+        E: '#2563eb',
+        F: '#9333ea',
+        AB: '#cbd5e1',
+        BC: '#cbd5e1',
+        CD: '#cbd5e1',
+        DE: '#cbd5e1',
+        EF: '#cbd5e1',
+        AF: '#cbd5e1',
+        ABG: '#14b8a6',
+        BCG: '#14b8a6',
+        CDG: '#14b8a6',
+        DEG: '#14b8a6',
+        EFG: '#14b8a6',
+        AFG: '#14b8a6',
+        ABFG: '#ef4444',
+        ABCG: '#f97316',
+        BCDG: '#facc15',
+        CDEG: '#16a34a',
+        DEFG: '#2563eb',
+        AEFG: '#9333ea',
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Center-arm commutator [G, A]',
+      alg: '[G, A]',
+      note: 'Commutes the playable center ring G with outer ring A',
+    },
+    {
+      name: '6-fold swirl (G A)3',
+      alg: '(G A)3',
+      note: 'Alternates center ring G and outer ring A in 60° steps',
+    },
+  ],
+};
+
+/**
+ * 18. Pocket Quatrium Plus (James Li — 3 inline 90° circles, 49 pieces, mirror=[x,y])
+ */
+export const POCKET_QUATRIUM_PLUS_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'pocket-quatrium-plus',
+  name: 'Pocket Quatrium Plus',
+  category: 'Designer & Exotic',
+  description:
+    'James Li’s 3-circle inline 90° Pocket Quatrium Plus with pink, light-blue, and yellow circles plus blended overlap lenses.',
+  symmetryStepDeg: 180,
+  axes: [
+    { id: 'A', cx: '-58 / 50', cy: 0, r: 1, stops: 4, color: '#f472b6' },
+    { id: 'B', cx: 0, cy: 0, r: 1, stops: 4, color: '#38bdf8' },
+    { id: 'C', cx: '58 / 50', cy: 0, r: 1, stops: 4, color: '#facc15' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B', 'C'], repeat: 8 },
+        { moves: ["A'", "B'", "C'"], repeat: 8 },
+        { moves: ['A', "B'", 'C'], repeat: 8 },
+        { moves: ["A'", 'B', "C'"], repeat: 8 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: {
+        A: '#f472b6',
+        B: '#38bdf8',
+        C: '#facc15',
+        AB: '#9333ea',
+        BC: '#f97316',
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: "Inline walk (A B C2 B')",
+      alg: "A B C2 B'",
+      note: 'Quarter-turns and half-turns ripple across all three inline 90° circles',
+    },
+    {
+      name: '180° Symmetry [z: A2 B2 C2]',
+      alg: '[z: A2 B2 C2]',
+      note: 'Mirrors half-turns across the 3-circle line via z',
+    },
+  ],
+};
+
+/**
+ * 19. Starcopter / Fomalhaut (Dmitry Andreev / Pluton — 72° unequal circles, 90 pieces, mirror=[x])
+ */
+export const FOMALHAUT_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'fomalhaut',
+  name: 'Starcopter (Fomalhaut)',
+  category: 'Designer & Exotic',
+  description:
+    'Dmitry Andreev’s Fomalhaut (Starcopter): two unequal 72° pentagonal circles with intricate star-petal cuts (90 pieces).',
+  axes: [
+    { id: 'A', cx: '-36 / 50', cy: 0, r: 1, stops: 5, color: '#facc15' },
+    { id: 'B', cx: '28 / 50', cy: 0, r: '58 / 50', stops: 5, color: '#2563eb' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', "B'"], repeat: 20 },
+        { moves: ["A'", 'B'], repeat: 20 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#facc15', B: '#2563eb', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: "72° Commutator [A, B']",
+      alg: "[A, B']",
+      note: '72° commutator across the unequal Fomalhaut overlap',
+    },
+  ],
+};
+
+/**
+ * 20. Cube4you GigaHex (2 concentric 2-layer 60° circles, 105 pieces, mirror=[x,y])
+ */
+export const GIGAHEX_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'gigahex',
+  name: 'GigaHex',
+  category: 'Designer & Exotic',
+  description:
+    'Cube4you GigaHex: two overlapping 2-layer 60° circles (A/B inner disks, 2A/2B outer slices, a/b wide turns) with 105 pieces.',
+  symmetryStepDeg: 180,
+  axes: [
+    {
+      id: 'A',
+      cx: '-31.5 / 50',
+      cy: 0,
+      r: 1,
+      layers: [0.8, 1],
+      stops: 6,
+      color: '#16a34a',
+    },
+    {
+      id: 'B',
+      cx: '31.5 / 50',
+      cy: 0,
+      r: 1,
+      layers: [0.8, 1],
+      stops: 6,
+      color: '#f97316',
+    },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['a', 'b'], repeat: 10 },
+        { moves: ["a'", "b'"], repeat: 10 },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#1e293b' },
+    { type: 'region', inside: ['A', 'B'], color: '#facc15' },
+    {
+      type: 'region',
+      inside: ['A', { axis: 'B', around: 'A', angleDeg: 120 }],
+      color: '#16a34a',
+    },
+    {
+      type: 'region',
+      inside: ['A', { axis: 'B', around: 'A', angleDeg: -120 }],
+      color: '#ef4444',
+    },
+    {
+      type: 'region',
+      inside: ['B', { axis: 'A', around: 'B', angleDeg: -120 }],
+      color: '#f97316',
+    },
+    {
+      type: 'region',
+      inside: ['B', { axis: 'A', around: 'B', angleDeg: 120 }],
+      color: '#2563eb',
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Wide/inner commutator [a, B]',
+      alg: '[a, B]',
+      note: 'Commutes wide turn a with inner disk B in 60° steps',
+    },
+    {
+      name: 'Outer-slice exchange [2A, 2B]',
+      alg: '[2A, 2B]',
+      note: 'Swaps pieces between the two concentric outer rings 2A and 2B',
+    },
+  ],
+};
+
 /** Starter templates shown in the Custom Puzzle JSON Studio. */
 export const CUSTOM_PUZZLE_TEMPLATES: { label: string; doc: RingTwistPuzzleDoc }[] = [
   {
