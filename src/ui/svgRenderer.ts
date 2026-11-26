@@ -501,16 +501,16 @@ export class PuzzleSvgRenderer {
       undefined,
     );
 
-    const startTime = performance.now();
+    let startTime: number | null = null;
     const { x: px, y: py } = anim.pivot;
     const svgPy = -py;
     let swappedFlipHalf = false;
 
     const tick = (now: number) => {
-      const rawT = Math.min(1, (now - startTime) / anim.durationMs);
+      if (startTime === null) startTime = now;
+      const t = Math.min(1, (now - startTime) / anim.durationMs);
       if (anim.flipAxis) {
-        // Smooth ease-in-out pancake flip: fold from 1 -> 0, swap to toState at midpoint, unfold 0 -> 1
-        const t = rawT < 0.5 ? 2 * rawT * rawT : 1 - Math.pow(-2 * rawT + 2, 2) / 2;
+        // Constant-angular-velocity 3D flip projection: cos(pi * t) folds 1 -> 0, swaps at midpoint, unfolds 0 -> 1
         if (t >= 0.5 && !swappedFlipHalf) {
           swappedFlipHalf = true;
           this.drawPieces(anim.toState, new Set(), movedSet);
@@ -523,8 +523,7 @@ export class PuzzleSvgRenderer {
           `translate(${px.toFixed(4)} ${svgPy.toFixed(4)}) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(${(-px).toFixed(4)} ${(-svgPy).toFixed(4)})`,
         );
       } else {
-        // Cubic ease-out in-plane rotation
-        const t = 1 - Math.pow(1 - rawT, 3);
+        // Smooth constant-velocity rotation (no aggressive easing spikes or sluggish tails)
         const curDeg = anim.angleDeg * t;
         this.movingLayer.setAttribute(
           'transform',
@@ -532,7 +531,7 @@ export class PuzzleSvgRenderer {
         );
       }
 
-      if (rawT < 1) {
+      if (t < 1) {
         this.animFrameId = requestAnimationFrame(tick);
       } else {
         this.animFrameId = null;

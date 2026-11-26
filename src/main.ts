@@ -959,10 +959,10 @@ class RingTwistApp {
     this.renderCurrentStep();
   }
 
-  private turnDurationMs(angleDeg: number, fastForwarded?: boolean, baseMs = 550): number {
+  private turnDurationMs(angleDeg: number, fastForwarded?: boolean, baseMs = 360): number {
     if (fastForwarded) return 0;
-    // Gently scale duration with turn angle so 108°/180° turns feel naturally paced vs 36° turns
-    const angleFactor = 0.75 + 0.25 * (Math.min(Math.abs(angleDeg), 180) / 72);
+    // Scale duration cleanly with turn angle so angular speed stays consistent across 36°..180° turns
+    const angleFactor = 0.65 + 0.35 * (Math.min(Math.abs(angleDeg), 180) / 72);
     return Math.round((baseMs * angleFactor) / this.speedMultiplier);
   }
 
@@ -981,7 +981,7 @@ class RingTwistApp {
     const statusesAfter = getAllCircleStatuses(step.stateAfter);
     this.updateChrome(step.stateAfter, statusesAfter);
 
-    const durationMs = this.turnDurationMs(step.angleDeg, step.fastForwarded, 550);
+    const durationMs = this.turnDurationMs(step.angleDeg, step.fastForwarded, 360);
     this.renderer.animateTurn(
       {
         fromState,
@@ -1010,7 +1010,7 @@ class RingTwistApp {
     const statusesAfter = getAllCircleStatuses(toState);
     this.updateChrome(toState, statusesAfter);
 
-    const durationMs = this.turnDurationMs(step.angleDeg, step.fastForwarded, 480);
+    const durationMs = this.turnDurationMs(step.angleDeg, step.fastForwarded, 320);
     this.renderer.animateTurn(
       {
         fromState,
@@ -1044,7 +1044,7 @@ class RingTwistApp {
       }
       this.stepForward(() => {
         if (!this.isPlaying) return;
-        const pauseMs = Math.round(300 / this.speedMultiplier);
+        const pauseMs = Math.round(70 / this.speedMultiplier);
         this.playTimerId = window.setTimeout(playNext, pauseMs);
       });
     };
@@ -1185,7 +1185,7 @@ class RingTwistApp {
           angleDeg: deltaAnim.angleDeg,
           pivot: deltaAnim.pivot,
           movedPieceIds: deltaAnim.movedPieceIds,
-          durationMs: this.turnDurationMs(deltaAnim.angleDeg, false, 360),
+          durationMs: this.turnDurationMs(deltaAnim.angleDeg, false, 260),
           ...(deltaAnim.flipAxis ? { flipAxis: deltaAnim.flipAxis } : {}),
         },
         highlightAfter,
@@ -1203,7 +1203,7 @@ class RingTwistApp {
           angleDeg: step.angleDeg,
           pivot: step.pivot,
           movedPieceIds: step.movedPieceIds,
-          durationMs: this.turnDurationMs(step.angleDeg, step.fastForwarded, 400),
+          durationMs: this.turnDurationMs(step.angleDeg, step.fastForwarded, 280),
           ...(step.flipAxis ? { flipAxis: step.flipAxis } : {}),
         },
         highlightAfter,
