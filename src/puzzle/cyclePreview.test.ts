@@ -4,6 +4,7 @@ import { buildPuzzle } from './builder.ts';
 import { getPuzzleSpec } from './catalog.ts';
 import { computeMacroCyclePreview } from './cyclePreview.ts';
 import { generateScramble } from './engine.ts';
+import { parseSolveTranscript, serializeSolveTranscript } from './solveStack.ts';
 
 describe('macro piece-cycle preview', () => {
   it('detects exact permutation cycles for a commutator on 2-Circle Venn', () => {
@@ -59,5 +60,34 @@ describe('opaque scramble share-hash round-trip & determinism', () => {
     const s1 = generateScramble(state, 12, 'solve-seed-v1');
     const s2 = generateScramble(state, 12, 'solve-seed-v1');
     expect(s1).toBe(s2);
+  });
+
+  it('round-trips Solve Stack milestones and active scratchpad through transcript serialization', () => {
+    const milestones = [
+      { label: 'outer ring', alg: 'A3 D3' },
+      { label: 'green petals', alg: '[z: conj] B2' },
+    ];
+    const active = 'E3 A';
+    const text = serializeSolveTranscript(milestones, active);
+    expect(text).toContain('// @milestone outer ring');
+    expect(text).toContain('// @milestone green petals');
+    expect(text).toContain('// @active');
+
+    const hydrated = parseSolveTranscript(text);
+    expect(hydrated.milestones).toEqual(milestones);
+    expect(hydrated.activeAlg).toBe(active);
+
+    // Works cleanly with milestones only (no active draft)
+    const textCommittedOnly = serializeSolveTranscript(milestones, '');
+    expect(parseSolveTranscript(textCommittedOnly)).toEqual({
+      milestones,
+      activeAlg: '',
+    });
+
+    // Works cleanly with raw draft only (no milestones yet)
+    expect(parseSolveTranscript('A2 B3')).toEqual({
+      milestones: [],
+      activeAlg: 'A2 B3',
+    });
   });
 });

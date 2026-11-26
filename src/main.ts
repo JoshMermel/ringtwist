@@ -3,6 +3,7 @@ import { interiorPointOfRegion } from './geom/arcRegion.ts';
 import { Span } from './lang/ast.ts';
 import {
   EvaluationResult,
+  ExecutedStep,
   MacroLibraryEntry,
   analyzeAlgorithm,
   evaluateProgram,
@@ -30,6 +31,11 @@ import {
 } from './puzzle/engine.ts';
 import { RingTwistPuzzleDoc, exportPuzzleToRingTwistDoc } from './puzzle/format.ts';
 import { compileRingTwistDoc } from './puzzle/formatBuilder.ts';
+import {
+  SolveMilestone,
+  parseSolveTranscript,
+  serializeSolveTranscript,
+} from './puzzle/solveStack.ts';
 import { PuzzleSpec, PuzzleState } from './puzzle/types.ts';
 import {
   CustomPuzzleModalController,
@@ -44,12 +50,14 @@ import {
   decodeShareHash,
   encodeShareHash,
   loadCustomPuzzles,
+  loadExploreSession,
   loadMacros,
-  loadSession,
+  loadSolveSession,
   loadUiMode,
   saveCustomPuzzles,
+  saveExploreSession,
   saveMacros,
-  saveSession,
+  saveSolveSession,
   saveUiMode,
 } from './ui/storage.ts';
 import {
@@ -76,39 +84,24 @@ function formatDuration(ms: number): string {
   return hrs > 0 ? `${hrs}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-interface MilestoneMark {
-  label: string;
-  charEnd: number;
-  stepIndex: number;
+function rollRandomSeed(): string {
+  return String(Math.floor(10000 + Math.random() * 90000));
 }
 
-function parseMilestones(
-  src: string,
-  steps: EvaluationResult['steps'],
-): MilestoneMark[] {
-  const marks: MilestoneMark[] = [];
-  let offset = 0;
-  const lines = src.split('\n');
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
-    const lineEnd = offset + line.length;
-    const m = /^\s*(?:\/\/|#)\s*@milestone(?:\s+(.*?))?\s*$/i.exec(line);
-    if (m) {
-      let stepIdx = 0;
-      for (let i = 0; i < steps.length; i++) {
-        if (steps[i].topSpan.start < lineEnd) stepIdx = i + 1;
-        else break;
-      }
-      const rawLabel = (m[1] ?? '').trim();
-      marks.push({
-        label: rawLabel || `Milestone ${marks.length + 1}`,
-        charEnd: lineEnd,
-        stepIndex: stepIdx,
-      });
-    }
-    offset = lineEnd + 1;
-  }
-  return marks;
+interface CompiledMilestone {
+  label: string;
+  alg: string;
+  steps: ExecutedStep[];
+  stateBefore: PuzzleState;
+  stateAfter: PuzzleState;
+  startStep: number;
+  endStep: number;
+  error?: string;
+}
+
+interface SolveUndoEntry {
+  milestones: SolveMilestone[];
+  activeAlg: string;
 }
 
 class RingTwistApp {
@@ -117,20 +110,30 @@ class RingTwistApp {
   private customSpecs: PuzzleSpec[] = [];
   private currentSpec: PuzzleSpec;
   private solvedState: PuzzleState;
-  private startState: PuzzleState;
   private uiMode: UiMode = 'explorer';
-  private scrambleSeed = '';
-  private scrambleMoves = 20;
+
+  // Explore Mode state (always starts solved)
+  private exploreAlg = '';
+
+  // Solve Mode state (always starts scrambled from solveSeed; milestones form an immutable stack)
+  private solveSeed = '';
+  private solveScrambleMoves = 20;
+  private scrambleState: PuzzleState;
+  private solveMilestones: SolveMilestone[] = [];
+  private compiledMilestones: CompiledMilestone[] = [];
+  private solveActiveAlg = '';
   private solveElapsedMs = 0;
   private timerStartedAt: number | null = null;
   private timerIntervalId: number | null = null;
   private solveCompleted = false;
   private completionDismissed = false;
-  private moveUndoStack: string[] = [];
-  private cyclePreviewCache = new Map<string, CyclePreviewResult>();
+  private solveUndoStack: SolveUndoEntry[] = [];
+
+  // Shared active evaluation & playback state
   private macros: MacroLibraryEntry[] = [];
   private evalResult: EvaluationResult;
-  private currentStepIndex = 0; // 0 = initial state, k = after steps[k-1]
+  private allSteps: ExecutedStep[] = [];
+  private currentStepIndex = 0; // 0 = initial state (solved in Explore, scrambled in Solve)
   private isPlaying = false;
   private playTimerId: number | null = null;
   private evalDebounceId: number | null = null;
@@ -139,8 +142,8 @@ class RingTwistApp {
   private speedMultiplier = 1.0;
   private solvedPeekVisible = false;
   private solvedPeekExpanded = false;
+  private cyclePreviewCache = new Map<string, CyclePreviewResult>();
   private lastMacroListKey = '';
-  private lastMilestoneKey = '';
 
   // UI elements
   private renderer!: PuzzleSvgRenderer;
@@ -151,17 +154,18 @@ class RingTwistApp {
   private workspaceEl!: HTMLElement;
   private modeExplorerBtn!: HTMLButtonElement;
   private modeSolveBtn!: HTMLButtonElement;
-  private solveBarEl!: HTMLElement;
-  private solveSeedInput!: HTMLInputElement;
-  private solveMovesInput!: HTMLInputElement;
-  private solveClearScrambleBtn!: HTMLButtonElement;
+  private solveHudBarEl!: HTMLElement;
   private solveMoveCountEl!: HTMLElement;
   private solveTimerBtn!: HTMLButtonElement;
   private solveTimerTextEl!: HTMLElement;
   private solveUndoBtn!: HTMLButtonElement;
-  private milestonePopoverEl!: HTMLElement;
-  private milestoneLabelInput!: HTMLInputElement;
-  private milestonesBarEl!: HTMLElement;
+  private solveStackCardEl!: HTMLElement;
+  private solveStackCountEl!: HTMLElement;
+  private solveStackListEl!: HTMLElement;
+  private commitMilestoneFormEl!: HTMLFormElement;
+  private commitMilestoneLabelInput!: HTMLInputElement;
+  private commitMilestoneBtn!: HTMLButtonElement;
+  private clearDraftBtn!: HTMLButtonElement;
   private cyclePreviewPillEl!: HTMLElement;
   private completionBannerEl!: HTMLElement;
   private stageHintEl!: HTMLElement;
@@ -173,9 +177,6 @@ class RingTwistApp {
   private solvedPeekBtnEl!: HTMLButtonElement;
   private solvedRefCardEl!: HTMLElement;
   private solvedRefStageEl!: HTMLElement;
-  private scramblePopoverEl!: HTMLElement;
-  private scrambleSeedInput!: HTMLInputElement;
-  private scrambleMovesInput!: HTMLInputElement;
   private statusPillsEl!: HTMLElement;
   private circleChipsEl!: HTMLElement;
   private diagBannerEl!: HTMLElement;
@@ -193,7 +194,6 @@ class RingTwistApp {
   constructor(root: HTMLElement) {
     this.customDocs = loadCustomPuzzles();
     this.customSpecs = this.compileCustomDocs(this.customDocs);
-    this.uiMode = loadUiMode();
 
     const shared = decodeShareHash(window.location.hash);
     if (shared?.customDoc && !this.isBuiltInPuzzle(shared.customDoc.id)) {
@@ -203,20 +203,20 @@ class RingTwistApp {
     const initialSpec = this.findPuzzleSpec(shared?.puzzleId ?? 'geranium-plus');
     this.currentSpec = initialSpec;
     this.solvedState = this.getOrBuildPuzzle(initialSpec);
-
-    const saved = shared ? null : loadSession(initialSpec.id);
-    this.scrambleSeed = shared?.scrambleSeed ?? saved?.scrambleSeed ?? '';
-    this.scrambleMoves = shared?.scrambleMoves ?? saved?.scrambleMoves ?? 20;
-    this.solveElapsedMs = saved?.elapsedMs ?? 0;
-    this.solveCompleted = saved?.solved ?? false;
-    this.startState = this.computeStartState(
-      this.solvedState,
-      this.scrambleSeed,
-      this.scrambleMoves,
-    );
-
+    this.scrambleState = this.solvedState;
     this.macros = shared?.macros ?? loadMacros(initialSpec.id);
-    this.evalResult = evaluateProgram(this.startState, '', this.macros, {
+
+    // Determine initial mode: shared link with seed opens Solve Mode; shared without seed opens Explore Mode
+    if (shared) {
+      this.uiMode = shared.scrambleSeed ? 'solve' : 'explorer';
+    } else {
+      this.uiMode = loadUiMode();
+    }
+
+    // Load per-puzzle Explore & Solve sessions
+    this.loadPuzzleSessions(initialSpec.id, shared ?? undefined);
+
+    this.evalResult = evaluateProgram(this.getActiveEvalBaseState(), '', this.macros, {
       solvedReference: this.solvedState,
     });
 
@@ -237,27 +237,74 @@ class RingTwistApp {
       onDeleteCustom: (puzzleId) => this.deleteCustomPuzzle(puzzleId),
     });
 
-    const initialAlg = shared ? shared.alg : (saved?.alg ?? '');
-    this.editor.setValue(initialAlg);
-    this.applyUiMode(this.uiMode, false);
+    this.applyUiModeChrome();
+    this.editor.setValue(this.uiMode === 'solve' ? this.solveActiveAlg : this.exploreAlg);
     this.syncPuzzleButton();
-    this.syncSolveBar();
     this.syncSolvedRefCard();
     this.renderSamples();
     this.renderMacroList();
+    if (this.uiMode === 'solve') {
+      this.rebuildCommittedStack();
+    }
     this.reevaluate(true, { suppressAutoStart: true });
     this.bindGlobalShortcuts();
     window.addEventListener('hashchange', () => this.applySharedHash());
-    window.addEventListener('beforeunload', () => this.persistCurrentSession());
+    window.addEventListener('beforeunload', () => this.persistCurrentSessions());
   }
 
-  private computeStartState(solved: PuzzleState, seed: string, moves: number): PuzzleState {
-    const clean = seed.trim();
-    if (!clean) return solved;
-    const clampedMoves = Math.max(4, Math.min(80, Math.round(moves) || 20));
-    const seq = generateScramble(solved, clampedMoves, clean);
+  private computeScrambleState(solved: PuzzleState, seed: string, moves: number): PuzzleState {
+    const clean = seed.trim() || rollRandomSeed();
+    const clamped = Math.max(4, Math.min(80, Math.round(moves) || 20));
+    const seq = generateScramble(solved, clamped, clean);
     const ev = evaluateProgram(solved, seq);
     return ev.finalState;
+  }
+
+  private loadPuzzleSessions(
+    puzzleId: string,
+    shared?: { alg: string; scrambleSeed?: string; scrambleMoves?: number },
+  ): void {
+    const savedExplore = loadExploreSession(puzzleId);
+    const savedSolve = loadSolveSession(puzzleId);
+
+    // Explore state
+    this.exploreAlg =
+      shared && !shared.scrambleSeed ? shared.alg : (savedExplore?.alg ?? '');
+
+    // Solve state: hydrate from share hash, or localStorage, or auto-roll a fresh scramble
+    if (shared && shared.scrambleSeed) {
+      const parsed = parseSolveTranscript(shared.alg);
+      this.solveSeed = shared.scrambleSeed;
+      this.solveScrambleMoves = shared.scrambleMoves ?? 20;
+      this.solveMilestones = parsed.milestones;
+      this.solveActiveAlg = parsed.activeAlg;
+      this.solveElapsedMs = 0;
+      this.solveCompleted = false;
+    } else if (savedSolve && savedSolve.seed.trim().length > 0) {
+      this.solveSeed = savedSolve.seed;
+      this.solveScrambleMoves = savedSolve.scrambleMoves;
+      this.solveMilestones = savedSolve.milestones.map((m) => ({ ...m }));
+      this.solveActiveAlg = savedSolve.activeAlg;
+      this.solveElapsedMs = savedSolve.elapsedMs;
+      this.solveCompleted = savedSolve.solved;
+    } else {
+      this.solveSeed = rollRandomSeed();
+      this.solveScrambleMoves = 20;
+      this.solveMilestones = [];
+      this.solveActiveAlg = '';
+      this.solveElapsedMs = 0;
+      this.solveCompleted = false;
+    }
+
+    this.completionDismissed = false;
+    this.solveUndoStack = [];
+    this.cyclePreviewCache.clear();
+    this.scrambleState = this.computeScrambleState(
+      this.solvedState,
+      this.solveSeed,
+      this.solveScrambleMoves,
+    );
+    this.compiledMilestones = [];
   }
 
   private isBuiltInPuzzle(id: string): boolean {
@@ -287,17 +334,12 @@ class RingTwistApp {
   private upsertCustomDoc(doc: RingTwistPuzzleDoc, persist: boolean): void {
     const normalized: RingTwistPuzzleDoc = { ...doc, category: 'Custom' };
     const idx = this.customDocs.findIndex((d) => d.id === normalized.id);
-    if (idx >= 0) {
-      this.customDocs[idx] = normalized;
-    } else {
-      this.customDocs.push(normalized);
-    }
+    if (idx >= 0) this.customDocs[idx] = normalized;
+    else this.customDocs.push(normalized);
     this.customSpecs = this.compileCustomDocs(this.customDocs);
     this.puzzleCache.delete(normalized.id);
     this.puzzlePicker?.invalidateThumb(normalized.id);
-    if (persist) {
-      saveCustomPuzzles(this.customDocs);
-    }
+    if (persist) saveCustomPuzzles(this.customDocs);
   }
 
   private saveAndSelectCustomPuzzle(doc: RingTwistPuzzleDoc): void {
@@ -352,28 +394,23 @@ class RingTwistApp {
     this.cancelPendingEval();
     this.stopPlayback();
     this.hideAnalysisBanner();
+    this.clearCyclePreview();
+
     this.currentSpec = this.findPuzzleSpec(shared.puzzleId);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
-    this.scrambleSeed = shared.scrambleSeed ?? '';
-    this.scrambleMoves = shared.scrambleMoves ?? 20;
-    this.startState = this.computeStartState(
-      this.solvedState,
-      this.scrambleSeed,
-      this.scrambleMoves,
-    );
-    this.solveElapsedMs = 0;
-    this.solveCompleted = false;
-    this.completionDismissed = false;
-    this.moveUndoStack = [];
-    this.cyclePreviewCache.clear();
     this.macros = shared.macros ?? loadMacros(this.currentSpec.id);
+    this.uiMode = shared.scrambleSeed ? 'solve' : 'explorer';
+    this.loadPuzzleSessions(this.currentSpec.id, shared);
     this.lastMacroListKey = '';
-    this.lastMilestoneKey = '';
-    this.editor.setValue(shared.alg);
+
+    this.applyUiModeChrome();
+    this.editor.setValue(this.uiMode === 'solve' ? this.solveActiveAlg : this.exploreAlg);
     this.syncPuzzleButton();
-    this.syncSolveBar();
     this.syncSolvedRefCard();
     this.renderSamples();
+    if (this.uiMode === 'solve') {
+      this.rebuildCommittedStack();
+    }
     this.reevaluate(true, { suppressAutoStart: true });
     this.showToast(`Loaded shared ${this.currentSpec.name} state`);
   }
@@ -385,6 +422,64 @@ class RingTwistApp {
       this.puzzleCache.set(spec.id, cached);
     }
     return cached;
+  }
+
+  private getTimelineInitialState(): PuzzleState {
+    return this.uiMode === 'solve' ? this.scrambleState : this.solvedState;
+  }
+
+  private getCommittedStepCount(): number {
+    if (this.uiMode !== 'solve' || this.compiledMilestones.length === 0) return 0;
+    return this.compiledMilestones[this.compiledMilestones.length - 1].endStep;
+  }
+
+  private getActiveEvalBaseState(): PuzzleState {
+    if (this.uiMode !== 'solve') return this.solvedState;
+    if (this.compiledMilestones.length === 0) return this.scrambleState;
+    return this.compiledMilestones[this.compiledMilestones.length - 1].stateAfter;
+  }
+
+  private rebuildCommittedStack(): void {
+    const compiled: CompiledMilestone[] = [];
+    let curState = this.scrambleState;
+    let stepOffset = 0;
+
+    for (const m of this.solveMilestones) {
+      const ev = evaluateProgram(curState, m.alg, this.macros, {
+        solvedReference: this.solvedState,
+      });
+      const error =
+        ev.parseErrors[0]?.message ??
+        ev.runtimeError?.message ??
+        (ev.blocked ? `Blocked at ${ev.blocked.moveLabel}` : undefined);
+      compiled.push({
+        label: m.label,
+        alg: m.alg,
+        steps: ev.steps,
+        stateBefore: curState,
+        stateAfter: ev.finalState,
+        startStep: stepOffset,
+        endStep: stepOffset + ev.steps.length,
+        ...(error ? { error } : {}),
+      });
+      curState = ev.finalState;
+      stepOffset += ev.steps.length;
+    }
+
+    this.compiledMilestones = compiled;
+  }
+
+  private rebuildAllSteps(): void {
+    if (this.uiMode === 'solve') {
+      const steps: ExecutedStep[] = [];
+      for (const m of this.compiledMilestones) {
+        for (const s of m.steps) steps.push(s);
+      }
+      for (const s of this.evalResult.steps) steps.push(s);
+      this.allSteps = steps;
+    } else {
+      this.allSteps = this.evalResult.steps;
+    }
   }
 
   private mountDOM(root: HTMLElement): void {
@@ -404,61 +499,25 @@ class RingTwistApp {
             <span class="book-btn-meta" id="puzzle-picker-meta"></span>
           </button>
           <div class="mode-toggle" role="group" aria-label="Workspace mode">
-            <button type="button" class="mode-btn" id="btn-mode-explorer" data-mode="explorer" title="Explorer Mode: script-first sequence discovery and order analysis">Explorer</button>
-            <button type="button" class="mode-btn" id="btn-mode-solve" data-mode="solve" title="Solve Mode: large stage, separate scramble seed, timer, milestones, and macro toolbar">Solve</button>
+            <button type="button" class="mode-btn" id="btn-mode-explorer" data-mode="explorer" title="Explore Mode: start solved, write move sequences, analyze orders">Explore</button>
+            <button type="button" class="mode-btn" id="btn-mode-solve" data-mode="solve" title="Solve Mode: start scrambled from a seed, commit moves onto a milestone stack">Solve</button>
           </div>
-          <div class="scramble-wrap">
-            <button type="button" class="btn" id="btn-scramble" aria-haspopup="true" aria-expanded="false" title="Start a repeatable seeded scramble">Scramble ▾</button>
-            <form class="scramble-popover" id="scramble-popover" hidden>
-              <div class="sp-title">Seeded Scramble</div>
-              <div class="sp-row">
-                <label for="scramble-seed">Seed</label>
-                <div class="sp-seed-group">
-                  <input type="text" id="scramble-seed" autocomplete="off" spellcheck="false" placeholder="any word or number" />
-                  <button type="button" class="btn btn-sm" id="btn-rand-seed" title="Roll a random seed">🎲</button>
-                </div>
-              </div>
-              <div class="sp-row">
-                <label for="scramble-moves">Moves</label>
-                <input type="number" id="scramble-moves" min="4" max="80" value="20" />
-              </div>
-              <div class="sp-actions">
-                <button type="button" class="btn btn-sm" id="btn-scramble-as-text" title="Insert raw scramble moves directly into the script editor">Insert as text</button>
-                <button type="submit" class="btn btn-primary btn-sm">Start Scramble</button>
-              </div>
-            </form>
-          </div>
-          <button class="btn" id="btn-reset" title="Clear transcript (click again to clear active scramble)">Reset</button>
-          <button class="btn" id="btn-share" title="Copy shareable link with puzzle, scramble seed, moves, and macros">Share</button>
+          <button class="btn" id="btn-reset" title="Clear current moves">Reset</button>
+          <button class="btn" id="btn-share" title="Copy shareable link">Share</button>
           <button class="btn btn-primary" id="btn-help" title="Notation and controls guide">? Help</button>
         </div>
       </header>
 
       <main class="workspace" id="workspace">
         <section class="card puzzle-pane">
-          <div class="solve-bar" id="solve-bar" hidden>
-            <form class="solve-seed-form" id="solve-seed-form">
-              <span class="solve-bar-label">Seed</span>
-              <input type="text" class="solve-seed-input" id="solve-seed-input" autocomplete="off" spellcheck="false" placeholder="empty = solved" title="Free-text scramble seed (separate from your move transcript)" />
-              <input type="number" class="solve-moves-input" id="solve-moves-input" min="4" max="80" value="20" title="Scramble move count" aria-label="Scramble moves" />
-              <button type="button" class="btn btn-sm" id="btn-solve-rand-seed" title="Roll a random scramble seed and apply">🎲</button>
-              <button type="submit" class="btn btn-primary btn-sm" id="btn-solve-apply-seed" title="Apply scramble seed">Apply</button>
-              <button type="button" class="btn btn-sm" id="btn-solve-clear-seed" title="Clear scramble and return to solved start state" hidden>✕</button>
-            </form>
-            <div class="solve-hud">
-              <span class="solve-stat" title="Solve moves in transcript (excluding scramble)"><strong id="solve-move-count">0</strong> moves</span>
+          <div class="solve-hud-bar" id="solve-hud-bar" hidden>
+            <div class="solve-hud-left">
+              <span class="solve-stat" id="solve-move-stat" title="Total solve moves (committed milestones + current moves)"><strong id="solve-move-count">0</strong> moves</span>
               <button type="button" class="btn btn-sm solve-timer-btn" id="btn-solve-timer" title="Click to pause or resume solve timer">⏱ <span id="solve-timer-text">00:00</span></button>
-              <button type="button" class="btn btn-sm" id="btn-solve-undo" title="Undo last interactive move" disabled>↶ Undo</button>
-              <div class="milestone-wrap">
-                <button type="button" class="btn btn-sm" id="btn-add-milestone" title="Insert a named milestone comment at this point in your solve">🚩 Milestone</button>
-                <form class="milestone-popover" id="milestone-popover" hidden>
-                  <div class="sp-title">Add Solve Milestone</div>
-                  <input type="text" id="milestone-label-input" autocomplete="off" placeholder="e.g. outer ring done" />
-                  <div class="sp-actions">
-                    <button type="submit" class="btn btn-primary btn-sm">Add Comment</button>
-                  </div>
-                </form>
-              </div>
+            </div>
+            <div class="solve-hud-right">
+              <button type="button" class="btn btn-sm" id="btn-solve-undo" title="Undo last interactive move or milestone action" disabled>↶ Undo</button>
+              <button type="button" class="btn btn-sm" id="btn-copy-solve" title="Copy full solve transcript (seed + all milestones + current moves)">Copy Solve</button>
             </div>
           </div>
 
@@ -518,6 +577,13 @@ class RingTwistApp {
         </section>
 
         <aside class="side-pane">
+          <section class="card solve-stack-card" id="solve-stack-card" hidden>
+            <div class="section-header">
+              <h2 class="section-title">Solve Stack <span class="stack-count-badge" id="solve-stack-count">0 milestones</span></h2>
+            </div>
+            <div class="solve-stack-list" id="solve-stack-list"></div>
+          </section>
+
           <section class="card editor-card">
             <div class="section-header">
               <h2 class="section-title" id="editor-section-title">Algorithm &amp; Script</h2>
@@ -526,15 +592,18 @@ class RingTwistApp {
                   <input type="checkbox" id="chk-cursor-sync" checked />
                   Cursor sync
                 </label>
-                <button class="btn btn-sm explorer-only" id="btn-analyze" title="Compute exact order and cycle structure from current start state">Analyze Order</button>
-                <button class="btn btn-sm" id="btn-editor-milestone" title="Add a // @milestone comment to mark a sub-goal">🚩 Milestone</button>
+                <button class="btn btn-sm explorer-only" id="btn-analyze" title="Compute exact order and cycle structure from solved state">Analyze Order</button>
                 <button class="btn btn-sm" id="btn-save-sel" title="Save selected text (or whole sequence) as a macro">+ Save Macro</button>
               </div>
             </div>
 
-            <div class="milestones-bar" id="milestones-bar" hidden></div>
-
             <div id="editor-mount"></div>
+
+            <form class="commit-milestone-bar" id="commit-milestone-form" hidden>
+              <input type="text" id="commit-milestone-label" autocomplete="off" placeholder="Milestone label (optional)" />
+              <button type="submit" class="btn btn-primary btn-sm" id="btn-commit-milestone" title="Lift current moves onto the Solve Stack and clear textbox">+ Milestone</button>
+              <button type="button" class="btn btn-sm" id="btn-clear-draft" title="Clear current textbox moves without touching committed milestones">Clear</button>
+            </form>
 
             <div class="samples-row explorer-only" id="samples-row"></div>
           </section>
@@ -565,17 +634,18 @@ class RingTwistApp {
     this.workspaceEl = root.querySelector('#workspace')!;
     this.modeExplorerBtn = root.querySelector('#btn-mode-explorer')!;
     this.modeSolveBtn = root.querySelector('#btn-mode-solve')!;
-    this.solveBarEl = root.querySelector('#solve-bar')!;
-    this.solveSeedInput = root.querySelector('#solve-seed-input')!;
-    this.solveMovesInput = root.querySelector('#solve-moves-input')!;
-    this.solveClearScrambleBtn = root.querySelector('#btn-solve-clear-seed')!;
+    this.solveHudBarEl = root.querySelector('#solve-hud-bar')!;
     this.solveMoveCountEl = root.querySelector('#solve-move-count')!;
     this.solveTimerBtn = root.querySelector('#btn-solve-timer')!;
     this.solveTimerTextEl = root.querySelector('#solve-timer-text')!;
     this.solveUndoBtn = root.querySelector('#btn-solve-undo')!;
-    this.milestonePopoverEl = root.querySelector('#milestone-popover')!;
-    this.milestoneLabelInput = root.querySelector('#milestone-label-input')!;
-    this.milestonesBarEl = root.querySelector('#milestones-bar')!;
+    this.solveStackCardEl = root.querySelector('#solve-stack-card')!;
+    this.solveStackCountEl = root.querySelector('#solve-stack-count')!;
+    this.solveStackListEl = root.querySelector('#solve-stack-list')!;
+    this.commitMilestoneFormEl = root.querySelector('#commit-milestone-form')!;
+    this.commitMilestoneLabelInput = root.querySelector('#commit-milestone-label')!;
+    this.commitMilestoneBtn = root.querySelector('#btn-commit-milestone')!;
+    this.clearDraftBtn = root.querySelector('#btn-clear-draft')!;
     this.cyclePreviewPillEl = root.querySelector('#cycle-preview-pill')!;
     this.completionBannerEl = root.querySelector('#completion-banner')!;
     this.stageHintEl = root.querySelector('#stage-hint')!;
@@ -587,9 +657,6 @@ class RingTwistApp {
     this.solvedPeekBtnEl = root.querySelector('#btn-solved-peek')!;
     this.solvedRefCardEl = root.querySelector('#solved-ref-card')!;
     this.solvedRefStageEl = root.querySelector('#solved-ref-stage')!;
-    this.scramblePopoverEl = root.querySelector('#scramble-popover')!;
-    this.scrambleSeedInput = root.querySelector('#scramble-seed')!;
-    this.scrambleMovesInput = root.querySelector('#scramble-moves')!;
     this.statusPillsEl = root.querySelector('#status-pills')!;
     this.circleChipsEl = root.querySelector('#circle-chips')!;
     this.diagBannerEl = root.querySelector('#diag-banner')!;
@@ -616,107 +683,45 @@ class RingTwistApp {
       onCursorMove: (pos) => this.handleCursorMove(pos),
     });
 
-    // Wire header controls
+    // Header controls
     this.puzzleBtnEl.addEventListener('click', () => {
-      this.closeScramblePopover();
-      this.closeMilestonePopover();
       this.puzzlePicker.open();
     });
 
-    this.modeExplorerBtn.addEventListener('click', () => this.applyUiMode('explorer', true));
-    this.modeSolveBtn.addEventListener('click', () => this.applyUiMode('solve', true));
+    this.modeExplorerBtn.addEventListener('click', () => this.switchUiMode('explorer'));
+    this.modeSolveBtn.addEventListener('click', () => this.switchUiMode('solve'));
 
-    const rollSeed = () => String(Math.floor(10000 + Math.random() * 90000));
-    this.scrambleSeedInput.value = this.scrambleSeed || rollSeed();
-
-    const scrambleBtn = root.querySelector<HTMLButtonElement>('#btn-scramble')!;
-    const openScramblePopover = () => {
-      this.scrambleSeedInput.value = this.scrambleSeed || rollSeed();
-      this.scrambleMovesInput.value = String(this.scrambleMoves);
-      this.scramblePopoverEl.hidden = false;
-      scrambleBtn.setAttribute('aria-expanded', 'true');
-      this.scrambleSeedInput.focus();
-      this.scrambleSeedInput.select();
-    };
-    const closeScramblePopover = () => {
-      this.scramblePopoverEl.hidden = true;
-      scrambleBtn.setAttribute('aria-expanded', 'false');
-    };
-    this.closeScramblePopover = closeScramblePopover;
-
-    scrambleBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      this.closeMilestonePopover();
-      if (this.scramblePopoverEl.hidden) openScramblePopover();
-      else closeScramblePopover();
-    });
-
-    root.querySelector('#btn-rand-seed')!.addEventListener('click', () => {
-      this.scrambleSeedInput.value = rollSeed();
-      this.scrambleSeedInput.focus();
-    });
-
-    // Insert raw moves into editor (legacy Explorer option)
-    root.querySelector('#btn-scramble-as-text')!.addEventListener('click', () => {
+    root.querySelector('#btn-reset')!.addEventListener('click', () => {
       this.stopPlayback();
-      const rawSeed = this.scrambleSeedInput.value.trim() || rollSeed();
-      this.scrambleSeedInput.value = rawSeed;
-      const moveCount = Math.max(
-        4,
-        Math.min(80, parseInt(this.scrambleMovesInput.value, 10) || 20),
-      );
-      this.scrambleMovesInput.value = String(moveCount);
-      this.clearScrambleStateOnly();
-      const scramble = generateScramble(this.solvedState, moveCount, rawSeed);
-      const script = `// Scramble (seed: ${rawSeed}, ${moveCount} moves)\n${scramble}\n\n// Solve below:\n`;
-      this.editor.setValue(script);
-      this.reevaluate(true);
-      closeScramblePopover();
-      this.editor.textarea.focus();
-      this.editor.textarea.selectionStart = script.length;
-      this.editor.textarea.selectionEnd = script.length;
-      this.showToast(`Inserted ${moveCount}-move scramble text (seed: ${rawSeed})`);
-    });
-
-    this.scramblePopoverEl.addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      const rawSeed = this.scrambleSeedInput.value.trim() || rollSeed();
-      const moveCount = Math.max(
-        4,
-        Math.min(80, parseInt(this.scrambleMovesInput.value, 10) || 20),
-      );
-      this.startNewScramble(rawSeed, moveCount);
-      closeScramblePopover();
-    });
-
-    // Solve bar seed form
-    root.querySelector<HTMLFormElement>('#solve-seed-form')!.addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      const rawSeed = this.solveSeedInput.value.trim();
-      const moveCount = Math.max(
-        4,
-        Math.min(80, parseInt(this.solveMovesInput.value, 10) || 20),
-      );
-      if (!rawSeed) {
-        this.clearScramble();
+      this.hideAnalysisBanner();
+      if (this.uiMode === 'solve') {
+        const cur = this.editor.getValue();
+        if (cur.trim().length > 0) {
+          this.pushSolveUndoSnapshot();
+          this.editor.setValue('');
+          this.solveActiveAlg = '';
+          this.reevaluate(true, { suppressAutoStart: true });
+          this.showToast('Cleared current moves (committed milestones preserved)');
+        } else {
+          this.showToast('Active moves already empty — edit Seed or click 🎲 in Solve Stack to re-scramble');
+        }
       } else {
-        this.startNewScramble(rawSeed, moveCount);
+        this.editor.setValue('');
+        this.exploreAlg = '';
+        this.reevaluate(true, { suppressAutoStart: true });
+        this.showToast('Reset Explore sequence');
       }
     });
 
-    root.querySelector('#btn-solve-rand-seed')!.addEventListener('click', () => {
-      const seed = rollSeed();
-      const moveCount = Math.max(
-        4,
-        Math.min(80, parseInt(this.solveMovesInput.value, 10) || 20),
-      );
-      this.startNewScramble(seed, moveCount);
+    root.querySelector('#btn-share')!.addEventListener('click', () => {
+      this.shareCurrentState();
     });
 
-    this.solveClearScrambleBtn.addEventListener('click', () => {
-      this.clearScramble();
+    root.querySelector('#btn-help')!.addEventListener('click', () => {
+      this.helpModal.open();
     });
 
+    // Solve HUD & Milestone commit controls
     this.solveTimerBtn.addEventListener('click', () => {
       if (this.timerStartedAt !== null) {
         this.pauseTimer(true);
@@ -726,59 +731,32 @@ class RingTwistApp {
     });
 
     this.solveUndoBtn.addEventListener('click', () => {
-      this.undoLastInteractiveChange();
+      this.undoLastSolveAction();
     });
 
-    // Milestone popover wiring
-    const milestoneBtn = root.querySelector<HTMLButtonElement>('#btn-add-milestone')!;
-    const editorMilestoneBtn = root.querySelector<HTMLButtonElement>('#btn-editor-milestone')!;
-    const openMilestonePopover = () => {
-      const existing = parseMilestones(this.editor.getValue(), this.evalResult.steps);
-      this.milestoneLabelInput.value = `Milestone ${existing.length + 1}`;
-      this.milestonePopoverEl.hidden = false;
-      this.milestoneLabelInput.focus();
-      this.milestoneLabelInput.select();
-    };
-    const closeMilestonePopover = () => {
-      this.milestonePopoverEl.hidden = true;
-    };
-    this.closeMilestonePopover = closeMilestonePopover;
+    root.querySelector('#btn-copy-solve')!.addEventListener('click', () => {
+      this.flushPendingEval();
+      const body = serializeSolveTranscript(this.solveMilestones, this.editor.getValue());
+      const header = `// RingTwist Solve — ${this.currentSpec.name} (seed: ${this.solveSeed}, ${this.solveScrambleMoves} scramble moves)\n`;
+      const full = body ? `${header}\n${body}\n` : header;
+      navigator.clipboard?.writeText(full).then(
+        () => this.showToast('Copied full solve transcript to clipboard'),
+        () => window.prompt('Copy solve transcript:', full),
+      );
+    });
 
-    milestoneBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      closeScramblePopover();
-      if (this.milestonePopoverEl.hidden) openMilestonePopover();
-      else closeMilestonePopover();
-    });
-    editorMilestoneBtn.addEventListener('click', () => {
-      const existing = parseMilestones(this.editor.getValue(), this.evalResult.steps);
-      const label = window.prompt('Milestone label:', `Milestone ${existing.length + 1}`);
-      if (label !== null) {
-        this.insertMilestoneComment(label.trim() || `Milestone ${existing.length + 1}`);
-      }
-    });
-    this.milestonePopoverEl.addEventListener('submit', (ev) => {
+    this.commitMilestoneFormEl.addEventListener('submit', (ev) => {
       ev.preventDefault();
-      const label = this.milestoneLabelInput.value.trim() || 'Milestone';
-      this.insertMilestoneComment(label);
-      closeMilestonePopover();
+      this.commitActiveAsMilestone();
     });
 
-    document.addEventListener('click', (ev) => {
-      if (
-        !this.scramblePopoverEl.hidden &&
-        !this.scramblePopoverEl.contains(ev.target as Node) &&
-        ev.target !== scrambleBtn
-      ) {
-        closeScramblePopover();
-      }
-      if (
-        !this.milestonePopoverEl.hidden &&
-        !this.milestonePopoverEl.contains(ev.target as Node) &&
-        ev.target !== milestoneBtn
-      ) {
-        closeMilestonePopover();
-      }
+    this.clearDraftBtn.addEventListener('click', () => {
+      const cur = this.editor.getValue();
+      if (!cur.trim()) return;
+      this.pushSolveUndoSnapshot();
+      this.editor.setValue('');
+      this.solveActiveAlg = '';
+      this.reevaluate(true, { suppressAutoStart: true });
     });
 
     // Solved reference peek controls
@@ -791,35 +769,6 @@ class RingTwistApp {
     root.querySelector('#btn-solved-expand')!.addEventListener('click', () => {
       this.solvedPeekExpanded = !this.solvedPeekExpanded;
       this.solvedRefCardEl.classList.toggle('expanded', this.solvedPeekExpanded);
-    });
-
-    root.querySelector('#btn-reset')!.addEventListener('click', () => {
-      this.stopPlayback();
-      this.hideAnalysisBanner();
-      const curText = this.editor.getValue().trim();
-      if (curText.length === 0 && this.scrambleSeed) {
-        this.clearScramble();
-        return;
-      }
-      if (curText.length > 0) this.pushUndoSnapshot(this.editor.getValue());
-      this.editor.setValue('');
-      this.resetTimer();
-      this.solveCompleted = false;
-      this.completionDismissed = false;
-      this.reevaluate(true, { suppressAutoStart: true });
-      this.showToast(
-        this.scrambleSeed
-          ? `Cleared transcript (seed "${this.scrambleSeed}" kept — click Reset again to clear scramble)`
-          : 'Reset to solved state',
-      );
-    });
-
-    root.querySelector('#btn-share')!.addEventListener('click', () => {
-      this.shareCurrentState();
-    });
-
-    root.querySelector('#btn-help')!.addEventListener('click', () => {
-      this.helpModal.open();
     });
 
     // Whole-puzzle rotation & mirror-flip quick buttons
@@ -875,7 +824,7 @@ class RingTwistApp {
     });
     root.querySelector('#btn-end')!.addEventListener('click', () => {
       this.stopPlayback();
-      this.jumpToStep(this.evalResult.steps.length);
+      this.jumpToStep(this.allSteps.length);
     });
     this.scrubberEl.addEventListener('input', () => {
       this.stopPlayback();
@@ -891,7 +840,7 @@ class RingTwistApp {
           : `${this.speedMultiplier.toFixed(1)}×`;
     });
 
-    // Analyze Order button
+    // Analyze Order button (Explore mode)
     root.querySelector('#btn-analyze')!.addEventListener('click', () => {
       this.flushPendingEval();
       const sel = this.editor.getSelection();
@@ -928,6 +877,8 @@ class RingTwistApp {
         ...this.currentSpec.circles
           .filter((c) => c.layerRadii && c.layerRadii.length > 1)
           .map((c) => c.id.toLowerCase()),
+        'x',
+        'y',
         'z',
       ]);
       if (reserved.has(name)) {
@@ -936,17 +887,15 @@ class RingTwistApp {
       }
 
       const existingIdx = this.macros.findIndex((m) => m.name === name);
-      if (existingIdx >= 0) {
-        this.macros[existingIdx] = { ...this.macros[existingIdx], body };
-      } else {
-        this.macros.push({ name, body });
-      }
+      if (existingIdx >= 0) this.macros[existingIdx] = { ...this.macros[existingIdx], body };
+      else this.macros.push({ name, body });
       saveMacros(this.currentSpec.id, this.macros);
       this.cyclePreviewCache.clear();
       this.macroNameInput.value = '';
       this.macroBodyInput.value = '';
+      if (this.uiMode === 'solve') this.rebuildCommittedStack();
       this.renderMacroList();
-      this.reevaluate(false);
+      this.reevaluate(false, { suppressAutoStart: true });
       this.showToast(`Saved macro "${name}"`);
     });
 
@@ -966,12 +915,14 @@ class RingTwistApp {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
         const reserved = new Set([
-        ...this.currentSpec.circles.map((c) => c.id),
-        ...this.currentSpec.circles
-          .filter((c) => c.layerRadii && c.layerRadii.length > 1)
-          .map((c) => c.id.toLowerCase()),
-        'z',
-      ]);
+          ...this.currentSpec.circles.map((c) => c.id),
+          ...this.currentSpec.circles
+            .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+            .map((c) => c.id.toLowerCase()),
+          'x',
+          'y',
+          'z',
+        ]);
         const valid = parsed
           .filter(
             (m): m is MacroLibraryEntry =>
@@ -989,15 +940,16 @@ class RingTwistApp {
               !reserved.has(m.name),
           );
         if (valid.length === 0) throw new Error('No valid non-reserved macros found');
-        // Merge by name
         for (const entry of valid) {
           const idx = this.macros.findIndex((m) => m.name === entry.name);
           if (idx >= 0) this.macros[idx] = entry;
           else this.macros.push(entry);
         }
         saveMacros(this.currentSpec.id, this.macros);
+        this.cyclePreviewCache.clear();
+        if (this.uiMode === 'solve') this.rebuildCommittedStack();
         this.renderMacroList();
-        this.reevaluate(false);
+        this.reevaluate(false, { suppressAutoStart: true });
         this.showToast(`Imported ${valid.length} macro(s)`);
       } catch (err) {
         this.showToast(`Import failed: ${(err as Error).message}`);
@@ -1007,16 +959,6 @@ class RingTwistApp {
 
   private bindGlobalShortcuts(): void {
     window.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape') {
-        if (!this.scramblePopoverEl.hidden) {
-          this.closeScramblePopover();
-          return;
-        }
-        if (!this.milestonePopoverEl.hidden) {
-          this.closeMilestonePopover();
-          return;
-        }
-      }
       // Never override standard textbox editing shortcuts when user is typing in an input/textarea
       const activeTag = (document.activeElement?.tagName ?? '').toUpperCase();
       if (activeTag === 'INPUT' && !ev.altKey) return;
@@ -1037,31 +979,66 @@ class RingTwistApp {
     });
   }
 
-  private closeScramblePopover: () => void = () => {};
-  private closeMilestonePopover: () => void = () => {};
+  private applyUiModeChrome(): void {
+    const isSolve = this.uiMode === 'solve';
+    this.workspaceEl.classList.toggle('mode-solve', isSolve);
+    this.modeExplorerBtn.classList.toggle('active', !isSolve);
+    this.modeSolveBtn.classList.toggle('active', isSolve);
+    this.solveHudBarEl.hidden = !isSolve;
+    this.solveStackCardEl.hidden = !isSolve;
+    this.commitMilestoneFormEl.hidden = !isSolve;
 
-  private applyUiMode(mode: UiMode, persist: boolean): void {
-    this.uiMode = mode;
-    this.workspaceEl.classList.toggle('mode-solve', mode === 'solve');
-    this.modeExplorerBtn.classList.toggle('active', mode === 'explorer');
-    this.modeSolveBtn.classList.toggle('active', mode === 'solve');
     const titleEl = document.querySelector('#editor-section-title');
     if (titleEl) {
-      titleEl.textContent = mode === 'solve' ? 'Solve Transcript' : 'Algorithm & Script';
+      titleEl.textContent = isSolve ? 'Current Moves' : 'Algorithm & Script';
     }
-    this.syncSolveBar();
-    if (persist) saveUiMode(mode);
+    const resetBtn = document.querySelector<HTMLButtonElement>('#btn-reset');
+    if (resetBtn) {
+      resetBtn.title = isSolve
+        ? 'Clear current move textbox (committed milestones stay safe)'
+        : 'Clear sequence and reset to solved';
+    }
   }
 
-  private syncSolveBar(): void {
-    const showBar = this.uiMode === 'solve' || this.scrambleSeed.length > 0;
-    this.solveBarEl.hidden = !showBar;
-    this.solveSeedInput.value = this.scrambleSeed;
-    this.solveMovesInput.value = String(this.scrambleMoves);
-    this.solveClearScrambleBtn.hidden = this.scrambleSeed.length === 0;
-    this.solveUndoBtn.disabled = this.moveUndoStack.length === 0;
-    this.updateTimerDisplay();
+  private switchUiMode(mode: UiMode): void {
+    if (mode === this.uiMode) return;
+    this.flushPendingEval();
+    this.stopPlayback();
+    this.hideAnalysisBanner();
+    this.clearCyclePreview();
+
+    // Save current editor text into the mode we're leaving
+    if (this.uiMode === 'solve') {
+      this.solveActiveAlg = this.editor.getValue();
+      this.pauseTimer(false);
+    } else {
+      this.exploreAlg = this.editor.getValue();
+    }
+    this.persistCurrentSessions();
+
+    this.uiMode = mode;
+    saveUiMode(mode);
+    this.applyUiModeChrome();
+
+    if (mode === 'solve') {
+      if (!this.solveSeed.trim()) {
+        this.solveSeed = rollRandomSeed();
+        this.scrambleState = this.computeScrambleState(
+          this.solvedState,
+          this.solveSeed,
+          this.solveScrambleMoves,
+        );
+      }
+      this.rebuildCommittedStack();
+      this.editor.setValue(this.solveActiveAlg);
+    } else {
+      this.editor.setValue(this.exploreAlg);
+    }
+
+    this.reevaluate(true, { suppressAutoStart: true });
   }
+
+  // ---- Solve Timer ----
 
   private getCurrentElapsedMs(): number {
     return this.solveElapsedMs + (this.timerStartedAt !== null ? Date.now() - this.timerStartedAt : 0);
@@ -1074,7 +1051,7 @@ class RingTwistApp {
   }
 
   private startTimer(): void {
-    if (this.timerStartedAt !== null) return;
+    if (this.uiMode !== 'solve' || this.timerStartedAt !== null) return;
     this.timerStartedAt = Date.now();
     if (this.timerIntervalId === null) {
       this.timerIntervalId = window.setInterval(() => this.updateTimerDisplay(), 250);
@@ -1092,7 +1069,7 @@ class RingTwistApp {
       this.timerIntervalId = null;
     }
     this.updateTimerDisplay();
-    if (persist) this.persistCurrentSession();
+    if (persist) this.persistCurrentSessions();
   }
 
   private resetTimer(): void {
@@ -1101,91 +1078,290 @@ class RingTwistApp {
     this.updateTimerDisplay();
   }
 
-  private persistCurrentSession(): void {
-    if (!this.editor) return;
-    saveSession(this.currentSpec.id, {
-      alg: this.editor.getValue(),
-      ...(this.scrambleSeed
-        ? { scrambleSeed: this.scrambleSeed, scrambleMoves: this.scrambleMoves }
-        : {}),
-      elapsedMs: this.getCurrentElapsedMs(),
-      solved: this.solveCompleted,
-    });
+  private persistCurrentSessions(): void {
+    if (this.editor) {
+      if (this.uiMode === 'solve') this.solveActiveAlg = this.editor.getValue();
+      else this.exploreAlg = this.editor.getValue();
+    }
+    saveExploreSession(this.currentSpec.id, { alg: this.exploreAlg });
+    if (this.solveSeed.trim()) {
+      saveSolveSession(this.currentSpec.id, {
+        seed: this.solveSeed,
+        scrambleMoves: this.solveScrambleMoves,
+        milestones: this.solveMilestones,
+        activeAlg: this.solveActiveAlg,
+        elapsedMs: this.getCurrentElapsedMs(),
+        solved: this.solveCompleted,
+      });
+    }
   }
 
-  private clearScrambleStateOnly(): void {
-    this.scrambleSeed = '';
-    this.startState = this.solvedState;
-    this.solveCompleted = false;
-    this.completionDismissed = false;
-    this.resetTimer();
-    this.syncSolveBar();
+  // ---- Solve Stack Actions ----
+
+  private pushSolveUndoSnapshot(): void {
+    if (this.uiMode !== 'solve') return;
+    const snap: SolveUndoEntry = {
+      milestones: this.solveMilestones.map((m) => ({ ...m })),
+      activeAlg: this.editor.getValue(),
+    };
+    const prev = this.solveUndoStack[this.solveUndoStack.length - 1];
+    if (
+      prev &&
+      prev.activeAlg === snap.activeAlg &&
+      JSON.stringify(prev.milestones) === JSON.stringify(snap.milestones)
+    ) {
+      return;
+    }
+    this.solveUndoStack.push(snap);
+    if (this.solveUndoStack.length > 100) this.solveUndoStack.shift();
+    if (this.solveUndoBtn) this.solveUndoBtn.disabled = false;
   }
 
-  private startNewScramble(seed: string, moves: number): void {
+  private undoLastSolveAction(): void {
+    if (this.uiMode !== 'solve') return;
+    const prev = this.solveUndoStack.pop();
+    if (!prev) return;
+    this.stopPlayback();
+    this.clearCyclePreview();
+    this.solveMilestones = prev.milestones;
+    this.solveActiveAlg = prev.activeAlg;
+    this.rebuildCommittedStack();
+    this.editor.setValue(prev.activeAlg);
+    const len = prev.activeAlg.length;
+    this.editor.textarea.selectionStart = len;
+    this.editor.textarea.selectionEnd = len;
+    this.solveUndoBtn.disabled = this.solveUndoStack.length === 0;
+    this.reevaluate(true, { suppressAutoStart: true });
+  }
+
+  private applySolveScramble(seed: string, moves: number): void {
+    const cleanSeed = seed.trim() || rollRandomSeed();
+    const clampedMoves = Math.max(4, Math.min(80, Math.round(moves) || 20));
     this.stopPlayback();
     this.hideAnalysisBanner();
     this.clearCyclePreview();
-    this.scrambleSeed = seed.trim();
-    this.scrambleMoves = Math.max(4, Math.min(80, Math.round(moves) || 20));
-    this.startState = this.computeStartState(
+    this.solveSeed = cleanSeed;
+    this.solveScrambleMoves = clampedMoves;
+    this.scrambleState = this.computeScrambleState(
       this.solvedState,
-      this.scrambleSeed,
-      this.scrambleMoves,
+      this.solveSeed,
+      this.solveScrambleMoves,
     );
-    this.moveUndoStack = [];
+    this.solveMilestones = [];
+    this.compiledMilestones = [];
+    this.solveActiveAlg = '';
+    this.solveUndoStack = [];
     this.cyclePreviewCache.clear();
     this.solveCompleted = false;
     this.completionDismissed = false;
     this.resetTimer();
     this.editor.setValue('');
-    this.syncSolveBar();
     this.reevaluate(true, { suppressAutoStart: true });
-    this.persistCurrentSession();
-    this.showToast(`Scrambled (seed: ${this.scrambleSeed}, ${this.scrambleMoves} moves)`);
+    this.persistCurrentSessions();
+    this.showToast(`Scrambled with seed "${this.solveSeed}" (${this.solveScrambleMoves} moves)`);
   }
 
-  private clearScramble(): void {
-    this.stopPlayback();
-    this.hideAnalysisBanner();
-    this.clearCyclePreview();
-    this.clearScrambleStateOnly();
+  private commitActiveAsMilestone(): void {
+    if (this.uiMode !== 'solve') return;
+    this.flushPendingEval();
+    const rawAlg = this.editor.getValue().trim();
+    if (!rawAlg) {
+      this.showToast('Enter or click some moves before committing a milestone');
+      return;
+    }
+    if (
+      this.evalResult.parseErrors.length > 0 ||
+      this.evalResult.runtimeError ||
+      this.evalResult.blocked
+    ) {
+      this.showToast('Fix syntax or blocking errors before committing a milestone');
+      return;
+    }
+    if (this.evalResult.steps.length === 0) {
+      this.showToast('Current moves contain no executable turns');
+      return;
+    }
+
+    this.pushSolveUndoSnapshot();
+    const customLabel = this.commitMilestoneLabelInput.value.trim();
+    const label = customLabel || `Milestone ${this.solveMilestones.length + 1}`;
+    const startStep = this.getCommittedStepCount();
+    const baseState = this.getActiveEvalBaseState();
+
+    this.solveMilestones.push({ label, alg: rawAlg });
+    this.compiledMilestones.push({
+      label,
+      alg: rawAlg,
+      steps: this.evalResult.steps,
+      stateBefore: baseState,
+      stateAfter: this.evalResult.finalState,
+      startStep,
+      endStep: startStep + this.evalResult.steps.length,
+    });
+
+    this.commitMilestoneLabelInput.value = '';
+    this.solveActiveAlg = '';
+    this.editor.setValue('');
     this.reevaluate(true, { suppressAutoStart: true });
-    this.persistCurrentSession();
-    this.showToast('Cleared scramble — starting from solved state');
+    this.showToast(`Committed "${label}" (${this.compiledMilestones[this.compiledMilestones.length - 1].steps.length} moves)`);
   }
 
-  private pushUndoSnapshot(prevText: string): void {
-    if (this.moveUndoStack[this.moveUndoStack.length - 1] === prevText) return;
-    this.moveUndoStack.push(prevText);
-    if (this.moveUndoStack.length > 100) this.moveUndoStack.shift();
-    if (this.solveUndoBtn) this.solveUndoBtn.disabled = false;
+  private pullTopMilestoneToEditor(): void {
+    if (this.uiMode !== 'solve' || this.solveMilestones.length === 0) return;
+    this.flushPendingEval();
+    this.pushSolveUndoSnapshot();
+    const top = this.solveMilestones.pop()!;
+    this.compiledMilestones.pop();
+
+    const curDraft = this.editor.getValue().trim();
+    const combined = curDraft ? `${top.alg}\n${curDraft}` : top.alg;
+    this.solveActiveAlg = combined;
+    this.editor.setValue(combined);
+    this.editor.textarea.focus();
+    this.editor.textarea.selectionStart = combined.length;
+    this.editor.textarea.selectionEnd = combined.length;
+    this.reevaluate(true, { suppressAutoStart: true });
+    this.showToast(`Pulled "${top.label}" back into editor`);
   }
 
-  private undoLastInteractiveChange(): void {
-    const prev = this.moveUndoStack.pop();
-    if (prev === undefined) return;
-    this.stopPlayback();
-    this.clearCyclePreview();
-    this.editor.setValue(prev);
-    const len = prev.length;
-    this.editor.textarea.selectionStart = len;
-    this.editor.textarea.selectionEnd = len;
-    this.solveUndoBtn.disabled = this.moveUndoStack.length === 0;
+  private discardTopMilestone(): void {
+    if (this.uiMode !== 'solve' || this.solveMilestones.length === 0) return;
+    this.flushPendingEval();
+    this.pushSolveUndoSnapshot();
+    const top = this.solveMilestones.pop()!;
+    this.compiledMilestones.pop();
     this.reevaluate(true, { suppressAutoStart: true });
+    this.showToast(`Discarded "${top.label}"`);
   }
 
-  private insertMilestoneComment(label: string): void {
-    const cur = this.editor.getValue();
-    this.pushUndoSnapshot(cur);
-    const prefix = cur.length > 0 && !cur.endsWith('\n') ? '\n' : '';
-    const next = `${cur}${prefix}// @milestone ${label}\n`;
-    this.editor.setValue(next);
-    this.editor.textarea.selectionStart = next.length;
-    this.editor.textarea.selectionEnd = next.length;
-    this.reevaluate(true, { suppressAutoStart: true });
-    this.showToast(`Added milestone "${label}"`);
+  private renderSolveStack(): void {
+    if (this.uiMode !== 'solve') return;
+
+    const count = this.compiledMilestones.length;
+    this.solveStackCountEl.textContent = count === 1 ? '1 milestone' : `${count} milestones`;
+
+    // Preserve focus if the user is actively typing in the inline seed/moves input
+    const activeId = document.activeElement?.id;
+    const isEditingSeed = activeId === 'stack-seed-input' || activeId === 'stack-moves-input';
+    if (isEditingSeed) {
+      // Only update active highlight classes without clobbering the focused input
+      this.updateSolveStackHighlight();
+      return;
+    }
+
+    this.solveStackListEl.innerHTML = '';
+
+    // Entry 0: Pinned Scramble Root with editable seed + moves
+    const rootItem = document.createElement('div');
+    rootItem.className = `stack-item stack-item-root${this.currentStepIndex === 0 ? ' inspecting' : ''}`;
+    rootItem.dataset.stackIndex = '0';
+    rootItem.innerHTML = `
+      <div class="stack-item-head">
+        <span class="stack-badge stack-badge-root">SCRAMBLE</span>
+        <span class="stack-step-meta" title="Click to preview initial scrambled state">step 0</span>
+      </div>
+      <form class="stack-seed-form" id="stack-seed-form">
+        <input type="text" class="stack-seed-input" id="stack-seed-input" value="${escapeHtml(this.solveSeed)}" autocomplete="off" spellcheck="false" placeholder="seed" title="Editable scramble seed" />
+        <input type="number" class="stack-moves-input" id="stack-moves-input" min="4" max="80" value="${this.solveScrambleMoves}" title="Scramble move count" aria-label="Scramble moves" />
+        <button type="button" class="btn btn-sm" id="btn-stack-rand" title="Roll a new random scramble seed">🎲</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="btn-stack-apply" title="Re-scramble using this seed">Apply</button>
+      </form>
+    `;
+
+    rootItem.addEventListener('click', (ev) => {
+      const target = ev.target as HTMLElement;
+      if (target.closest('form') && (target.tagName === 'INPUT' || target.tagName === 'BUTTON')) {
+        return;
+      }
+      this.stopPlayback();
+      this.jumpToStep(0);
+    });
+
+    const seedForm = rootItem.querySelector<HTMLFormElement>('#stack-seed-form')!;
+    const seedInput = rootItem.querySelector<HTMLInputElement>('#stack-seed-input')!;
+    const movesInput = rootItem.querySelector<HTMLInputElement>('#stack-moves-input')!;
+    seedForm.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      this.applySolveScramble(seedInput.value, parseInt(movesInput.value, 10) || 20);
+    });
+    rootItem.querySelector('#btn-stack-rand')!.addEventListener('click', () => {
+      this.applySolveScramble(rollRandomSeed(), parseInt(movesInput.value, 10) || 20);
+    });
+
+    this.solveStackListEl.appendChild(rootItem);
+
+    // Entries 1..K: Committed Milestones
+    for (let i = 0; i < this.compiledMilestones.length; i++) {
+      const m = this.compiledMilestones[i];
+      const isTop = i === this.compiledMilestones.length - 1;
+      const isInspecting =
+        this.currentStepIndex > m.startStep && this.currentStepIndex <= m.endStep;
+      const item = document.createElement('div');
+      item.className = `stack-item stack-item-milestone${isInspecting ? ' inspecting' : ''}${m.error ? ' has-error' : ''}`;
+      item.dataset.stackIndex = String(i + 1);
+
+      const compactAlg = m.alg.replace(/\s+/g, ' ');
+      item.innerHTML = `
+        <div class="stack-item-main">
+          <div class="stack-item-head">
+            <span class="stack-badge">#${i + 1}</span>
+            <span class="stack-label">${escapeHtml(m.label)}</span>
+            <span class="stack-step-meta">${m.steps.length}m · step ${m.endStep}</span>
+          </div>
+          <div class="stack-alg-preview" title="${escapeHtml(m.alg)}">${escapeHtml(compactAlg)}</div>
+        </div>
+        ${
+          isTop
+            ? `<div class="stack-top-actions">
+                 <button type="button" class="btn btn-sm" data-act="pull" title="Pull top milestone back into the editor">↩</button>
+                 <button type="button" class="btn btn-sm btn-danger" data-act="discard" title="Discard top milestone from stack">×</button>
+               </div>`
+            : ''
+        }
+      `;
+
+      item.addEventListener('click', (ev) => {
+        if ((ev.target as HTMLElement).closest('button')) return;
+        this.stopPlayback();
+        this.jumpToStep(m.endStep);
+      });
+
+      if (isTop) {
+        item.querySelector('[data-act="pull"]')?.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.pullTopMilestoneToEditor();
+        });
+        item.querySelector('[data-act="discard"]')?.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.discardTopMilestone();
+        });
+      }
+
+      this.solveStackListEl.appendChild(item);
+    }
+
+    // Keep latest milestone scrolled into view cleanly
+    this.solveStackListEl.scrollTop = this.solveStackListEl.scrollHeight;
   }
+
+  private updateSolveStackHighlight(): void {
+    if (this.uiMode !== 'solve') return;
+    const rows = this.solveStackListEl.querySelectorAll<HTMLElement>('.stack-item');
+    for (const row of rows) {
+      const idx = parseInt(row.dataset.stackIndex ?? '-1', 10);
+      if (idx === 0) {
+        row.classList.toggle('inspecting', this.currentStepIndex === 0);
+      } else if (idx > 0 && idx <= this.compiledMilestones.length) {
+        const m = this.compiledMilestones[idx - 1];
+        row.classList.toggle(
+          'inspecting',
+          this.currentStepIndex > m.startStep && this.currentStepIndex <= m.endStep,
+        );
+      }
+    }
+  }
+
+  // ---- Macro Hover Piece-Cycle Preview ----
 
   private getMergedMacros(): MacroLibraryEntry[] {
     const mergedMap = new Map<string, MacroLibraryEntry>();
@@ -1221,13 +1397,13 @@ class RingTwistApp {
     }
   }
 
+  // ---- Solved Reference & Header Chrome ----
+
   private setSolvedPeekVisible(visible: boolean): void {
     this.solvedPeekVisible = visible;
     this.solvedRefCardEl.hidden = !visible;
     this.solvedPeekBtnEl.classList.toggle('active', visible);
-    if (visible) {
-      this.syncSolvedRefCard();
-    }
+    if (visible) this.syncSolvedRefCard();
   }
 
   private syncSolvedRefCard(): void {
@@ -1327,10 +1503,7 @@ class RingTwistApp {
       return;
     }
 
-    const addRow = (
-      entry: MacroLibraryEntry,
-      isInline: boolean,
-    ) => {
+    const addRow = (entry: MacroLibraryEntry, isInline: boolean) => {
       const row = document.createElement('div');
       row.className = isInline ? 'macro-item inline' : 'macro-item';
       row.innerHTML = `
@@ -1381,8 +1554,9 @@ class RingTwistApp {
         this.macros = this.macros.filter((m) => m.name !== entry.name);
         saveMacros(this.currentSpec.id, this.macros);
         this.cyclePreviewCache.clear();
+        if (this.uiMode === 'solve') this.rebuildCommittedStack();
         this.renderMacroList();
-        this.reevaluate(false);
+        this.reevaluate(false, { suppressAutoStart: true });
       });
 
       this.macroListEl.appendChild(row);
@@ -1397,39 +1571,32 @@ class RingTwistApp {
   }
 
   private switchPuzzle(puzzleId: string): void {
+    this.flushPendingEval();
     this.pauseTimer(true);
     this.cancelPendingEval();
     this.stopPlayback();
     this.hideAnalysisBanner();
     this.clearCyclePreview();
+
     this.currentSpec = this.findPuzzleSpec(puzzleId);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
-
-    const saved = loadSession(this.currentSpec.id);
-    this.scrambleSeed = saved?.scrambleSeed ?? '';
-    this.scrambleMoves = saved?.scrambleMoves ?? 20;
-    this.solveElapsedMs = saved?.elapsedMs ?? 0;
-    this.solveCompleted = saved?.solved ?? false;
-    this.completionDismissed = false;
-    this.moveUndoStack = [];
-    this.cyclePreviewCache.clear();
-    this.startState = this.computeStartState(
-      this.solvedState,
-      this.scrambleSeed,
-      this.scrambleMoves,
-    );
-
     this.macros = loadMacros(this.currentSpec.id);
+    this.loadPuzzleSessions(this.currentSpec.id);
     this.lastMacroListKey = '';
-    this.lastMilestoneKey = '';
-    this.editor.setValue(saved?.alg ?? '');
+
+    this.applyUiModeChrome();
+    this.editor.setValue(this.uiMode === 'solve' ? this.solveActiveAlg : this.exploreAlg);
     this.syncPuzzleButton();
-    this.syncSolveBar();
     this.syncSolvedRefCard();
     this.renderSamples();
     this.renderMacroList();
+    if (this.uiMode === 'solve') {
+      this.rebuildCommittedStack();
+    }
     this.reevaluate(true, { suppressAutoStart: true });
   }
+
+  // ---- Evaluation & Rendering ----
 
   private cancelPendingEval(): void {
     if (this.evalDebounceId !== null) {
@@ -1460,14 +1627,18 @@ class RingTwistApp {
     this.cancelPendingEval();
     this.stopPlayback();
     this.clearCyclePreview();
+
     const src = this.editor.getValue();
-    this.evalResult = evaluateProgram(this.startState, src, this.macros, {
+    if (this.uiMode === 'solve') this.solveActiveAlg = src;
+    else this.exploreAlg = src;
+
+    this.evalResult = evaluateProgram(this.getActiveEvalBaseState(), src, this.macros, {
       solvedReference: this.solvedState,
     });
+    this.rebuildAllSteps();
     this.renderMacroList();
-    this.renderMilestones();
 
-    const maxStep = this.evalResult.steps.length;
+    const maxStep = this.allSteps.length;
     this.scrubberEl.max = String(maxStep);
 
     if (jumpToEnd) {
@@ -1476,74 +1647,33 @@ class RingTwistApp {
       this.currentStepIndex = Math.min(this.currentStepIndex, maxStep);
     }
 
-    if (!opts.suppressAutoStart && this.scrambleSeed && maxStep > 0 && !this.solveCompleted) {
+    if (
+      !opts.suppressAutoStart &&
+      this.uiMode === 'solve' &&
+      maxStep > 0 &&
+      !this.solveCompleted
+    ) {
       this.startTimer();
     }
+
     this.checkSolveCompletion();
+    this.renderSolveStack();
     this.renderCurrentStep();
-    this.persistCurrentSession();
-  }
-
-  private renderMilestones(): void {
-    const src = this.editor.getValue();
-    const marks = parseMilestones(src, this.evalResult.steps);
-    const key = JSON.stringify(marks);
-    if (key === this.lastMilestoneKey) return;
-    this.lastMilestoneKey = key;
-
-    this.milestonesBarEl.innerHTML = '';
-    if (marks.length === 0) {
-      this.milestonesBarEl.hidden = true;
-      return;
-    }
-    this.milestonesBarEl.hidden = false;
-    const lbl = document.createElement('span');
-    lbl.className = 'samples-label';
-    lbl.textContent = 'Milestones:';
-    this.milestonesBarEl.appendChild(lbl);
-
-    for (const m of marks) {
-      const chip = document.createElement('span');
-      chip.className = 'milestone-chip';
-
-      const jumpBtn = document.createElement('button');
-      jumpBtn.type = 'button';
-      jumpBtn.className = 'milestone-jump';
-      jumpBtn.textContent = `🚩 ${m.label} (${m.stepIndex})`;
-      jumpBtn.title = `Preview puzzle at milestone "${m.label}" (move ${m.stepIndex})`;
-      jumpBtn.addEventListener('click', () => {
-        this.stopPlayback();
-        this.jumpToStep(m.stepIndex);
-        this.editor.textarea.selectionStart = m.charEnd;
-        this.editor.textarea.selectionEnd = m.charEnd;
-      });
-
-      const revBtn = document.createElement('button');
-      revBtn.type = 'button';
-      revBtn.className = 'milestone-revert';
-      revBtn.textContent = '↩';
-      revBtn.title = `Roll back transcript to milestone "${m.label}"`;
-      revBtn.addEventListener('click', () => {
-        const cur = this.editor.getValue();
-        this.pushUndoSnapshot(cur);
-        const truncated = cur.slice(0, m.charEnd).trimEnd() + '\n';
-        this.editor.setValue(truncated);
-        this.editor.textarea.selectionStart = truncated.length;
-        this.editor.textarea.selectionEnd = truncated.length;
-        this.reevaluate(true, { suppressAutoStart: true });
-        this.showToast(`Reverted to milestone "${m.label}"`);
-      });
-
-      chip.append(jumpBtn, revBtn);
-      this.milestonesBarEl.appendChild(chip);
-    }
+    this.persistCurrentSessions();
   }
 
   private checkSolveCompletion(): void {
+    if (this.uiMode !== 'solve') {
+      this.completionBannerEl.hidden = true;
+      return;
+    }
+
+    const totalMoves = this.allSteps.length;
     const solvedNow =
-      this.scrambleSeed.length > 0 &&
-      this.evalResult.steps.length > 0 &&
+      totalMoves > 0 &&
       !this.evalResult.blocked &&
+      this.evalResult.parseErrors.length === 0 &&
+      !this.evalResult.runtimeError &&
       isPuzzleSolved(this.evalResult.finalState, this.solvedState);
 
     if (solvedNow && !this.solveCompleted) {
@@ -1556,12 +1686,11 @@ class RingTwistApp {
     }
 
     if (this.solveCompleted && !this.completionDismissed) {
-      const moves = this.evalResult.steps.length;
       const timeStr = formatDuration(this.getCurrentElapsedMs());
       this.completionBannerEl.hidden = false;
       this.completionBannerEl.innerHTML = `
         <span class="completion-text">
-          🎉 <strong>Solved!</strong> ${moves} moves · ${timeStr} · seed <code>${escapeHtml(this.scrambleSeed)}</code>
+          🎉 <strong>Solved!</strong> ${totalMoves} moves · ${timeStr} · seed <code>${escapeHtml(this.solveSeed)}</code>
         </span>
         <div class="completion-actions">
           <button type="button" class="btn btn-primary btn-sm" id="btn-comp-share">Share Solve</button>
@@ -1573,8 +1702,7 @@ class RingTwistApp {
         this.shareCurrentState();
       });
       this.completionBannerEl.querySelector('#btn-comp-new')?.addEventListener('click', () => {
-        const seed = String(Math.floor(10000 + Math.random() * 90000));
-        this.startNewScramble(seed, this.scrambleMoves);
+        this.applySolveScramble(rollRandomSeed(), this.solveScrambleMoves);
       });
       this.completionBannerEl.querySelector('#btn-comp-close')?.addEventListener('click', () => {
         this.completionDismissed = true;
@@ -1586,16 +1714,16 @@ class RingTwistApp {
   }
 
   private getDisplayedState(): PuzzleState {
-    if (this.currentStepIndex <= 0 || this.evalResult.steps.length === 0) {
-      return this.evalResult.initialState;
+    if (this.currentStepIndex <= 0 || this.allSteps.length === 0) {
+      return this.getTimelineInitialState();
     }
-    const idx = Math.min(this.currentStepIndex, this.evalResult.steps.length) - 1;
-    return this.evalResult.steps[idx].stateAfter;
+    const idx = Math.min(this.currentStepIndex, this.allSteps.length) - 1;
+    return this.allSteps[idx].stateAfter;
   }
 
   private getHighlightForStep(stepIndex: number): RenderHighlight {
     const blocked = this.evalResult.blocked;
-    if (blocked && stepIndex === this.evalResult.steps.length) {
+    if (blocked && stepIndex === this.allSteps.length) {
       return {
         blockedCircleId: blocked.circleId,
         blockingPieceIds: blocked.blockingPieceIds,
@@ -1617,25 +1745,38 @@ class RingTwistApp {
     state: PuzzleState,
     statuses: ReturnType<typeof getAllCircleStatuses>,
   ): void {
-    const total = this.evalResult.steps.length;
+    const total = this.allSteps.length;
+    const committed = this.getCommittedStepCount();
     this.scrubberEl.value = String(this.currentStepIndex);
     this.stepCounterEl.textContent = `${this.currentStepIndex} / ${total}`;
     this.playBtnEl.textContent = this.isPlaying ? '⏸' : '▶';
-    if (this.solveMoveCountEl) this.solveMoveCountEl.textContent = String(total);
-    if (this.solveUndoBtn) this.solveUndoBtn.disabled = this.moveUndoStack.length === 0;
+
+    if (this.uiMode === 'solve') {
+      this.solveMoveCountEl.textContent = String(total);
+      this.solveUndoBtn.disabled = this.solveUndoStack.length === 0;
+      const canCommit =
+        this.evalResult.steps.length > 0 &&
+        this.evalResult.parseErrors.length === 0 &&
+        !this.evalResult.runtimeError &&
+        !this.evalResult.blocked;
+      this.commitMilestoneBtn.disabled = !canCommit;
+      this.clearDraftBtn.disabled = this.editor.getValue().trim().length === 0;
+      this.updateTimerDisplay();
+      this.updateSolveStackHighlight();
+    }
 
     // Status pills
     const pills: string[] = [];
     const solvedNow = isPuzzleSolved(state, this.solvedState);
     if (solvedNow) {
       pills.push('<span class="pill pill-solved">✓ Solved</span>');
-    } else if (this.scrambleSeed) {
-      pills.push(`<span class="pill pill-scramble">Scrambled · ${escapeHtml(this.scrambleSeed)}</span>`);
+    } else if (this.uiMode === 'solve') {
+      pills.push(`<span class="pill pill-scramble">Seed · ${escapeHtml(this.solveSeed)}</span>`);
     }
     pills.push(`<span class="pill">${state.pieces.length} pieces</span>`);
 
     if (this.currentStepIndex > 0 && this.currentStepIndex <= total) {
-      const st = this.evalResult.steps[this.currentStepIndex - 1];
+      const st = this.allSteps[this.currentStepIndex - 1];
       const macroTag = st.macroStack.length > 0 ? ` (${st.macroStack.join(' › ')})` : '';
       pills.push(
         `<span class="pill pill-info">Move: ${escapeHtml(st.moveLabel)}${escapeHtml(macroTag)}</span>`,
@@ -1645,11 +1786,13 @@ class RingTwistApp {
       pills.push('<span class="pill pill-info">⚡ Group fast-forward</span>');
     }
     if (this.evalResult.blocked) {
-      pills.push(`<span class="pill pill-blocked">⛔ Blocked at ${escapeHtml(this.evalResult.blocked.moveLabel)}</span>`);
+      pills.push(
+        `<span class="pill pill-blocked">⛔ Blocked at ${escapeHtml(this.evalResult.blocked.moveLabel)}</span>`,
+      );
     }
     this.statusPillsEl.innerHTML = pills.join('');
 
-    // Circle free/blocked chips (shows A, 2A, a separately for multi-layer concentric circles)
+    // Circle free/blocked chips
     this.circleChipsEl.innerHTML = '';
     for (const c of this.currentSpec.circles) {
       const chipSpecs: { label: string; layerOpt?: MoveLayerSpec; desc: string }[] =
@@ -1657,7 +1800,11 @@ class RingTwistApp {
           ? [
               { label: c.id, layerOpt: { layer: 1 }, desc: `Inner disk ${c.id}` },
               { label: `2${c.id}`, layerOpt: { layer: 2 }, desc: `Outer ring 2${c.id}` },
-              { label: c.id.toLowerCase(), layerOpt: { wide: true }, desc: `Wide full circle ${c.id.toLowerCase()}` },
+              {
+                label: c.id.toLowerCase(),
+                layerOpt: { wide: true },
+                desc: `Wide full circle ${c.id.toLowerCase()}`,
+              },
             ]
           : [{ label: c.id, desc: `Circle ${c.id}` }];
 
@@ -1677,7 +1824,7 @@ class RingTwistApp {
       }
     }
 
-    // Diagnostic banner (blocked / parseError / runtimeError)
+    // Diagnostic banner
     const errorSpans: Span[] = [];
     if (this.evalResult.parseErrors.length > 0) {
       const err = this.evalResult.parseErrors[0];
@@ -1691,11 +1838,12 @@ class RingTwistApp {
     } else if (this.evalResult.blocked) {
       const b = this.evalResult.blocked;
       errorSpans.push(b.topSpan);
-      const via = b.macroStack.length > 0 ? ` inside <code>${escapeHtml(b.macroStack.join(' › '))}</code>` : '';
+      const via =
+        b.macroStack.length > 0 ? ` inside <code>${escapeHtml(b.macroStack.join(' › '))}</code>` : '';
       this.diagBannerEl.className = 'diagnostic-banner error visible';
       this.diagBannerEl.innerHTML = `
         <span>
-          <b>Blocked at step ${b.stepIndex + 1} (<code>${escapeHtml(b.moveLabel)}</code>${via}):</b>
+          <b>Blocked at step ${committed + b.stepIndex + 1} (<code>${escapeHtml(b.moveLabel)}</code>${via}):</b>
           ${escapeHtml(b.reason)} — straddling pieces highlighted on puzzle.
         </span>
         ${
@@ -1713,36 +1861,38 @@ class RingTwistApp {
       this.diagBannerEl.innerHTML = '';
     }
 
-    // Update editor active-move & error highlights
+    // Active span highlight in editor (only when step is inside active textbox)
+    const localIdx = this.currentStepIndex - committed;
     const activeSpan =
-      this.currentStepIndex > 0 && this.currentStepIndex <= total
-        ? this.evalResult.steps[this.currentStepIndex - 1].topSpan
+      localIdx > 0 && localIdx <= this.evalResult.steps.length
+        ? this.evalResult.steps[localIdx - 1].topSpan
         : undefined;
     this.editor.setHighlights({ activeSpan, errorSpans });
   }
 
+  // ---- Playback ----
+
   private jumpToStep(stepIdx: number): void {
-    const clamped = Math.max(0, Math.min(this.evalResult.steps.length, stepIdx));
+    const clamped = Math.max(0, Math.min(this.allSteps.length, stepIdx));
     this.currentStepIndex = clamped;
     this.renderCurrentStep();
   }
 
   private turnDurationMs(angleDeg: number, fastForwarded?: boolean, baseMs = 360): number {
     if (fastForwarded) return 0;
-    // Scale duration cleanly with turn angle so angular speed stays consistent across 36°..180° turns
     const angleFactor = 0.65 + 0.35 * (Math.min(Math.abs(angleDeg), 180) / 72);
     return Math.round((baseMs * angleFactor) / this.speedMultiplier);
   }
 
   private stepForward(onDone?: () => void): void {
     this.flushPendingEval();
-    const total = this.evalResult.steps.length;
+    const total = this.allSteps.length;
     if (this.currentStepIndex >= total) {
       onDone?.();
       return;
     }
     const fromState = this.getDisplayedState();
-    const step = this.evalResult.steps[this.currentStepIndex];
+    const step = this.allSteps[this.currentStepIndex];
     this.currentStepIndex++;
 
     const highlightAfter = this.getHighlightForStep(this.currentStepIndex);
@@ -1769,7 +1919,7 @@ class RingTwistApp {
   private stepBackward(): void {
     this.flushPendingEval();
     if (this.currentStepIndex <= 0) return;
-    const step = this.evalResult.steps[this.currentStepIndex - 1];
+    const step = this.allSteps[this.currentStepIndex - 1];
     const fromState = step.stateAfter;
     this.currentStepIndex--;
     const toState = this.getDisplayedState();
@@ -1797,8 +1947,8 @@ class RingTwistApp {
 
   private startPlayback(): void {
     this.flushPendingEval();
-    if (this.evalResult.steps.length === 0) return;
-    if (this.currentStepIndex >= this.evalResult.steps.length) {
+    if (this.allSteps.length === 0) return;
+    if (this.currentStepIndex >= this.allSteps.length) {
       this.jumpToStep(0);
     }
     this.isPlaying = true;
@@ -1806,7 +1956,7 @@ class RingTwistApp {
 
     const playNext = () => {
       if (!this.isPlaying) return;
-      if (this.currentStepIndex >= this.evalResult.steps.length) {
+      if (this.currentStepIndex >= this.allSteps.length) {
         this.stopPlayback();
         return;
       }
@@ -1835,19 +1985,19 @@ class RingTwistApp {
     const steps = this.evalResult.steps;
     if (steps.length === 0) return;
 
-    // Find last step whose topSpan.start < cursorPos (or containing cursorPos)
-    let target = 0;
+    const committed = this.getCommittedStepCount();
+    let localTarget = 0;
     for (let i = 0; i < steps.length; i++) {
-      if (steps[i].topSpan.start < cursorPos) {
-        target = i + 1;
-      } else {
-        break;
-      }
+      if (steps[i].topSpan.start < cursorPos) localTarget = i + 1;
+      else break;
     }
+    const target = committed + localTarget;
     if (target !== this.currentStepIndex) {
       this.jumpToStep(target);
     }
   }
+
+  // ---- Interactive Moves ----
 
   private handleCircleClick(
     circleId: string,
@@ -1856,10 +2006,8 @@ class RingTwistApp {
   ): void {
     this.flushPendingEval();
     this.stopPlayback();
-    // Interactive moves always append/coalesce at the end of the sequence, so validate
-    // against `finalState` (and jump scrubber to end first if user had scrubbed earlier).
-    if (this.currentStepIndex !== this.evalResult.steps.length) {
-      this.jumpToStep(this.evalResult.steps.length);
+    if (this.currentStepIndex !== this.allSteps.length) {
+      this.jumpToStep(this.allSteps.length);
     }
     const curState = this.evalResult.finalState;
     const status = getCircleStatus(curState, circleId, layerOpt);
@@ -1896,10 +2044,9 @@ class RingTwistApp {
     } = {},
   ): void {
     this.flushPendingEval();
-    const prevCount = this.evalResult.steps.length;
+    const prevCount = this.allSteps.length;
     const wasAtEnd = this.currentStepIndex === prevCount;
 
-    // If not at end of sequence, jump cursor to end before appending
     if (!wasAtEnd) {
       const len = this.editor.getValue().length;
       this.editor.textarea.selectionStart = len;
@@ -1911,7 +2058,7 @@ class RingTwistApp {
 
     const ta = this.editor.textarea;
     const curText = ta.value;
-    this.pushUndoSnapshot(curText);
+    this.pushSolveUndoSnapshot();
     this.clearCyclePreview();
     const hasSelection = ta.selectionStart !== ta.selectionEnd;
     if (hasSelection || options.allowCoalesce === false) {
@@ -1929,30 +2076,33 @@ class RingTwistApp {
       ta.selectionEnd = res.nextCursor;
     }
 
+    const nextText = this.editor.getValue();
+    if (this.uiMode === 'solve') this.solveActiveAlg = nextText;
+    else this.exploreAlg = nextText;
+
     this.evalResult = evaluateProgram(
-      this.startState,
-      this.editor.getValue(),
+      this.getActiveEvalBaseState(),
+      nextText,
       this.macros,
       { solvedReference: this.solvedState },
     );
+    this.rebuildAllSteps();
     this.renderMacroList();
-    this.renderMilestones();
 
-    const newTotal = this.evalResult.steps.length;
+    const newTotal = this.allSteps.length;
     this.scrubberEl.max = String(newTotal);
     this.currentStepIndex = newTotal;
 
-    if (this.scrambleSeed && newTotal > 0 && !this.solveCompleted) {
+    if (this.uiMode === 'solve' && newTotal > 0 && !this.solveCompleted) {
       this.startTimer();
     }
     this.checkSolveCompletion();
-    this.persistCurrentSession();
+    this.persistCurrentSessions();
 
     const finalAfter = this.evalResult.finalState;
     const highlightAfter = this.getHighlightForStep(this.currentStepIndex);
 
     if (deltaAnim && deltaAnim.ok && !this.evalResult.blocked) {
-      // Smoothly animate the incremental turn (works cleanly for append, merge B->B2, AND cancel B+B'!)
       const statusesAfter = getAllCircleStatuses(finalAfter);
       this.updateChrome(finalAfter, statusesAfter);
       this.renderer.animateTurn(
@@ -1970,7 +2120,7 @@ class RingTwistApp {
         statusesAfter,
       );
     } else if (newTotal === prevCount + 1) {
-      const step = this.evalResult.steps[newTotal - 1];
+      const step = this.allSteps[newTotal - 1];
       const statusesAfter = getAllCircleStatuses(step.stateAfter);
       this.updateChrome(step.stateAfter, statusesAfter);
       this.renderer.animateTurn(
@@ -1993,14 +2143,7 @@ class RingTwistApp {
   }
 
   private runAnalysis(algSource: string, baseState: PuzzleState, label: string): void {
-    // Merge sidebar macros + inline macros defined in the editor so analyzing a
-    // selected macro call or inline macro body resolves all script-local macros.
-    const mergedMap = new Map<string, MacroLibraryEntry>();
-    for (const m of this.macros) mergedMap.set(m.name, m);
-    for (const [name, body] of Object.entries(this.evalResult.inlineMacros)) {
-      mergedMap.set(name, { name, body });
-    }
-    const res = analyzeAlgorithm(baseState, algSource, Array.from(mergedMap.values()));
+    const res = analyzeAlgorithm(baseState, algSource, this.getMergedMacros());
     this.analysisBannerEl.className = 'diagnostic-banner analysis visible';
     this.analysisBannerEl.innerHTML = `
       <span><b>${escapeHtml(label)} analysis:</b> ${escapeHtml(res.message)}</span>
@@ -2019,12 +2162,17 @@ class RingTwistApp {
   private shareCurrentState(): void {
     this.flushPendingEval();
     const customDoc = this.customDocs.find((d) => d.id === this.currentSpec.id);
+    const alg =
+      this.uiMode === 'solve'
+        ? serializeSolveTranscript(this.solveMilestones, this.editor.getValue())
+        : this.editor.getValue();
+
     const hash = encodeShareHash({
       puzzleId: this.currentSpec.id,
-      alg: this.editor.getValue(),
+      alg,
       macros: this.macros,
-      ...(this.scrambleSeed
-        ? { scrambleSeed: this.scrambleSeed, scrambleMoves: this.scrambleMoves }
+      ...(this.uiMode === 'solve'
+        ? { scrambleSeed: this.solveSeed, scrambleMoves: this.solveScrambleMoves }
         : {}),
       ...(customDoc ? { customDoc } : {}),
     });

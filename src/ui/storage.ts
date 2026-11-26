@@ -1,20 +1,27 @@
 import { MacroLibraryEntry } from '../lang/evaluator.ts';
 import { RingTwistPuzzleDoc, validateRingTwistDoc } from '../puzzle/format.ts';
+import { SolveMilestone } from '../puzzle/solveStack.ts';
 
 const STORAGE_PREFIX = 'ringtwist:macros:v1:';
 const LEGACY_STORAGE_PREFIX = 'circle-sim:macros:v1:';
 const CUSTOM_PUZZLES_KEY = 'ringtwist:custom-puzzles:v1';
-const SESSION_PREFIX = 'ringtwist:session:v1:';
+const EXPLORE_SESSION_PREFIX = 'ringtwist:explore:v1:';
+const SOLVE_SESSION_PREFIX = 'ringtwist:solve:v1:';
 const UI_MODE_KEY = 'ringtwist:ui-mode:v1';
 
 export type UiMode = 'explorer' | 'solve';
 
-export interface SavedSession {
+export interface ExploreSession {
   alg: string;
-  scrambleSeed?: string;
-  scrambleMoves?: number;
-  elapsedMs?: number;
-  solved?: boolean;
+}
+
+export interface SolveSession {
+  seed: string;
+  scrambleMoves: number;
+  milestones: SolveMilestone[];
+  activeAlg: string;
+  elapsedMs: number;
+  solved: boolean;
 }
 
 const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
@@ -100,33 +107,65 @@ export function saveUiMode(mode: UiMode): void {
   }
 }
 
-export function loadSession(puzzleId: string): SavedSession | null {
+export function loadExploreSession(puzzleId: string): ExploreSession | null {
   try {
-    const raw = localStorage.getItem(SESSION_PREFIX + puzzleId);
+    const raw = localStorage.getItem(EXPLORE_SESSION_PREFIX + puzzleId);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || typeof parsed.alg !== 'string') return null;
+    return { alg: parsed.alg };
+  } catch {
+    return null;
+  }
+}
+
+export function saveExploreSession(puzzleId: string, session: ExploreSession): void {
+  try {
+    localStorage.setItem(EXPLORE_SESSION_PREFIX + puzzleId, JSON.stringify(session));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function loadSolveSession(puzzleId: string): SolveSession | null {
+  try {
+    const raw = localStorage.getItem(SOLVE_SESSION_PREFIX + puzzleId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.seed !== 'string') return null;
+    const milestones: SolveMilestone[] = Array.isArray(parsed.milestones)
+      ? parsed.milestones
+          .filter(
+            (m: unknown): m is SolveMilestone =>
+              !!m &&
+              typeof m === 'object' &&
+              typeof (m as SolveMilestone).label === 'string' &&
+              typeof (m as SolveMilestone).alg === 'string',
+          )
+          .map((m: SolveMilestone) => ({ label: m.label, alg: m.alg }))
+      : [];
     return {
-      alg: parsed.alg,
-      ...(typeof parsed.scrambleSeed === 'string' && parsed.scrambleSeed.length > 0
-        ? { scrambleSeed: parsed.scrambleSeed }
-        : {}),
-      ...(typeof parsed.scrambleMoves === 'number' && Number.isFinite(parsed.scrambleMoves)
-        ? { scrambleMoves: parsed.scrambleMoves }
-        : {}),
-      ...(typeof parsed.elapsedMs === 'number' && Number.isFinite(parsed.elapsedMs)
-        ? { elapsedMs: Math.max(0, parsed.elapsedMs) }
-        : {}),
-      ...(typeof parsed.solved === 'boolean' ? { solved: parsed.solved } : {}),
+      seed: parsed.seed,
+      scrambleMoves:
+        typeof parsed.scrambleMoves === 'number' && Number.isFinite(parsed.scrambleMoves)
+          ? Math.max(4, Math.min(80, Math.round(parsed.scrambleMoves)))
+          : 20,
+      milestones,
+      activeAlg: typeof parsed.activeAlg === 'string' ? parsed.activeAlg : '',
+      elapsedMs:
+        typeof parsed.elapsedMs === 'number' && Number.isFinite(parsed.elapsedMs)
+          ? Math.max(0, parsed.elapsedMs)
+          : 0,
+      solved: Boolean(parsed.solved),
     };
   } catch {
     return null;
   }
 }
 
-export function saveSession(puzzleId: string, session: SavedSession): void {
+export function saveSolveSession(puzzleId: string, session: SolveSession): void {
   try {
-    localStorage.setItem(SESSION_PREFIX + puzzleId, JSON.stringify(session));
+    localStorage.setItem(SOLVE_SESSION_PREFIX + puzzleId, JSON.stringify(session));
   } catch {
     // Ignore storage errors
   }
