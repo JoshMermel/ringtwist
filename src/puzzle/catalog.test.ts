@@ -262,4 +262,40 @@ describe('puzzle catalog & Geranium geometry', () => {
     const ufo = buildPuzzle(UFO_2D);
     expect(ufo.pieces.length).toBe(100);
   });
+
+  it('verifies complete unbandaging and mirror symmetry on Bauhinium, Cohan Circle, Pocket Quatrium, and doctrinaire peers', () => {
+    const expected: Record<string, { pieces: number; mirror: ('x' | 'y')[] }> = {
+      bauhinium: { pieces: 28, mirror: ['x'] },
+      'bauhinium-plus': { pieces: 34, mirror: ['x', 'y'] },
+      'cohan-circle': { pieces: 29, mirror: ['x', 'y'] },
+      'pocket-quatrium': { pieces: 35, mirror: ['x', 'y'] },
+      'pocket-quatrium-plus': { pieces: 49, mirror: ['x', 'y'] },
+      arecibo: { pieces: 69, mirror: ['x', 'y'] },
+      mimosa: { pieces: 73, mirror: ['x'] },
+      eliac: { pieces: 59, mirror: ['x'] },
+      'three-circle-clover': { pieces: 37, mirror: ['y'] },
+    };
+
+    for (const [id, exp] of Object.entries(expected)) {
+      const spec = PUZZLE_CATALOG.find((p) => p.id === id)!;
+      const state = buildPuzzle(spec);
+      expect(state.pieces.length, `${id} piece count`).toBe(exp.pieces);
+      expect(getSupportedMirrorAxes(state), `${id} mirror axes`).toEqual(exp.mirror);
+      // Every single stop turn on every circle must leave all circles completely unblocked (no accidental bandaging)
+      for (const c of spec.circles) {
+        for (let s = 1; s < c.stopsDeg.length; s++) {
+          const res = turnCircleBySteps(state, c.id, s);
+          expect(res.ok, `${id} ${c.id}${s}`).toBe(true);
+          if (!res.ok) continue;
+          const st = getAllCircleStatuses(res.nextState);
+          for (const other of spec.circles) {
+            expect(
+              st[other.id].blocked,
+              `${id} after ${c.id}${s}: circle ${other.id} should not be bandaged`,
+            ).toBe(false);
+          }
+        }
+      }
+    }
+  });
 });

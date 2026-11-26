@@ -48,15 +48,15 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | **Cube4you OctoCrystal** | 8 | 64 | 45° (8 rainbow arms, 135° jumbling) |
 | **Cube4you 2D – XO** | 2 | 33 | 90° / 180° |
 | **Cube4you UFO 2D (10 Stars)** | 10 | 100 | Uneven `(36°, 108°, ...)` |
-| **Bauhinium** | 2 | 25 | 180° / 72° |
-| **Bauhinium Plus** | 3 | 28 | 72° / 180° / 72° |
-| **Pocket Quatrium** | 2 | 34 | 90° |
+| **Bauhinium** | 2 | 28 | 180° / 72° |
+| **Bauhinium Plus** | 3 | 34 | 72° / 180° / 72° |
+| **Pocket Quatrium** | 2 | 35 | 90° |
 | **Pocket Quatrium Plus** | 3 | 49 | 90° |
 | **Starcopter (Fomalhaut)** | 2 | 90 | 72° |
-| **Curvystar (Mimosa)** | 2 | 71 | 72° / 180° |
-| **Cohan Circle / Arusloky (Venn)** | 2 | 28 | 60° (3-color Venn) |
-| **Arecibo** | 2 | 67 | 120° |
-| **Eliac** | 2 | 55 | 90° / 180° |
+| **Curvystar (Mimosa)** | 2 | 73 | 72° / 180° |
+| **Cohan Circle / Arusloky (Venn)** | 2 | 29 | 60° (3-color Venn) |
+| **Arecibo** | 2 | 69 | 120° |
+| **Eliac** | 2 | 59 | 90° / 180° |
 | **Fragmentation Ring** | 2 | 45 | 72° (jumbling) |
 
 ### Classic Circles
@@ -64,7 +64,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | --- | :---: | :---: | --- |
 | **2-Circle Venn (Mandorla)** | 2 | 21 | 120° (3 stops) |
 | **Twin Rings** | 2 | 67 | 90° (4 stops + inner rings) |
-| **3-Circle Clover** | 3 | 31 | 60° (6 stops) |
+| **3-Circle Clover** | 3 | 37 | 60° (6 stops) |
 | **4-Circle Clover** | 4 | 16 | 90° (4 stops) |
 | **6-Circle Hex Flower** | 6 | 66 | 60° (6 stops) |
 | **7-Circle Flower** | 7 (1 center + 6 outer) | 66 | 60° (6 stops) |

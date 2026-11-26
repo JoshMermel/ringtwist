@@ -398,15 +398,6 @@ AutoCutParts: Random,30
 AutoColorParts: 10, 4, 6
 `;
 
-const THREE_CIRCLE_CLOVER_SCRIPT = `
-Param: s, 50/sqrt(3)
-Ring: 1,   0,     s, 50, 60
-Ring: 2,  25,  -s/2, 50, 60
-Ring: 3, -25,  -s/2, 50, 60
-AutoCutParts: (1R,2R,3R),6, (1L,2L,3L),6
-AutoColorParts: 3, 6, 5
-`;
-
 const FOUR_CIRCLE_CLOVER_SCRIPT = `
 Param: s, 38
 Ring: 1,  s,  s, 50, 90
@@ -442,32 +433,6 @@ AutoCutParts: (1R,2R,3R,4R,5R,6R,7R),6
 AutoColorParts: 3, 9, 6, 4, 5, 7, 8
 `;
 
-/** Exact Bauhinium secondary disk radius: 25 / sin(36°) ≈ 42.53254 (exact 108° intersection, zero micro-slivers). */
-export const BAUHINIUM_R2 = 25 / Math.sin(Math.PI / 5);
-
-const BAUHINIUM_SCRIPT = `
-Param: r2, 25/sin(pi/5)
-Ring: 1, 50, 50, 50, 180
-Ring: 2, 50+r2, 50, r2, 72
-AutoCutParts: (2R),4, 1R, (2R),4
-AutoColorParts: 3, 5, 5
-`;
-
-const BAUHINIUM_PLUS_SCRIPT = `
-Ring: 1, 50, 50, 42, 72
-Ring: 2, 92.1, 50, 50, 180
-Ring: 3, 134.2, 50, 42, 72
-AutoCutParts: (1R),4, (3R),4, 2R
-AutoColorParts: 4, 3, 4
-`;
-
-const POCKET_QUATRIUM_SCRIPT = `
-Ring: 1, 50, 50, 50, 90
-Ring: 2, 108, 50, 50, 90
-AutoCutParts: (1R,2R),7
-AutoColorParts: 4, 3, 10
-`;
-
 const POCKET_QUATRIUM_PLUS_SCRIPT = `
 Ring: 1, 50, 50, 50, 90
 Ring: 2, 108, 50, 50, 90
@@ -481,43 +446,6 @@ Ring: 1, 50, 50, 50, 72
 Ring: 2, 114, 50, 58, 72
 AutoCutParts: (1R,2L),20
 AutoColorParts: 6, 5, 6
-`;
-
-/** Exact Mimosa disk 1 radius solving Law of Cosines for an exact 72° intersection angle with d = 37.9, r2 = 50. */
-export const MIMOSA_D = 37.9;
-export const MIMOSA_R1 =
-  MIMOSA_D * Math.cos((2 * Math.PI) / 5) +
-  Math.sqrt((MIMOSA_D * Math.cos((2 * Math.PI) / 5)) ** 2 + 2500 - MIMOSA_D * MIMOSA_D);
-
-const MIMOSA_SCRIPT = `
-Param: d, 37.9
-Param: c72, cos(2*pi/5)
-Param: r1, d*c72 + sqrt(d*d*c72*c72 + 2500 - d*d)
-Ring: 1, 0, 0, r1, 72
-Ring: 2, d, 0, 50, 180
-AutoCutParts: (1R,2R),12
-AutoColorParts: 3, 4, 3
-`;
-
-const COHAN_CIRCLE_VENN_SCRIPT = `
-Ring: 1, 50, 50, 50, 60
-Ring: 2, 100, 50, 50, 60
-AutoCutParts: (1R),5, (2R),6, (1R2,2R2,2L4,2R2),2, (2R2,1R2,1L4,1R2),2
-AutoColorParts: 3, 5, 7
-`;
-
-const ARECIBO_SCRIPT = `
-Ring: 1, 50, 50, 50, 120
-Ring: 2, 91, 50, 50, 120
-AutoCutParts: (1R,2R),8
-AutoColorParts: 3, 10, 6
-`;
-
-const ELIAC_SCRIPT = `
-Ring: 1, 50, 50, 50, 90
-Ring: 2, 85.5, 50, 50, 180
-AutoCutParts: (1R,2R),8
-AutoColorParts: 9, 7, 8
 `;
 
 const FRAGMENTATION_RING_SCRIPT = `
@@ -721,37 +649,6 @@ export function buildExactMandorlaPieces(spec: PuzzleSpec): Piece[] {
 }
 
 /**
- * Build properly unbandaged 3-Circle Clover / Tri-Venn (60° turns, equilateral Reuleaux layout).
- */
-export function buildExactThreeCircleCloverPieces(spec: PuzzleSpec): Piece[] {
-  const pieces = buildFromGeraniumsPotScript(THREE_CIRCLE_CLOVER_SCRIPT, spec, {
-    coordScale: 1 / 50,
-  });
-  // Primary circles: A (Red), B (Yellow), C (Blue)
-  // Secondary 2-circle overlaps: A∩B -> Orange, B∩C -> Green, A∩C -> Purple; Center A∩B∩C -> Light neutral
-  const pairColors: Record<string, string> = {
-    'A,B': '#f97316',
-    'B,C': '#16a34a',
-    'A,C': '#9333ea',
-  };
-  for (const p of pieces) {
-    if (p.color === '#f8fafc') {
-      const members = spec.circles
-        .filter((c) => classifyRegionAgainstCircle(p.region, c) === 'inside')
-        .map((c) => c.id)
-        .sort()
-        .join(',');
-      const bridge = pairColors[members];
-      if (bridge) {
-        p.color = bridge;
-        p.homeColor = bridge;
-      }
-    }
-  }
-  return pieces;
-}
-
-/**
  * Build properly unbandaged 4-Circle Clover (90° turns, clean non-tangent spacing).
  */
 export function buildExactFourCircleCloverPieces(spec: PuzzleSpec): Piece[] {
@@ -850,58 +747,17 @@ export function buildExactSevenCircleFlowerPieces(spec: PuzzleSpec): Piece[] {
 }
 
 
-export function buildExactBauhiniumPieces(spec: PuzzleSpec, plus: boolean): Piece[] {
-  const ox = plus ? 92.1 : (50 + BAUHINIUM_R2 * 2) / 2;
-  return buildFromGeraniumsPotScript(plus ? BAUHINIUM_PLUS_SCRIPT : BAUHINIUM_SCRIPT, spec, {
+export function buildExactPocketQuatriumPieces(spec: PuzzleSpec, _plus: boolean): Piece[] {
+  return buildFromGeraniumsPotScript(POCKET_QUATRIUM_PLUS_SCRIPT, spec, {
     coordScale: 1 / 50,
-    originOffset: { x: ox, y: 50 },
+    originOffset: { x: 108, y: 50 },
   });
-}
-
-export function buildExactPocketQuatriumPieces(spec: PuzzleSpec, plus: boolean): Piece[] {
-  return buildFromGeraniumsPotScript(
-    plus ? POCKET_QUATRIUM_PLUS_SCRIPT : POCKET_QUATRIUM_SCRIPT,
-    spec,
-    {
-      coordScale: 1 / 50,
-      originOffset: plus ? { x: 108, y: 50 } : { x: 79, y: 50 },
-    },
-  );
 }
 
 export function buildExactFomalhautPieces(spec: PuzzleSpec): Piece[] {
   return buildFromGeraniumsPotScript(FOMALHAUT_SCRIPT, spec, {
     coordScale: 1 / 50,
     originOffset: { x: 86, y: 50 },
-  });
-}
-
-export function buildExactMimosaPieces(spec: PuzzleSpec): Piece[] {
-  const ox = (-MIMOSA_R1 + (MIMOSA_D + 50)) / 2;
-  return buildFromGeraniumsPotScript(MIMOSA_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: ox, y: 0 },
-  });
-}
-
-export function buildExactCohanCirclePieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(COHAN_CIRCLE_VENN_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 75, y: 50 },
-  });
-}
-
-export function buildExactAreciboPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(ARECIBO_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 70.5, y: 50 },
-  });
-}
-
-export function buildExactEliacPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(ELIAC_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 67.75, y: 50 },
   });
 }
 
