@@ -43,7 +43,7 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-class CircleSimApp {
+class RingTwistApp {
   private puzzleCache = new Map<string, PuzzleState>();
   private currentSpec: PuzzleSpec;
   private solvedState: PuzzleState;
@@ -148,7 +148,7 @@ class CircleSimApp {
         <div class="brand">
           <div class="brand-mark"></div>
           <div>
-            <h1>CircleSim</h1>
+            <h1>RingTwist</h1>
             <div class="subtitle">Text-first 2D twisty circle puzzle simulator</div>
           </div>
         </div>
@@ -1199,5 +1199,5 @@ class CircleSimApp {
 
 const appRoot = document.querySelector<HTMLElement>('#app');
 if (appRoot) {
-  new CircleSimApp(appRoot);
+  new RingTwistApp(appRoot);
 }

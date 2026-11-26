@@ -819,7 +819,7 @@ export function buildFromGeraniumsPotScript(
 
   removeDuplicateParts(parts);
 
-  // Convert to normalized CircleSim coordinates & Piece[]
+  // Convert to normalized RingTwist coordinates & Piece[]
   const scale = options.coordScale;
   const ox = options.originOffset?.x ?? 0;
   const oy = options.originOffset?.y ?? 0;

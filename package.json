@@ -1,13 +1,13 @@
 {
-  "name": "circle-sim",
+  "name": "ringtwist",
   "version": "0.1.0",
   "description": "Text-first 2D twisty circle puzzle simulator for non-doctrinaire (blocking/bandaged) puzzles like VeryPuzzle Geranium Plus",
   "license": "MIT",
   "author": "Josh Mermelstein <joshmermel@gmail.com>",
-  "homepage": "https://joshmermelstein.com/circle_sim/",
+  "homepage": "https://joshmermelstein.com/ringtwist/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/JoshMermel/circle_sim.git"
+    "url": "https://github.com/JoshMermel/ringtwist.git"
   },
   "private": true,
   "type": "module",

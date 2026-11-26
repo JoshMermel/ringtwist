@@ -1,10 +1,10 @@
-# CircleSim
+# RingTwist
 
 A **text-first 2D twisty circle puzzle simulator** built for exploring and solving **non-doctrinaire (blocking / bandaged)** circle puzzles like the VeryPuzzle Geranium Plus.
 
-**Live demo:** [joshmermelstein.com/circle_sim](https://joshmermelstein.com/circle_sim/) · **License:** [MIT](LICENSE)
+**Live demo:** [joshmermelstein.com/ringtwist](https://joshmermelstein.com/ringtwist/) · **License:** [MIT](LICENSE)
 
-![CircleSim running Geranium Plus with a symmetry macro](docs/screenshot.png)
+![RingTwist running Geranium Plus with a symmetry macro](docs/screenshot.png)
 
 Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algorithm notation/playback and [GeraniumsPot](https://github.com/grigorusha/GeraniumsPot/) for exact 2D circle-puzzle geometry — running 100% client-side in the browser with **zero runtime dependencies**.
 
@@ -79,11 +79,11 @@ A GitHub Actions workflow is included at [`.github/workflows/deploy.yml`](.githu
 
 1. Create the repository on GitHub and push `main`:
    ```bash
-   git remote add origin git@github.com:JoshMermel/circle_sim.git
+   git remote add origin git@github.com:JoshMermel/ringtwist.git
    git push -u origin main
    ```
 2. In your repository **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. Every push to `main` automatically runs tests, builds `./dist` (with relative `./` asset paths), and publishes to `https://joshmermelstein.com/circle_sim/`.
+3. Every push to `main` automatically runs tests, builds `./dist` (with relative `./` asset paths), and publishes to `https://joshmermelstein.com/ringtwist/`.
 
 ---
 

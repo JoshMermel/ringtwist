@@ -1,6 +1,7 @@
 import { MacroLibraryEntry } from '../lang/evaluator.ts';
 
-const STORAGE_PREFIX = 'circle-sim:macros:v1:';
+const STORAGE_PREFIX = 'ringtwist:macros:v1:';
+const LEGACY_STORAGE_PREFIX = 'circle-sim:macros:v1:';
 
 const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
   'geranium-plus': [
@@ -17,7 +18,9 @@ const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
 
 export function loadMacros(puzzleId: string): MacroLibraryEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + puzzleId);
+    const raw =
+      localStorage.getItem(STORAGE_PREFIX + puzzleId) ??
+      localStorage.getItem(LEGACY_STORAGE_PREFIX + puzzleId);
     if (!raw) return [...(DEFAULT_MACROS[puzzleId] ?? [])];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {

@@ -1,6 +1,6 @@
-# CircleSim Architecture & Contributor Guide
+# RingTwist Architecture & Contributor Guide
 
-CircleSim is a pure client-side TypeScript application bundled with Vite, with **zero runtime dependencies**. All puzzle geometry is computed analytically using circular arcs rather than polygon approximations.
+RingTwist is a pure client-side TypeScript application bundled with Vite, with **zero runtime dependencies**. All puzzle geometry is computed analytically using circular arcs rather than polygon approximations.
 
 ---
 
@@ -31,7 +31,7 @@ src/
 │   ├── puzzlePicker.ts       # Visual category-filtered puzzle picker modal with cached thumbnails
 │   ├── helpModal.ts          # Notation & controls guide modal
 │   └── storage.ts            # localStorage macro persistence and UTF-8 base64url hash sharing
-├── main.ts                   # CircleSimApp controller wiring state, playback, and DOM controls
+├── main.ts                   # RingTwistApp controller wiring state, playback, and DOM controls
 └── style.css                 # Dark-theme layout and component styling
 ```
 
@@ -61,7 +61,7 @@ src/
 
 1. **Define the construction script or builder** in [`src/puzzle/geraniumBuilder.ts`](../src/puzzle/geraniumBuilder.ts):
    - Most 2D twisty circle puzzles can be expressed directly as a `GeraniumsPot` script (`Param:`, `Ring:`, `CopyRing:`, `AutoCutParts:`, `CutCircles:`, `HideParts:`, `CopyParts:`, `AutoColorParts:`, `SetColorParts:`) executed via `buildFromGeraniumsPotScript()`.
-   - Remember that `GeraniumsPot` scripts use native radii (typically `50` or `70`), normalized to CircleSim's unit scale via `coordScale` and `originOffset`.
+   - Remember that `GeraniumsPot` scripts use native radii (typically `50` or `70`), normalized to RingTwist's unit scale via `coordScale` and `originOffset`.
 2. **Register a `PuzzleSpec`** in [`src/puzzle/catalog.ts`](../src/puzzle/catalog.ts):
    - Set `id`, `name`, `category` (`'Geranium Family'` or `'Classic Circles'`), `description`, `circles` (with spatial IDs `A..Z`, stop angles `stopsDeg`, and home colors), `symmetryStepDeg` (`0` if asymmetric), `customBuilder`, and `sampleAlgorithms`.
    - Append the spec to `PUZZLE_CATALOG`.
