@@ -42,8 +42,10 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | --- | :---: | :---: | --- |
 | **2-Circle Venn (Mandorla)** | 2 | 21 | 120° (3 stops) |
 | **Twin Rings** | 2 | 67 | 90° (4 stops + inner rings) |
+| **3-Circle Clover** | 3 | 31 | 60° (6 stops) |
 | **4-Circle Clover** | 4 | 16 | 90° (4 stops) |
 | **6-Circle Hex Flower** | 6 | 66 | 60° (6 stops) |
+| **7-Circle Flower** | 7 (1 center + 6 outer) | 66 | 60° (6 stops) |
 
 ---
 

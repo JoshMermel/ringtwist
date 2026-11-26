@@ -9,8 +9,10 @@ import {
   buildExactMandorlaPieces,
   buildExactMiniGeraniumPieces,
   buildExactPocketGeraniumPieces,
+  buildExactSevenCircleFlowerPieces,
   buildExactSixCircleHexPieces,
   buildExactSuperGeraniumPieces,
+  buildExactThreeCircleCloverPieces,
   buildExactTwinRingsPieces,
 } from './geraniumBuilder.ts';
 import { CircleDef, PuzzleSpec, evenStops } from './types.ts';
@@ -379,7 +381,40 @@ export const TWIN_RINGS: PuzzleSpec = {
 };
 
 /**
- * 10. 4-Circle Clover (Unbandaged 90° orthogonal circles)
+ * 10. 3-Circle Clover / Tri-Venn (Unbandaged 60° Reuleaux triangle layout)
+ */
+export const THREE_CIRCLE_CLOVER: PuzzleSpec = {
+  id: 'three-circle-clover',
+  name: '3-Circle Clover (60°)',
+  category: 'Classic Circles',
+  description:
+    '3 overlapping primary-color circles in equilateral Reuleaux symmetry (60° stops) with secondary-color overlap lenses and a bright central hub.',
+  circles: makeRingCircles(
+    3,
+    1 / Math.sqrt(3),
+    1.0,
+    6,
+    ['#ef4444', '#facc15', '#2563eb'],
+    90,
+  ),
+  symmetryStepDeg: 120,
+  customBuilder: (spec) => buildExactThreeCircleCloverPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: '60° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Clean 60° commutator across the Tri-Venn overlap',
+    },
+    {
+      name: '3-fold symmetry [r: [A, B]]',
+      alg: 'c = [A, B]\n[r: c]',
+      note: 'Applies the commutator rotated 120° CW around the clover',
+    },
+  ],
+};
+
+/**
+ * 11. 4-Circle Clover (Unbandaged 90° orthogonal circles)
  */
 export const FOUR_CIRCLE_CLOVER: PuzzleSpec = {
   id: 'four-circle-clover',
@@ -437,6 +472,35 @@ export const SIX_CIRCLE_HEX: PuzzleSpec = {
   ],
 };
 
+/**
+ * 13. 7-Circle Flower (1 central ring G + 6 outer rings A..F, 60° stops)
+ */
+export const SEVEN_CIRCLE_FLOWER: PuzzleSpec = {
+  id: 'seven-circle-flower',
+  name: '7-Circle Flower (60°)',
+  category: 'Classic Circles',
+  description:
+    '6 hexagonal outer rings (A–F) surrounding a playable central ring (G) with 60° stops — spin the center flower to route pieces between all six arms.',
+  circles: [
+    ...makeRingCircles(6, 1.0, 1.0, 6, PALETTE_6, 90),
+    { id: 'G', cx: 0, cy: 0, r: 1.0, stopsDeg: evenStops(6), color: '#14b8a6' },
+  ],
+  symmetryStepDeg: 60,
+  customBuilder: (spec) => buildExactSevenCircleFlowerPieces(spec),
+  sampleAlgorithms: [
+    {
+      name: 'Center-arm commutator [G, A]',
+      alg: '[G, A]',
+      note: 'Commutes the playable center ring G with outer ring A',
+    },
+    {
+      name: '6-fold swirl (G A)3',
+      alg: '(G A)3',
+      note: 'Alternates center ring G and outer ring A in 60° steps',
+    },
+  ],
+};
+
 export const PUZZLE_CATALOG: PuzzleSpec[] = [
   GERANIUM_PLUS,
   GERANIUM_STANDARD,
@@ -447,8 +511,10 @@ export const PUZZLE_CATALOG: PuzzleSpec[] = [
   MINI_GERANIUM,
   TWO_CIRCLE_VENN,
   TWIN_RINGS,
+  THREE_CIRCLE_CLOVER,
   FOUR_CIRCLE_CLOVER,
   SIX_CIRCLE_HEX,
+  SEVEN_CIRCLE_FLOWER,
 ];
 
 export function getPuzzleSpec(id: string): PuzzleSpec {

@@ -1,6 +1,7 @@
 import {
   ArcRegion,
   classifyRegionAgainstCircle,
+  interiorPointOfRegion,
   regionSignedArea,
   rotateRegion,
 } from '../geom/arcRegion.ts';
@@ -397,6 +398,15 @@ AutoCutParts: Random,30
 AutoColorParts: 10, 4, 6
 `;
 
+const THREE_CIRCLE_CLOVER_SCRIPT = `
+Param: s, 50/sqrt(3)
+Ring: 1,   0,     s, 50, 60
+Ring: 2,  25,  -s/2, 50, 60
+Ring: 3, -25,  -s/2, 50, 60
+AutoCutParts: (1R,2R,3R),6, (1L,2L,3L),6
+AutoColorParts: 3, 6, 5
+`;
+
 const FOUR_CIRCLE_CLOVER_SCRIPT = `
 Param: s, 38
 Ring: 1,  s,  s, 50, 90
@@ -417,6 +427,19 @@ Ring: 5, -h, -25, 50, 60
 Ring: 6, -h,  25, 50, 60
 AutoCutParts: (1R,2R,3R,4R,5R,6R),6
 AutoColorParts: 3, 9, 6, 4, 5, 7
+`;
+
+const SEVEN_CIRCLE_FLOWER_SCRIPT = `
+Param: h, 50*sqrt(3)/2
+Ring: 1,  0,  50, 50, 60
+Ring: 2,  h,  25, 50, 60
+Ring: 3,  h, -25, 50, 60
+Ring: 4,  0, -50, 50, 60
+Ring: 5, -h, -25, 50, 60
+Ring: 6, -h,  25, 50, 60
+Ring: 7,  0,   0, 50, 60
+AutoCutParts: (1R,2R,3R,4R,5R,6R,7R),6
+AutoColorParts: 3, 9, 6, 4, 5, 7, 8
 `;
 
 function cutRotated(
@@ -604,6 +627,37 @@ export function buildExactMandorlaPieces(spec: PuzzleSpec): Piece[] {
 }
 
 /**
+ * Build properly unbandaged 3-Circle Clover / Tri-Venn (60° turns, equilateral Reuleaux layout).
+ */
+export function buildExactThreeCircleCloverPieces(spec: PuzzleSpec): Piece[] {
+  const pieces = buildFromGeraniumsPotScript(THREE_CIRCLE_CLOVER_SCRIPT, spec, {
+    coordScale: 1 / 50,
+  });
+  // Primary circles: A (Red), B (Yellow), C (Blue)
+  // Secondary 2-circle overlaps: A∩B -> Orange, B∩C -> Green, A∩C -> Purple; Center A∩B∩C -> Light neutral
+  const pairColors: Record<string, string> = {
+    'A,B': '#f97316',
+    'B,C': '#16a34a',
+    'A,C': '#9333ea',
+  };
+  for (const p of pieces) {
+    if (p.color === '#f8fafc') {
+      const members = spec.circles
+        .filter((c) => classifyRegionAgainstCircle(p.region, c) === 'inside')
+        .map((c) => c.id)
+        .sort()
+        .join(',');
+      const bridge = pairColors[members];
+      if (bridge) {
+        p.color = bridge;
+        p.homeColor = bridge;
+      }
+    }
+  }
+  return pieces;
+}
+
+/**
  * Build properly unbandaged 4-Circle Clover (90° turns, clean non-tangent spacing).
  */
 export function buildExactFourCircleCloverPieces(spec: PuzzleSpec): Piece[] {
@@ -651,6 +705,51 @@ export function buildExactSixCircleHexPieces(spec: PuzzleSpec): Piece[] {
         p.color = '#cbd5e1';
         p.homeColor = '#cbd5e1';
       }
+    }
+  }
+  return pieces;
+}
+
+/**
+ * Build properly unbandaged 7-Circle Flower (1 central ring G + 6 outer rings A..F, 60° turns).
+ */
+export function buildExactSevenCircleFlowerPieces(spec: PuzzleSpec): Piece[] {
+  const pieces = buildFromGeraniumsPotScript(SEVEN_CIRCLE_FLOWER_SCRIPT, spec, {
+    coordScale: 1 / 50,
+  });
+  const outerCircles = spec.circles.slice(0, 6);
+  const centerCircle = spec.circles[6];
+  for (const p of pieces) {
+    const inCenter = classifyRegionAgainstCircle(p.region, centerCircle) === 'inside';
+    const outerMembers = outerCircles.filter(
+      (c) => classifyRegionAgainstCircle(p.region, c) === 'inside',
+    );
+    if (outerMembers.length === 1) {
+      // Pure outer petal: home color of its outer ring
+      p.color = outerMembers[0].color;
+      p.homeColor = outerMembers[0].color;
+    } else if (inCenter && outerMembers.length === 3) {
+      // 6 central flower petals inside G: color each by the middle/nearest outer ring so turning G swirls the rainbow core!
+      const pt = interiorPointOfRegion(p.region);
+      let best = outerMembers[0];
+      let bestD = Infinity;
+      for (const c of outerMembers) {
+        const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
+        if (d < bestD) {
+          bestD = d;
+          best = c;
+        }
+      }
+      p.color = best.color;
+      p.homeColor = best.color;
+    } else if (inCenter && outerMembers.length === 2) {
+      // 6 inner star tips bordering G's rim: crisp teal accent matching G
+      p.color = '#14b8a6';
+      p.homeColor = '#14b8a6';
+    } else if (!inCenter && outerMembers.length === 2) {
+      // Outer 2-circle overlap lenses outside G: soft slate bridge
+      p.color = '#cbd5e1';
+      p.homeColor = '#cbd5e1';
     }
   }
   return pieces;

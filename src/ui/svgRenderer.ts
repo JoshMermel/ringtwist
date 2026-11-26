@@ -142,6 +142,12 @@ function computeCircleLabelPosition(
     }
   }
 
+  // If this circle sits right at the symmetry center (surrounded by outer circles),
+  // place its badge right at its center so it doesn't collide with outer circle labels.
+  if (len < 1e-4) {
+    return { lx: c.cx, ly: -c.cy };
+  }
+
   // Fallback: directly above the circle
   return { lx: c.cx, ly: -(c.cy + labelDist) };
 }

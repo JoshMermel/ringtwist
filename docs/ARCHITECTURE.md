@@ -17,7 +17,7 @@ src/
 │   ├── types.ts              # PuzzleSpec, CircleDef, Piece, StickerWedge, PuzzleState
 │   ├── engine.ts             # Move execution, blocking checks, state hashing, seeded scrambles
 │   ├── geraniumsPotScript.ts # CSP-safe interpreter for GeraniumsPot .txt puzzle scripts
-│   ├── geraniumBuilder.ts    # Exact 11-puzzle script definitions & custom builders
+│   ├── geraniumBuilder.ts    # Exact 13-puzzle script definitions & custom builders
 │   ├── builder.ts            # Declarative PuzzleSpec builder (dispatches to customBuilder or DCEL)
 │   └── catalog.ts            # Exported PUZZLE_CATALOG, metadata, and verified sample algorithms
 ├── lang/
