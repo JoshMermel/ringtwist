@@ -933,21 +933,14 @@ export const SIX_CIRCLE_HEX_DOC: RingTwistPuzzleDoc = {
   ],
   coloring: [
     { type: 'fill', color: '#f8fafc' },
+    { type: 'region', memberCount: 2, color: '#cbd5e1' },
     {
-      type: 'venn',
-      colors: {
-        A: '#ef4444',
-        B: '#f97316',
-        C: '#facc15',
-        D: '#16a34a',
-        E: '#2563eb',
-        F: '#9333ea',
-        AB: '#cbd5e1',
-        BC: '#cbd5e1',
-        CD: '#cbd5e1',
-        DE: '#cbd5e1',
-        EF: '#cbd5e1',
-        AF: '#cbd5e1',
+      type: 'region',
+      inside: ['A'],
+      memberCount: 1,
+      repeatSymmetry: {
+        count: 6,
+        colors: ['#ef4444', '#f97316', '#facc15', '#16a34a', '#2563eb', '#9333ea'],
       },
     },
   ],
@@ -1001,33 +994,24 @@ export const SEVEN_CIRCLE_FLOWER_DOC: RingTwistPuzzleDoc = {
     },
   ],
   coloring: [
+    { type: 'region', outside: ['G'], memberCount: 2, ofAxes: 'ABCDEF', color: '#cbd5e1' },
+    { type: 'region', inside: ['G'], memberCount: 2, ofAxes: 'ABCDEF', color: '#14b8a6' },
     {
-      type: 'venn',
-      colors: {
-        A: '#ef4444',
-        B: '#f97316',
-        C: '#facc15',
-        D: '#16a34a',
-        E: '#2563eb',
-        F: '#9333ea',
-        AB: '#cbd5e1',
-        BC: '#cbd5e1',
-        CD: '#cbd5e1',
-        DE: '#cbd5e1',
-        EF: '#cbd5e1',
-        AF: '#cbd5e1',
-        ABG: '#14b8a6',
-        BCG: '#14b8a6',
-        CDG: '#14b8a6',
-        DEG: '#14b8a6',
-        EFG: '#14b8a6',
-        AFG: '#14b8a6',
-        ABFG: '#ef4444',
-        ABCG: '#f97316',
-        BCDG: '#facc15',
-        CDEG: '#16a34a',
-        DEFG: '#2563eb',
-        AEFG: '#9333ea',
+      type: 'region',
+      inside: ['A'],
+      memberCount: 1,
+      ofAxes: 'ABCDEF',
+      repeatSymmetry: {
+        count: 6,
+        colors: ['#ef4444', '#f97316', '#facc15', '#16a34a', '#2563eb', '#9333ea'],
+      },
+    },
+    {
+      type: 'region',
+      inside: ['A', 'B', 'F', 'G'],
+      repeatSymmetry: {
+        count: 6,
+        colors: ['#ef4444', '#f97316', '#facc15', '#16a34a', '#2563eb', '#9333ea'],
       },
     },
   ],
@@ -1216,6 +1200,188 @@ export const GIGAHEX_DOC: RingTwistPuzzleDoc = {
       name: 'Outer-slice exchange [2A, 2B]',
       alg: '[2A, 2B]',
       note: 'Swaps pieces between the two concentric outer rings 2A and 2B',
+    },
+  ],
+};
+
+/**
+ * 21. Twin Rings (90° 2-circle puzzle with inner concentric cutting rings, 69 pieces, mirror=[x,y])
+ */
+export const TWIN_RINGS_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'twin-rings',
+  name: 'Twin Rings (90°)',
+  category: 'Classic Circles',
+  description:
+    '69-piece Twin Rings puzzle: two overlapping 90° circles with concentric inner cutting rings and exact 4-way mirror symmetry.',
+  symmetryStepDeg: 180,
+  params: {
+    d: '29 / 50',
+    rIn: '34 / 50',
+  },
+  axes: [
+    { id: 'A', cx: '-d', cy: 0, r: 1, stops: 4, color: '#facc15' },
+    { id: 'B', cx: 'd', cy: 0, r: 1, stops: 4, color: '#2563eb' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 10 },
+        { moves: ["A'", "B'"], repeat: 10 },
+        { moves: ['A', "B'"], repeat: 10 },
+        { moves: ["A'", 'B'], repeat: 10 },
+      ],
+    },
+    {
+      op: 'cutCircles',
+      circles: [
+        { cx: '-d', cy: 0, r: 'rIn' },
+        { cx: 'd', cy: 0, r: 'rIn' },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'venn', colors: { A: '#facc15', B: '#2563eb', AB: '#2563eb' } },
+    { type: 'region', inside: [{ cx: '-d', cy: 0, r: 'rIn' }], color: '#f8fafc' },
+    { type: 'region', inside: [{ cx: 'd', cy: 0, r: 'rIn' }], color: '#f8fafc' },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '90° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Clean unbandaged quarter-turn commutator across the concentric inner rings',
+    },
+    {
+      name: '180°/90° Commutator [A2, B]',
+      alg: '[A2, B]',
+      note: 'Half-turn A2 combined with quarter-turn exchanges on B',
+    },
+    {
+      name: 'Symmetric conjugate [z: A2 B2]',
+      alg: '[z: A2 B2]',
+      note: 'Rotates the puzzle 180° to swap A and B, then runs 180° half-turns',
+    },
+  ],
+};
+
+/**
+ * 22. Cube4you UFO 2D / 10 Stars (Evgeniy Grigoriev — 10 decagonal circles, 100 pieces, mirror=[x,y])
+ */
+export const UFO_2D_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'ufo-2d',
+  name: 'Cube4you UFO 2D',
+  category: 'Designer & Exotic',
+  description:
+    'Evgeniy Grigoriev’s Cube4you UFO 2D (10 Stars): 10 decagonal circles with asymmetric 36°/108° stops forming 10 colored 5-pointed stars on a black ring (100 pieces).',
+  symmetryStepDeg: 36,
+  params: {
+    starR: '2 * cos(rad(18))',
+    starX: 'starR * cos(rad(72))',
+    starY: 'starR * sin(rad(72))',
+  },
+  axes: [
+    {
+      ring: {
+        ids: 'ABCDEFGHIJ',
+        centerRadius: 2,
+        r: 1.05,
+        startAngleDeg: 90,
+        stops: [0, 36, 144, 180, 216, 324],
+        colors: [
+          '#84cc16',
+          '#facc15',
+          '#f97316',
+          '#ef4444',
+          '#f8fafc',
+          '#c084fc',
+          '#9333ea',
+          '#f472b6',
+          '#2563eb',
+          '#38bdf8',
+        ],
+      },
+    },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 4,
+      blocks: [
+        {
+          moves: [
+            { move: 'A3', cutBy: ['B'] },
+            { move: 'B3', cutBy: ['C'] },
+            { move: 'C3', cutBy: ['D'] },
+            { move: 'D3', cutBy: ['E'] },
+            { move: 'E3', cutBy: ['F'] },
+            { move: 'F3', cutBy: ['G'] },
+            { move: 'G3', cutBy: ['H'] },
+            { move: 'H3', cutBy: ['I'] },
+            { move: 'I3', cutBy: ['J'] },
+            { move: 'J3', cutBy: ['A'] },
+          ],
+          repeat: 4,
+        },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#1e293b' },
+    {
+      type: 'region',
+      inside: [{ cx: 'starX', cy: 'starY', r: 0.74 }],
+      maxArea: 0.15,
+      repeatSymmetry: {
+        count: 10,
+        colors: [
+          '#84cc16',
+          '#facc15',
+          '#f97316',
+          '#ef4444',
+          '#f8fafc',
+          '#c084fc',
+          '#9333ea',
+          '#f472b6',
+          '#2563eb',
+          '#38bdf8',
+        ],
+      },
+    },
+    {
+      type: 'region',
+      inside: [{ cx: 'starX', cy: 'starY', r: 0.35 }],
+      repeatSymmetry: {
+        count: 10,
+        colors: [
+          '#84cc16',
+          '#facc15',
+          '#f97316',
+          '#ef4444',
+          '#f8fafc',
+          '#c084fc',
+          '#9333ea',
+          '#f472b6',
+          '#2563eb',
+          '#38bdf8',
+        ],
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '180° Star conjugate [A3: B3]',
+      alg: '[A3: B3]',
+      note: 'Half-turn A3 aligns cuts for a 180° star transfer on adjacent circle B',
+    },
+    {
+      name: 'Decagonal walk (A3 D3 G3)',
+      alg: 'A3 D3 G3',
+      note: '180° star flips spaced evenly around the 10-circle UFO ring',
     },
   ],
 };

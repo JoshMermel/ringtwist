@@ -19,7 +19,9 @@ import {
   SEVEN_CIRCLE_FLOWER_DOC,
   SIX_CIRCLE_HEX_DOC,
   THREE_CIRCLE_CLOVER_DOC,
+  TWIN_RINGS_DOC,
   TWO_CIRCLE_VENN_DOC,
+  UFO_2D_DOC,
 } from './definitions.ts';
 import { compileRingTwistDoc } from './formatBuilder.ts';
 import {
@@ -32,8 +34,6 @@ import {
   buildExactMiniGeraniumPieces,
   buildExactPocketGeraniumPieces,
   buildExactSuperGeraniumPieces,
-  buildExactTwinRingsPieces,
-  buildExactUfo2dPieces,
 } from './geraniumBuilder.ts';
 import { CircleDef, PuzzleSpec, evenStops } from './types.ts';
 
@@ -343,38 +343,9 @@ export const MINI_GERANIUM: PuzzleSpec = {
 export const TWO_CIRCLE_VENN: PuzzleSpec = compileRingTwistDoc(TWO_CIRCLE_VENN_DOC);
 
 /**
- * 9. Twin Rings (Exact unbandaged 90° 2-circle puzzle with inner rings, 67 pieces)
+ * 9. Twin Rings — compiled natively from ringtwist/v1 declarative doc (69 pcs, mirror=[x,y])
  */
-export const TWIN_RINGS: PuzzleSpec = {
-  id: 'twin-rings',
-  name: 'Twin Rings (90°)',
-  category: 'Classic Circles',
-  description:
-    'Exact 67-piece Twin Rings puzzle: two overlapping 90° circles with concentric inner rings and full unbandaged quarter-turn slicing.',
-  circles: [
-    { id: 'A', cx: -29 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#facc15' },
-    { id: 'B', cx: 29 / 50, cy: 0, r: 1.0, stopsDeg: evenStops(4), color: '#2563eb' },
-  ],
-  symmetryStepDeg: 180,
-  customBuilder: (spec) => buildExactTwinRingsPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '180°/90° Commutator [A2, B]',
-      alg: '[A2, B]',
-      note: '180° turn A2 keeps B unblocked for clean concentric ring exchanges',
-    },
-    {
-      name: 'Symmetric conjugate [z: A2 B2]',
-      alg: '[z: A2 B2]',
-      note: 'Rotates the puzzle 180° to swap A and B, then runs 180° half-turns',
-    },
-    {
-      name: 'Blocking demo (A B)',
-      alg: 'A B',
-      note: 'A (90° CW) turns pieces across B so B blocks',
-    },
-  ],
-};
+export const TWIN_RINGS: PuzzleSpec = compileRingTwistDoc(TWIN_RINGS_DOC);
 
 /**
  * 10. 3-Circle Clover / Tri-Venn — compiled natively from ringtwist/v1 declarative doc (37 pcs, mirror=[y])
@@ -501,54 +472,9 @@ export const OCTOCRYSTAL: PuzzleSpec = compileRingTwistDoc(OCTOCRYSTAL_DOC);
 export const CUBE4YOU_XO: PuzzleSpec = compileRingTwistDoc(CUBE4YOU_XO_DOC);
 
 /**
- * 30. Cube4you UFO 2D / 10 Stars (Evgeniy Grigoriev — 10 decagonal circles, 100 pieces)
+ * 30. Cube4you UFO 2D / 10 Stars — compiled natively from ringtwist/v1 declarative doc (100 pcs, mirror=[x,y])
  */
-const UFO_2D_STOPS = [0, 36, 144, 180, 216, 324];
-const UFO_2D_PALETTE = [
-  '#84cc16',
-  '#facc15',
-  '#f97316',
-  '#ef4444',
-  '#f8fafc',
-  '#c084fc',
-  '#9333ea',
-  '#f472b6',
-  '#2563eb',
-  '#38bdf8',
-];
-
-export const UFO_2D: PuzzleSpec = {
-  id: 'ufo-2d',
-  name: 'Cube4you UFO 2D',
-  category: 'Designer & Exotic',
-  description:
-    'Evgeniy Grigoriev’s Cube4you UFO 2D (10 Stars): 10 decagonal circles with asymmetric 36°/108° stops forming 10 colored 5-pointed stars on a black ring (100 pieces).',
-  circles: Array.from({ length: 10 }, (_, k) => {
-    const rad = deg2rad(90 - 36 * k);
-    return {
-      id: 'ABCDEFGHIJ'[k],
-      cx: 2 * Math.cos(rad),
-      cy: 2 * Math.sin(rad),
-      r: 1.05,
-      stopsDeg: UFO_2D_STOPS,
-      color: UFO_2D_PALETTE[k],
-    };
-  }),
-  symmetryStepDeg: 36,
-  customBuilder: (spec) => buildExactUfo2dPieces(spec),
-  sampleAlgorithms: [
-    {
-      name: '180° Star conjugate [A3: B3]',
-      alg: '[A3: B3]',
-      note: 'Half-turn A3 aligns cuts for a 180° star transfer on adjacent circle B',
-    },
-    {
-      name: 'Decagonal walk (A3 D3 G3)',
-      alg: 'A3 D3 G3',
-      note: '180° star flips spaced evenly around the 10-circle UFO ring',
-    },
-  ],
-};
+export const UFO_2D: PuzzleSpec = compileRingTwistDoc(UFO_2D_DOC);
 
 export const PUZZLE_CATALOG: PuzzleSpec[] = [
   GERANIUM_PLUS,

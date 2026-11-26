@@ -145,7 +145,8 @@ describe('puzzle catalog & Geranium geometry', () => {
     expect(miniPlus.pieces.length).toBe(56);
     expect(mini.pieces.length).toBe(46);
     expect(mandorla.pieces.length).toBe(21);
-    expect(twinRings.pieces.length).toBe(67);
+    expect(twinRings.pieces.length).toBe(69);
+    expect(getSupportedMirrorAxes(twinRings)).toEqual(['x', 'y']);
 
     // Pocket Geranium must be 3 circles in a horizontal line (cy === 0)
     expect(POCKET_GERANIUM.circles.length).toBe(3);

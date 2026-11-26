@@ -80,7 +80,7 @@ export interface SilhouetteSpec {
 /**
  * A single move step inside a closure pass.
  * - String: RingTwist move token (e.g. "A", "B'", "B2", "a", "2A"), followed by cutting by all axes.
- * - Object: explicit move + optional restricted cutBy list (e.g. ["A:1", "B"] for inner layer only!).
+ * - Object: explicit move + optional restricted cutBy list and optional region mask (only/skip).
  */
 export type ClosureMoveStep =
   | string
@@ -88,12 +88,48 @@ export type ClosureMoveStep =
       move: string;
       /** Circle refs to slice with after this move (e.g. "A", "A:1" for layer 1, "B"). Omit to slice by all axes. */
       cutBy?: string[];
+      /** Only slice pieces matching this filter after the move (unmatched pieces stay intact). */
+      only?: RegionFilter;
+      /** Skip slicing pieces matching this filter after the move (index-free equivalent of HideParts). */
+      skip?: RegionFilter;
     };
 
 export interface ClosureBlock {
   moves: ClosureMoveStep[];
   /** Number of times to repeat `moves` per outer pass (default 1). */
   repeat?: number;
+}
+
+export interface RotatedCircleRef {
+  /** Axis ID to rotate around `around` (defaults to [0, 0] or another axis ID). */
+  axis: string;
+  around: string | [NumExpr, NumExpr];
+  /** CCW rotation angle in degrees. */
+  angleDeg: NumExpr;
+  /** Optional radius override. */
+  r?: NumExpr;
+}
+
+export type ColorCircleRef = string | CircleExpr | RotatedCircleRef;
+
+/**
+ * Index-free geometric predicate matching pieces by circle containment, axis count, area, or coordinates.
+ * Shared across masked cuts (`cutCircles`/`closure`), predicate `bandage`, and `region` coloring.
+ */
+export interface RegionFilter {
+  inside?: ColorCircleRef[];
+  outside?: ColorCircleRef[];
+  /** Match pieces inside exactly N (or [min, max]) axes from `ofAxes` (defaults to all playable axes). */
+  memberCount?: number | [number, number];
+  ofAxes?: string | string[];
+  minArea?: NumExpr;
+  maxArea?: NumExpr;
+  /** Optional polar angle range [minDeg, maxDeg] in (-180, 180] relative to symmetryCenter. */
+  angleDeg?: [NumExpr, NumExpr];
+  minX?: NumExpr;
+  maxX?: NumExpr;
+  minY?: NumExpr;
+  maxY?: NumExpr;
 }
 
 export type CutOp =
@@ -116,8 +152,12 @@ export type CutOp =
   | {
       op: 'cutCircles';
       circles: CircleSource[];
-      /** Optional axis ID restricting which pieces get sliced. */
+      /** Optional axis ID restricting which pieces get sliced (legacy shorthand for `only: { inside: [id] }`). */
       onlyInside?: string;
+      /** Only slice pieces matching this filter (rotated alongside `repeatSymmetry`). */
+      only?: RegionFilter;
+      /** Skip slicing pieces matching this filter (rotated alongside `repeatSymmetry`). */
+      skip?: RegionFilter;
       /** Optional N-fold rotational replication around symmetryCenter (CW by 360/N). */
       repeatSymmetry?: number;
       minArea?: number;
@@ -134,22 +174,12 @@ export type CutOp =
   | {
       op: 'bandage';
       /** Groups of [x, y] points whose containing pieces are fused into a single piece. */
-      groups: [NumExpr, NumExpr][][];
-      /** Replicate each group across the puzzle's rotational symmetry. */
-      symmetric?: boolean;
+      groups?: [NumExpr, NumExpr][][];
+      /** Index-free geometric predicates: each filter fuses all matching pieces into one merged piece. */
+      where?: RegionFilter[];
+      /** Replicate each group/predicate across puzzle rotational symmetry (true) or explicit N-fold count. */
+      symmetric?: boolean | number;
     };
-
-export interface RotatedCircleRef {
-  /** Axis ID to rotate around `around` (defaults to [0, 0] or another axis ID). */
-  axis: string;
-  around: string | [NumExpr, NumExpr];
-  /** CCW rotation angle in degrees. */
-  angleDeg: NumExpr;
-  /** Optional radius override. */
-  r?: NumExpr;
-}
-
-export type ColorCircleRef = string | CircleExpr | RotatedCircleRef;
 
 export type ColoringRule =
   | { type: 'default' }
@@ -167,18 +197,17 @@ export type ColoringRule =
       direction?: 'cw' | 'ccw';
       colors: string[];
     }
-  | {
+  | (RegionFilter & {
       type: 'region';
-      inside?: ColorCircleRef[];
-      outside?: ColorCircleRef[];
-      /** Optional polar angle range [minDeg, maxDeg] in (-180, 180] relative to symmetryCenter. */
-      angleDeg?: [NumExpr, NumExpr];
-      minX?: NumExpr;
-      maxX?: NumExpr;
-      minY?: NumExpr;
-      maxY?: NumExpr;
-      color: string;
-    }
+      /** Single fill color (used when `repeatSymmetry` is omitted). */
+      color?: string;
+      /** Stamp this region filter CW around symmetryCenter with a color per symmetry step. */
+      repeatSymmetry?: {
+        count?: number;
+        stepDeg?: NumExpr;
+        colors: string[];
+      };
+    })
   | {
       type: 'points';
       probes: { x: NumExpr; y: NumExpr; color: string }[];

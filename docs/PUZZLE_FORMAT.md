@@ -109,17 +109,15 @@ Each part supports optional `inside` / `outside` circle filters to keep only mat
 
 An ordered list of geometric cut and bandaging operations executed after the initial silhouette:
 
-1. **`sliceByAxes`**: Slices all pieces against all axis circles (and optionally specific `refs` like `["A:1", "B"]` where `:1` selects layer 1).
-2. **`closure`**: Iteratively applies RingTwist moves (`"A"`, `"B'"`, `"B2"`, `"a"`, `"2A"`, …), slices straddling pieces, and rotates back until convergence (fixed point or `maxIters`).
+1. **`sliceByAxes`**: Slices all pieces against all axis circles (and optionally specific `axes` like `["A:1", "B"]` where `:1` selects layer 1).
+2. **`closure`**: Iteratively applies RingTwist moves (`"A"`, `"B'"`, `"B2"`, `"a"`, `"2A"`, …), slices straddling pieces, and converges (up to `maxIters`).
    - Supports simple `moves` arrays or structured `blocks: [{ "moves": [...], "repeat": 2 }]`.
-   - Individual move steps can specify `{ "move": "B", "cutBy": ["A:1", "B"] }` to selectively cut by specific layers (leaving outer layers bandaged, as on Crazy Lekki!).
-3. **`cutCircles`**: Slices against explicit auxiliary circles or ring generators.
-4. **`orbitSlice`**: Rotates pieces around a pivot (`axis` or `[cx, cy]`) by `stepDeg` (`steps` times), slicing by `by` circles at each stop and rotating back (ideal for exterior-turn puzzles like Moonspinner).
-5. **`bandage`**: Index-free merging of pieces that satisfy geometric predicates:
-   - `allOf`: must be inside all listed circle refs (`"A"`, `"A:1"`, …)
-   - `noneOf`: must be outside all listed circle refs
-   - `containsAny`: pieces containing any listed `[x, y]` probe point
-   - `minArea` / `maxArea`: optional area bounds
+   - Individual move steps can specify `{ "move": "B", "cutBy": ["A:1", "B"], "only": RegionFilter, "skip": RegionFilter }` to selectively cut by specific layers or mask out protected regions (index-free equivalent of `HideParts`).
+3. **`cutCircles`**: Slices against explicit auxiliary circles or ring generators, with optional `repeatSymmetry`, `only`, and `skip` `RegionFilter` masks.
+4. **`orbitSlice`**: Rotates pieces around a pivot (`axis` or `[cx, cy]`) by `anglesDeg`, slicing at each stop and rotating back.
+5. **`bandage`**: Index-free merging of pieces into a single piece, with optional `symmetric: true | N` rotational replication:
+   - `where`: array of **`RegionFilter`** predicates (`inside`, `outside`, `memberCount`, `ofAxes`, `minArea`, `maxArea`, `angleDeg`, `minX..maxY`) — each filter fuses all matching pieces.
+   - `groups`: optional explicit `[x, y]` probe point groups.
 
 ---
 
@@ -127,11 +125,11 @@ An ordered list of geometric cut and bandaging operations executed after the ini
 
 Evaluated sequentially — later rules override earlier ones:
 
-- **`{ "type": "default" }`**: Nearest axis home color (with optional `fallback`).
+- **`{ "type": "default" }`**: Nearest axis home color.
 - **`{ "type": "fill", "color": "#..." }`**: Sets all pieces to one color.
-- **`{ "type": "venn", "circles": ["A", "B", "C"], "palette": { "100": "#...", "110": "#...", ... } }`**: Bitmask coloring by circle containment.
-- **`{ "type": "cyclicArm", "axis": "A", "count": 8, "armColor": "#...", "colors": [...] }`**: Colors pieces by angular sector around the puzzle center (used by OctoCrystal).
-- **`{ "type": "region", "inside": [...], "outside": [...], "color": "#..." }`**: Geometric set predicate! Circle refs can even be rotated copies: `{ "axis": "A", "around": "B", "angleDeg": 120 }`.
+- **`{ "type": "venn", "colors": { "A": "#...", "AB": "#...", ... } }`**: Sorted axis-membership coloring.
+- **`{ "type": "cyclicArm", "axes": "ABCDE", "direction": "cw", "colors": [...] }`**: Colors pieces by cyclic arm (`inside[k] && !inside[k+1]`).
+- **`{ "type": "region", ...RegionFilter, "color": "#...", "repeatSymmetry": { "count": 10, "colors": [...] } }`**: Geometric set predicate supporting `inside`, `outside` (including rotated circle refs `{ "axis": "A", "around": "B", "angleDeg": 120 }`), `memberCount`, `ofAxes`, `minArea`/`maxArea`, `angleDeg`, `minX..maxY`, and optional `repeatSymmetry` to stamp a single region rule around all $N$ symmetry arms with a color palette.
 - **`{ "type": "points", "probes": [{ "x": 0.2, "y": -0.3, "color": "#..." }] }`**: Index-free point-in-piece probes.
 
 ---

@@ -379,17 +379,6 @@ AutoColorParts: 3, 3, 14
 SetColorParts: (7,16,25,35,33,36,40,49),6, (8,17,26,41,50,37,34,38),6, (42,43,46,55,51,53),14, (54,52,56,44,47,45),14
 `;
 
-const TWIN_RINGS_SCRIPT = `
-Ring: 1, 50, 50, 50, 90
-Ring: 2, 108, 50, 50, 90
-AutoCutParts: (1R,2R),7
-Ring: 3, 50, 50, 34, 0,1
-Ring: 4, 108, 50, 34, 0,1
-CutCircles: 3,4
-AutoColorParts: 6, 5, 5
-SetColorParts: (14,17,23,24,32,37,10,39,26,15,20,28,29,38,35,42,13),0, (41,45,34,27,19,12),6
-`;
-
 const FRAGMENTATION_RING_SCRIPT = `
 Ring: 1,  50, 50, 50, 72
 Ring: 2, 112, 50, 50, 72
@@ -573,47 +562,9 @@ export function buildExactMiniGeraniumPieces(
 /**
  * Build exact 2-circle Twin Rings (67 pieces, 90° turns + inner concentric cutting rings).
  */
-export function buildExactTwinRingsPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(TWIN_RINGS_SCRIPT, spec, {
-    coordScale: 1 / 50,
-    originOffset: { x: 79, y: 50 },
-  });
-}
-
 export function buildExactFragmentationRingPieces(spec: PuzzleSpec): Piece[] {
   return buildFromGeraniumsPotScript(FRAGMENTATION_RING_SCRIPT, spec, {
     coordScale: 1 / 50,
     originOffset: { x: 81, y: 50 },
-  });
-}
-
-// Verbatim James/10 Stars.txt = Cube4you UFO 2D (Evgeniy Grigoriev, 100 pieces)
-const UFO_2D_SCRIPT = `
-Param: radius, 200
-Param: radius2,105
-Ring: 1,  0, -radius, radius, 36
-Ring: 2,  0, 0, radius2, (36,108,36,36,108,36)
-CopyRing: 3, 2, 1R, radius2, (36,108,36,36,108,36)
-CopyRing: 4, 2, 1R2, radius2, (36,108,36,36,108,36)
-CopyRing: 5, 2, 1R3, radius2, (36,108,36,36,108,36)
-CopyRing: 6, 2, 1R4, radius2, (36,108,36,36,108,36)
-CopyRing: 7, 2, 1R5, radius2, (36,108,36,36,108,36)
-CopyRing: 8, 2, 1R6, radius2, (36,108,36,36,108,36)
-CopyRing: 9, 2, 1R7, radius2, (36,108,36,36,108,36)
-CopyRing:10, 2, 1R8, radius2, (36,108,36,36,108,36)
-CopyRing:11, 2, 1R9, radius2, (36,108,36,36,108,36)
-RemoveRings: 1
-AutoCutParts:
-AutoCutParts: ( (2R3,3),(3R3,4),(4R3,5),(5R3,6),(6R3,7),(7R3,8),(8R3,9),(9R3,10),(10R3,11),(11R3,2) ),4
-SetColorCircles: 2,1, 3,1, 4,1, 5,1, 6,1, 7,1, 8,1, 9,1, 10,1, 11,1
-SetColorCircles: (2,3),14, (3,4),6, (4,5),9, (5,6),3, (6,7),0, (7,8),13, (8,9),7, (9,10),11, (10,11),5, (11,2),10
-SetColorParts: (26,27,37,51,65,75,74,64,50,36),1, (8,13),14, (19,35),6, (43,59),9, (67,83),3, (92,94),0, (88,93),13
-SetColorParts: (66,82),7, (42,58),11, (18,34),5, (7,9),10
-`;
-
-export function buildExactUfo2dPieces(spec: PuzzleSpec): Piece[] {
-  return buildFromGeraniumsPotScript(UFO_2D_SCRIPT, spec, {
-    coordScale: 1 / 100,
-    originOffset: { x: 0, y: -200 },
   });
 }

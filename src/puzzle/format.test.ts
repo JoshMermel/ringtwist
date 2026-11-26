@@ -141,6 +141,47 @@ describe('RingTwist v1 export & URL share round-trip', () => {
     expect(counts.get('#1e293b')).toBe(20);
   });
 
+  it('supports predicate bandage.where, masked cutCircles (only/skip), and repeatSymmetry region coloring', () => {
+    const doc: RingTwistPuzzleDoc = {
+      format: 'ringtwist/v1',
+      id: 'ext-feature-test',
+      name: 'Extension Feature Test',
+      symmetryStepDeg: 180,
+      axes: [
+        { id: 'A', cx: -0.6, cy: 0, r: 1, stops: 4, color: '#ef4444' },
+        { id: 'B', cx: 0.6, cy: 0, r: 1, stops: 4, color: '#38bdf8' },
+      ],
+      cuts: [
+        { op: 'sliceByAxes' },
+        // Masked cut: cut only pieces inside A∩B by an inner circle centered at origin
+        {
+          op: 'cutCircles',
+          circles: [{ cx: 0, cy: 0, r: 0.35 }],
+          only: { inside: ['A', 'B'] },
+        },
+        // Predicate bandage: fuse the newly split A∩B pieces back into 1 overlap lens!
+        {
+          op: 'bandage',
+          where: [{ inside: ['A', 'B'] }],
+        },
+      ],
+      coloring: [
+        { type: 'fill', color: '#facc15' },
+        {
+          type: 'region',
+          inside: ['A'],
+          memberCount: 1,
+          repeatSymmetry: { count: 2, colors: ['#ef4444', '#38bdf8'] },
+        },
+      ],
+    };
+    const state = buildPuzzle(compileRingTwistDoc(doc));
+    // A\B (red), B\A (blue), and re-fused A∩B (yellow) = 3 pieces!
+    expect(state.pieces.length).toBe(3);
+    const cols = new Set(state.pieces.map((p) => p.color));
+    expect(cols).toEqual(new Set(['#ef4444', '#38bdf8', '#facc15']));
+  });
+
   it('round-trips custom ringtwist/v1 docs through URL share hashes', () => {
     const customDoc: RingTwistPuzzleDoc = {
       ...CUSTOM_PUZZLE_TEMPLATES[0].doc,
