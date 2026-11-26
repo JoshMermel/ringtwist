@@ -604,6 +604,13 @@ export function generateScramble(
     );
   }
 
+  const layerSpecsFor = (c: CircleDef): MoveLayerSpec[] => {
+    if (!c.layerRadii || c.layerRadii.length <= 1) return [{}];
+    const specs: MoveLayerSpec[] = [{ wide: true }];
+    for (let l = 1; l <= c.layerRadii.length; l++) specs.push({ layer: l });
+    return specs;
+  };
+
   let cur = initialState;
   let lastCircle = '';
   let lastSteps = 0;
@@ -611,48 +618,49 @@ export function generateScramble(
 
   for (let i = 0; i < moveCount; i++) {
     const statuses = getAllCircleStatuses(cur);
-    const freeCircles = cur.spec.circles.filter(
-      (c) => !statuses[c.id].blocked && c.id !== lastCircle,
-    );
-    const candidates =
-      freeCircles.length > 0
-        ? freeCircles
-        : cur.spec.circles.filter((c) => !statuses[c.id].blocked);
+    const allCircles = cur.spec.circles;
 
-    if (candidates.length === 0) break;
+    // Collect legal (circle, layerOpt, steps) turns that keep at least one other circle unblocked
+    const goodMoves: { cid: string; layerOpt: MoveLayerSpec; steps: number; next: PuzzleState }[] = [];
+    const fallbackMoves: { cid: string; layerOpt: MoveLayerSpec; steps: number; next: PuzzleState }[] = [];
 
-    // Collect legal (circle, steps) turns that keep at least one other circle unblocked
-    const goodMoves: { cid: string; steps: number; next: PuzzleState }[] = [];
-    const fallbackMoves: { cid: string; steps: number; next: PuzzleState }[] = [];
+    const orderedCircles = allCircles.filter((c) => c.id !== lastCircle);
+    const candidateCircles = orderedCircles.length > 0 ? orderedCircles : allCircles;
 
-    for (const c of candidates) {
+    for (const c of candidateCircles) {
       const n = c.stopsDeg.length;
       const maxHalf = Math.floor(n / 2);
       const curIdx = cur.circleStopIndex[c.id] ?? 0;
-      const insideIds = statuses[c.id].insidePieceIds;
       const nonOverlappingOtherFree = nonOverlapMap
         .get(c.id)!
         .some((oid) => !statuses[oid].blocked);
       const neighbors = overlapMap.get(c.id)!;
 
-      for (let step = 1; step <= maxHalf; step++) {
-        for (const dir of [1, -1]) {
-          if (step === maxHalf && n % 2 === 0 && dir === -1) continue;
-          const signedSteps = dir * step;
-          if (c.id === lastCircle && signedSteps === -lastSteps) continue;
+      for (const layerOpt of layerSpecsFor(c)) {
+        const layerStatus =
+          !layerOpt.layer && !layerOpt.wide ? statuses[c.id] : getCircleStatus(cur, c.id, layerOpt);
+        if (layerStatus.blocked) continue;
+        const insideIds = layerStatus.insidePieceIds;
 
-          const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(c, curIdx, signedSteps);
-          const res = turnCircleByAngle(cur, c.id, deltaDeg, nextStopIdx, insideIds);
-          if (!res.ok) continue;
+        for (let step = 1; step <= maxHalf; step++) {
+          for (const dir of [1, -1]) {
+            if (step === maxHalf && n % 2 === 0 && dir === -1) continue;
+            const signedSteps = dir * step;
+            if (c.id === lastCircle && signedSteps === -lastSteps) continue;
 
-          const otherFree =
-            nonOverlappingOtherFree ||
-            neighbors.some((nb) => !isCircleBlocked(res.nextState, nb));
+            const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(c, curIdx, signedSteps);
+            const res = turnCircleByAngle(cur, c.id, deltaDeg, nextStopIdx, insideIds, layerOpt);
+            if (!res.ok) continue;
 
-          if (otherFree) {
-            goodMoves.push({ cid: c.id, steps: signedSteps, next: res.nextState });
-          } else {
-            fallbackMoves.push({ cid: c.id, steps: signedSteps, next: res.nextState });
+            const otherFree =
+              nonOverlappingOtherFree ||
+              neighbors.some((nb) => !isCircleBlocked(res.nextState, nb));
+
+            if (otherFree) {
+              goodMoves.push({ cid: c.id, layerOpt, steps: signedSteps, next: res.nextState });
+            } else {
+              fallbackMoves.push({ cid: c.id, layerOpt, steps: signedSteps, next: res.nextState });
+            }
           }
         }
       }
@@ -665,7 +673,7 @@ export function generateScramble(
     cur = pick.next;
     lastCircle = pick.cid;
     lastSteps = pick.steps;
-    tokens.push(formatMoveToken(pick.cid, pick.steps));
+    tokens.push(formatMoveToken(pick.cid, pick.steps, pick.layerOpt));
   }
 
   return tokens.join(' ');

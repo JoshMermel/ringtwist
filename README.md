@@ -40,6 +40,13 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 ### Designer & Exotic
 | Puzzle | Circles | Pieces | Stops |
 | --- | :---: | :---: | --- |
+| **ThinkFun Moonspinner** | 2 (1 inner + 1 exterior) | 27 | 180° lens / 72° exterior (`turnRegion: 'outside'`) |
+| **Crazy Lekki** | 2 (1× 2-layer + 1) | 37 | 120° (`A`/`2A`/`a`) / 90° (`B`, bandages `2A`) |
+| **GigaHex** | 2 (2-layer) | 105 | 60° (`A`/`2A`/`a`, `B`/`2B`/`b`) |
+| **GigaHex Plus** | 3 (2-layer) | 133 | 60° (7-color RGB/CMY/White Venn) |
+| **Cube4you OctoCrystal** | 8 | 64 | 45° (8 rainbow arms, 135° jumbling) |
+| **Cube4you 2D – XO** | 2 | 33 | 90° / 180° |
+| **Cube4you UFO 2D (10 Stars)** | 10 | 100 | Uneven `(36°, 108°, ...)` |
 | **Bauhinium** | 2 | 25 | 180° / 72° |
 | **Bauhinium Plus** | 3 | 28 | 72° / 180° / 72° |
 | **Pocket Quatrium** | 2 | 34 | 90° |

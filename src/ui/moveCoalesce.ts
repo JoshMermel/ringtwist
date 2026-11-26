@@ -1,4 +1,4 @@
-import { formatMoveToken } from '../puzzle/engine.ts';
+import { MoveLayerSpec, formatMoveToken } from '../puzzle/engine.ts';
 import { PuzzleSpec } from '../puzzle/types.ts';
 
 export interface CoalesceResult {
@@ -8,28 +8,30 @@ export interface CoalesceResult {
 }
 
 type ParsedSimpleMove =
-  | { kind: 'circle'; circleId: string; steps: number }
-  | { kind: 'next'; circleId: string; steps: number }
+  | { kind: 'circle'; circleId: string; steps: number; layerOpt?: MoveLayerSpec }
+  | { kind: 'next'; circleId: string; steps: number; layerOpt?: MoveLayerSpec }
   | { kind: 'rot'; steps: number };
+
+function sameLayerOpt(a?: MoveLayerSpec, b?: MoveLayerSpec): boolean {
+  return (a?.layer ?? 1) === (b?.layer ?? 1) && Boolean(a?.wide) === Boolean(b?.wide);
+}
 
 function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimpleMove | null {
   const trimmed = token.trim();
-  const nextMatch = trimmed.match(/^([A-Z])([><])(\d*)$/);
+  const nextMatch = trimmed.match(/^(\d*)([A-Za-y])([><])(\d*)$/);
   if (nextMatch) {
-    const circleId = nextMatch[1];
-    if (!spec.circles.some((c) => c.id === circleId)) return null;
-    const count = nextMatch[3] ? parseInt(nextMatch[3], 10) : 1;
+    const rawLetter = nextMatch[2];
+    const isLower = rawLetter >= 'a' && rawLetter <= 'y';
+    const circleId = rawLetter.toUpperCase();
+    const cDef = spec.circles.find((c) => c.id === circleId);
+    if (!cDef) return null;
+    if (isLower && !(cDef.layerRadii && cDef.layerRadii.length > 1)) return null;
+    const layer = nextMatch[1] ? parseInt(nextMatch[1], 10) : undefined;
+    const layerOpt: MoveLayerSpec | undefined =
+      layer !== undefined || isLower ? { ...(layer ? { layer } : {}), ...(isLower ? { wide: true } : {}) } : undefined;
+    const count = nextMatch[4] ? parseInt(nextMatch[4], 10) : 1;
     if (count === 0) return null;
-    return { kind: 'next', circleId, steps: nextMatch[2] === '>' ? count : -count };
-  }
-
-  const circleMatch = trimmed.match(/^([A-Z])(\d*)('?)$/);
-  if (circleMatch) {
-    const circleId = circleMatch[1];
-    if (!spec.circles.some((c) => c.id === circleId)) return null;
-    const count = circleMatch[2] ? parseInt(circleMatch[2], 10) : 1;
-    if (count === 0) return null;
-    return { kind: 'circle', circleId, steps: circleMatch[3] === "'" ? -count : count };
+    return { kind: 'next', circleId, steps: nextMatch[3] === '>' ? count : -count, layerOpt };
   }
 
   const rotMatch = trimmed.match(/^z(\d*)('?)$/);
@@ -37,6 +39,22 @@ function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimp
     const count = rotMatch[1] ? parseInt(rotMatch[1], 10) : 1;
     if (count === 0) return null;
     return { kind: 'rot', steps: rotMatch[2] === "'" ? -count : count };
+  }
+
+  const circleMatch = trimmed.match(/^(\d*)([A-Za-y])(\d*)('?)$/);
+  if (circleMatch) {
+    const rawLetter = circleMatch[2];
+    const isLower = rawLetter >= 'a' && rawLetter <= 'y';
+    const circleId = rawLetter.toUpperCase();
+    const cDef = spec.circles.find((c) => c.id === circleId);
+    if (!cDef) return null;
+    if (isLower && !(cDef.layerRadii && cDef.layerRadii.length > 1)) return null;
+    const layer = circleMatch[1] ? parseInt(circleMatch[1], 10) : undefined;
+    const layerOpt: MoveLayerSpec | undefined =
+      layer !== undefined || isLower ? { ...(layer ? { layer } : {}), ...(isLower ? { wide: true } : {}) } : undefined;
+    const count = circleMatch[3] ? parseInt(circleMatch[3], 10) : 1;
+    if (count === 0) return null;
+    return { kind: 'circle', circleId, steps: circleMatch[4] === "'" ? -count : count, layerOpt };
   }
 
   return null;
@@ -55,10 +73,13 @@ function formatRotationToken(steps: number): string {
   return `z${abs === 1 ? '' : abs}${prime}`;
 }
 
-function formatNextToken(circleId: string, steps: number): string {
+function formatNextToken(circleId: string, steps: number, layerOpt?: MoveLayerSpec): string {
   const abs = Math.abs(steps);
   const dir = steps > 0 ? '>' : '<';
-  return `${circleId}${dir}${abs === 1 ? '' : abs}`;
+  const base = layerOpt?.wide
+    ? `${layerOpt.layer && layerOpt.layer > 2 ? layerOpt.layer : ''}${circleId.toLowerCase()}`
+    : `${layerOpt?.layer && layerOpt.layer > 1 ? layerOpt.layer : ''}${circleId}`;
+  return `${base}${dir}${abs === 1 ? '' : abs}`;
 }
 
 /**
@@ -137,15 +158,27 @@ export function applyInteractiveMoveToText(
 
   let replacement: string | null = null;
   if (parsedPrev.kind === 'circle' && parsedNew.kind === 'circle') {
-    if (parsedPrev.circleId !== parsedNew.circleId) return fallbackAppend();
+    if (
+      parsedPrev.circleId !== parsedNew.circleId ||
+      !sameLayerOpt(parsedPrev.layerOpt, parsedNew.layerOpt)
+    ) {
+      return fallbackAppend();
+    }
     const circle = spec.circles.find((c) => c.id === parsedPrev.circleId);
     const modulus = circle?.stopsDeg.length ?? 0;
     const combined = shortestSignedMod(parsedPrev.steps + parsedNew.steps, modulus);
-    replacement = combined === 0 ? null : formatMoveToken(parsedPrev.circleId, combined);
+    replacement =
+      combined === 0 ? null : formatMoveToken(parsedPrev.circleId, combined, parsedPrev.layerOpt);
   } else if (parsedPrev.kind === 'next' && parsedNew.kind === 'next') {
-    if (parsedPrev.circleId !== parsedNew.circleId) return fallbackAppend();
+    if (
+      parsedPrev.circleId !== parsedNew.circleId ||
+      !sameLayerOpt(parsedPrev.layerOpt, parsedNew.layerOpt)
+    ) {
+      return fallbackAppend();
+    }
     const combined = parsedPrev.steps + parsedNew.steps;
-    replacement = combined === 0 ? null : formatNextToken(parsedPrev.circleId, combined);
+    replacement =
+      combined === 0 ? null : formatNextToken(parsedPrev.circleId, combined, parsedPrev.layerOpt);
   } else if (parsedPrev.kind === 'rot' && parsedNew.kind === 'rot') {
     const symCount = Math.round(360 / spec.symmetryStepDeg);
     const combined = shortestSignedMod(parsedPrev.steps + parsedNew.steps, symCount);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { GERANIUM_PLUS, GERANIUM_STANDARD, POCKET_GERANIUM, TWO_CIRCLE_VENN } from '../puzzle/catalog.ts';
+import {
+  GERANIUM_PLUS,
+  GERANIUM_STANDARD,
+  GIGAHEX,
+  POCKET_GERANIUM,
+  TWO_CIRCLE_VENN,
+} from '../puzzle/catalog.ts';
 import { applyInteractiveMoveToText } from './moveCoalesce.ts';
 
 describe('interactive move coalescing & cancellation', () => {
@@ -74,5 +80,32 @@ describe('interactive move coalescing & cancellation', () => {
     const r2 = applyInteractiveMoveToText('[B', 2, "B'", GERANIUM_PLUS);
     expect(r2.action).toBe('appended');
     expect(r2.nextText).toBe("[B B'");
+  });
+
+  it('coalesces and cancels multi-layer slice (2A) and wide (a) moves independently on GigaHex', () => {
+    const s1 = applyInteractiveMoveToText('2A', 2, '2A', GIGAHEX);
+    expect(s1.action).toBe('merged');
+    expect(s1.nextText).toBe('2A2');
+
+    const s2 = applyInteractiveMoveToText('2A', 2, "2A'", GIGAHEX);
+    expect(s2.action).toBe('cancelled');
+    expect(s2.nextText).toBe('');
+
+    const w1 = applyInteractiveMoveToText('a', 1, 'a', GIGAHEX);
+    expect(w1.action).toBe('merged');
+    expect(w1.nextText).toBe('a2');
+
+    const w2 = applyInteractiveMoveToText('a', 1, "a'", GIGAHEX);
+    expect(w2.action).toBe('cancelled');
+    expect(w2.nextText).toBe('');
+
+    // Different layers on the same circle (A vs 2A vs a) must NEVER merge together
+    const diff1 = applyInteractiveMoveToText('A', 1, '2A', GIGAHEX);
+    expect(diff1.action).toBe('appended');
+    expect(diff1.nextText).toBe('A 2A');
+
+    const diff2 = applyInteractiveMoveToText('2A', 2, 'a', GIGAHEX);
+    expect(diff2.action).toBe('appended');
+    expect(diff2.nextText).toBe('2A a');
   });
 });

@@ -34,6 +34,8 @@ export interface CircleDef extends Circle {
    * `'outside'` rotates everything strictly outside the circle (e.g. ThinkFun Moonspinner).
    */
   turnRegion?: 'inside' | 'outside';
+  /** Optional explicit label badge position in math coordinates. */
+  labelPos?: Point;
 }
 
 export interface OrbitSliceStep {
@@ -124,6 +126,8 @@ export interface PuzzleSpec {
   assignColor?: (info: AtomicPieceInfo, ctx: PuzzleColoringContext) => string;
   /** Optional sample algorithms shown in the UI for quick exploration. */
   sampleAlgorithms?: { name: string; alg: string; note?: string }[];
+  /** Optional explicit math-coordinate bounding box (when pieces extend outside playable circles, e.g. Moonspinner). */
+  viewBounds?: { minX: number; maxX: number; minY: number; maxY: number };
 }
 
 export interface Piece {

@@ -6,7 +6,7 @@ import {
   rotateRegion,
 } from '../geom/arcRegion.ts';
 import { Circle, deg2rad } from '../geom/math.ts';
-import { splitRegionByCircle } from '../geom/slicer.ts';
+import { sliceCircles, splitRegionByCircle } from '../geom/slicer.ts';
 import {
   attachCenterPentagonStickers,
   buildFromGeraniumsPotScript,
@@ -909,5 +909,399 @@ export function buildExactFragmentationRingPieces(spec: PuzzleSpec): Piece[] {
   return buildFromGeraniumsPotScript(FRAGMENTATION_RING_SCRIPT, spec, {
     coordScale: 1 / 50,
     originOffset: { x: 81, y: 50 },
+  });
+}
+
+function splitRegionsByCircle(regions: ArcRegion[], circle: Circle, minArea = 1e-5): ArcRegion[] {
+  const next: ArcRegion[] = [];
+  for (const reg of regions) {
+    if (classifyRegionAgainstCircle(reg, circle, 1e-4) === 'straddling') {
+      const sp = splitRegionByCircle(reg, circle);
+      if (sp && sp.length > 1) {
+        for (const r of sp) {
+          if (regionSignedArea(r.edges) > minArea) next.push(r);
+        }
+        continue;
+      }
+    }
+    next.push(reg);
+  }
+  return next;
+}
+
+function rotateRegionsInside(regions: ArcRegion[], circle: Circle, rad: number): ArcRegion[] {
+  return regions.map((r) =>
+    classifyRegionAgainstCircle(r, circle, 1e-4) === 'inside'
+      ? rotateRegion(r, circle.cx, circle.cy, rad)
+      : r,
+  );
+}
+
+/**
+ * Cube4you Crazy Lekki (concept: Victor Manuel Wdoviak, design: Jose Romero):
+ * Large 2-layer 120° circle A (inner r=53/50, outer r=84/50) on the left +
+ * smaller 90° circle B (r=58/50) on the right, center distance = 130*sqrt(3)/3 / 50.
+ * Turning B by 90° bandages A's outer ring (2A / a) while leaving inner disk A free;
+ * turning B by 180° unlocks A's outer ring again. Exact 37-piece RBOY layout.
+ */
+export const CRAZY_LEKKI_DIST = ((130 * Math.sqrt(3)) / 3) / 50;
+
+export function buildExactCrazyLekkiPieces(spec: PuzzleSpec): Piece[] {
+  const cA = spec.circles[0]; // large 2-layer 120° (left)
+  const cB = spec.circles[1]; // small 90° yellow (right)
+  const rInner = cA.layerRadii?.[0] ?? 53 / 50;
+  const cAInner: Circle = { cx: cA.cx, cy: cA.cy, r: rInner };
+  const cAOuter: Circle = { cx: cA.cx, cy: cA.cy, r: cA.r };
+
+  let regions: ArcRegion[] = sliceCircles([cA, cB]).map((r) => ({ edges: r.edges }));
+  regions = splitRegionsByCircle(regions, cAInner);
+
+  const cutAll = () => {
+    regions = splitRegionsByCircle(regions, cB);
+    regions = splitRegionsByCircle(regions, cAOuter);
+    regions = splitRegionsByCircle(regions, cAInner);
+  };
+  const cutInner = () => {
+    regions = splitRegionsByCircle(regions, cB);
+    regions = splitRegionsByCircle(regions, cAInner);
+  };
+
+  let prev = -1;
+  for (let iter = 0; iter < 8 && regions.length !== prev; iter++) {
+    prev = regions.length;
+    // Outer closure (B at 0°/180°): wide 120° on A + 180° on B
+    for (let k = 0; k < 6; k++) {
+      regions = rotateRegionsInside(regions, cAOuter, (2 * Math.PI) / 3);
+      cutAll();
+      regions = rotateRegionsInside(regions, cB, Math.PI);
+      cutAll();
+    }
+    // Inner commutator closure: B (±90°) -> A inner (120°) -> B (∓90°) -> A wide (120°)
+    for (const dir of [1, -1]) {
+      for (let k = 0; k < 3; k++) {
+        regions = rotateRegionsInside(regions, cB, (dir * Math.PI) / 2);
+        cutInner();
+        regions = rotateRegionsInside(regions, cAInner, (2 * Math.PI) / 3);
+        cutInner();
+        regions = rotateRegionsInside(regions, cB, (-dir * Math.PI) / 2);
+        cutAll();
+        regions = rotateRegionsInside(regions, cAOuter, (2 * Math.PI) / 3);
+        cutAll();
+      }
+    }
+  }
+
+  // Exact RBOY coloring matching the physical Cube4you Crazy Lekki:
+  // inside B -> Yellow; inside B rotated ±120° around A -> Orange (top) / Red (bottom);
+  // remaining 3-way T-bridge & wedges -> Cyan.
+  const dx = cB.cx - cA.cx;
+  const dy = cB.cy - cA.cy;
+  const rotPt = (deg: number) => {
+    const rad = deg2rad(deg);
+    return {
+      cx: cA.cx + dx * Math.cos(rad) - dy * Math.sin(rad),
+      cy: cA.cy + dx * Math.sin(rad) + dy * Math.cos(rad),
+      r: cB.r,
+    };
+  };
+  const bTop = rotPt(120);
+  const bBot = rotPt(-120);
+
+  return regions.map((region, id) => {
+    const pt = interiorPointOfRegion(region);
+    let color = '#06b6d4'; // Cyan 3-way separator
+    if (Math.hypot(pt.x - cB.cx, pt.y - cB.cy) < cB.r - 1e-4) {
+      color = '#facc15'; // Yellow (small 90° circle B)
+    } else if (Math.hypot(pt.x - bTop.cx, pt.y - bTop.cy) < bTop.r - 1e-4) {
+      color = '#f97316'; // Orange (upper-left sector of A)
+    } else if (Math.hypot(pt.x - bBot.cx, pt.y - bBot.cy) < bBot.r - 1e-4) {
+      color = '#ef4444'; // Red (lower-left sector of A)
+    }
+    return {
+      id,
+      region,
+      color,
+      homeColor: color,
+      area: regionSignedArea(region.edges),
+    };
+  });
+}
+
+// Verbatim Cubitero/GigaHex.txt (105 pieces, 2 concentric 2-layer 60° circles)
+const GIGAHEX_SCRIPT = `
+Ring: 1,  50, 50, 50, 60
+Ring: 2,  50, 50, 40, 60
+Ring: 3, 113, 50, 50, 60
+Ring: 4, 113, 50, 40, 60
+AutoCutParts: (1R,3R),9
+AutoColorParts: 4,4, 9,9
+SetColorParts: (8,21,36,51,48,49,50,69,84,97),1, (9,22,37,55,70,85,98,56,57,58),1
+SetColorParts: (11,14,20,25,32,15,26,35,40,45),4, (62,59,63,68,77,89,101,72,76,83,88,94,75,87,96,100,104,101),3
+SetColorParts: (16,27,33,28,41,46,42,52,53,54,64,60,65,78,73,79,90),6
+SetColorParts: (12,18,23,30,34,17,29,38,43,47),9, (102,91,80,71,66,61,67,105,95,92,86,81,74,82,103,99,93),5
+`;
+
+export function buildExactGigaHexPieces(spec: PuzzleSpec): Piece[] {
+  return buildFromGeraniumsPotScript(GIGAHEX_SCRIPT, spec, {
+    coordScale: 1 / 50,
+    originOffset: { x: 81.5, y: 50 },
+  });
+}
+
+// Cube4you GigaHex Plus: 3 concentric 2-layer 60° circles in equilateral triangle (133 pieces)
+const GIGAHEX_PLUS_SCRIPT = `
+Param: s, 63/sqrt(3)
+Ring: 1,   0,     s, 50, 60
+Ring: 2,   0,     s, 40, 60
+Ring: 3,  31.5, -s/2, 50, 60
+Ring: 4,  31.5, -s/2, 40, 60
+Ring: 5, -31.5, -s/2, 50, 60
+Ring: 6, -31.5, -s/2, 40, 60
+AutoCutParts: (1R,3R,5R),6, (1L,3L,5L),6
+AutoColorParts: 4,4, 5,5, 3,3
+`;
+
+export function buildExactGigaHexPlusPieces(spec: PuzzleSpec): Piece[] {
+  const pieces = buildFromGeraniumsPotScript(GIGAHEX_PLUS_SCRIPT, spec, {
+    coordScale: 1 / 50,
+    originOffset: { x: 0, y: 0 },
+  });
+  // Exact 7-color RGB/CMY/White Venn stickerless scheme (matching Cube4you GigaHex Plus)
+  const [cA, cB, cC] = spec.circles;
+  const vennColors: Record<number, string> = {
+    1: '#16a34a', // A only (Green)
+    2: '#2563eb', // B only (Blue)
+    4: '#ef4444', // C only (Red)
+    3: '#06b6d4', // A ∩ B (Cyan)
+    6: '#9333ea', // B ∩ C (Purple)
+    5: '#facc15', // C ∩ A (Yellow)
+    7: '#f8fafc', // A ∩ B ∩ C (White)
+  };
+  return pieces.map((p) => {
+    const pt = interiorPointOfRegion(p.region);
+    let mask = 0;
+    if (Math.hypot(pt.x - cA.cx, pt.y - cA.cy) < cA.r - 1e-4) mask |= 1;
+    if (Math.hypot(pt.x - cB.cx, pt.y - cB.cy) < cB.r - 1e-4) mask |= 2;
+    if (Math.hypot(pt.x - cC.cx, pt.y - cC.cy) < cC.r - 1e-4) mask |= 4;
+    const c = vennColors[mask] ?? p.color;
+    return { ...p, color: c, homeColor: c };
+  });
+}
+
+/**
+ * ThinkFun Moonspinner (Oskar van Deventer):
+ * Exact golden-ratio 5-lobed flower: 5 outer circles of radius 1 at distance d = 1/φ
+ * around a central circle B of radius 1.
+ * Option 2 doctrinaire representation:
+ *   - A (left outer circle, (-1/φ, 0), 180°): always unblocked, flips the oval lens & left lobe.
+ *   - B (central circle, (0, 0), 72°, turnRegion: 'outside'): rotates everything OUTSIDE B
+ *     by 72° while keeping the crescent moon & inner disk fixed.
+ * Exact 27 pieces (1 moon + 6 inner-lens pieces + 20 outer-frame pieces).
+ */
+export function buildExactMoonspinnerPieces(spec: PuzzleSpec): Piece[] {
+  const d = 1 / PHI;
+  const cA = spec.circles[0]; // (-1/φ, 0), r=1, 180°
+  const cB = spec.circles[1]; // (0, 0), r=1, 72°, turnRegion='outside'
+  const outerCircles: Circle[] = Array.from({ length: 5 }, (_, k) => {
+    const ang = Math.PI + (k * 2 * Math.PI) / 5;
+    return { cx: d * Math.cos(ang), cy: d * Math.sin(ang), r: 1 };
+  });
+
+  // Outer silhouette outside B (5 lobes) + uncut inner disk split only by A (moon + lens)
+  const outInit = sliceCircles([cB, ...outerCircles])
+    .filter((r) => classifyRegionAgainstCircle(r, cB, 1e-4) === 'outside')
+    .map((r) => ({ edges: r.edges }));
+  const inInit = sliceCircles([cB, cA])
+    .filter((r) => classifyRegionAgainstCircle(r, cB, 1e-4) === 'inside')
+    .map((r) => ({ edges: r.edges }));
+  let regions: ArcRegion[] = [...outInit, ...inInit];
+
+  const doA = () => {
+    regions = rotateRegionsInside(regions, cA, Math.PI);
+    regions = splitRegionsByCircle(regions, cB);
+    regions = splitRegionsByCircle(regions, cA);
+  };
+  const doB = () => {
+    regions = regions.map((r) =>
+      classifyRegionAgainstCircle(r, cB, 1e-4) === 'outside'
+        ? rotateRegion(r, cB.cx, cB.cy, (2 * Math.PI) / 5)
+        : r,
+    );
+    regions = splitRegionsByCircle(regions, cA);
+    regions = splitRegionsByCircle(regions, cB);
+  };
+
+  let prev = -1;
+  for (let iter = 0; iter < 10 && regions.length !== prev; iter++) {
+    prev = regions.length;
+    for (let k = 0; k < 5; k++) {
+      doA();
+      doB();
+    }
+    doA();
+  }
+
+  // Exact 6-color solved layout matching ThinkFun Moonspinner:
+  // Yellow moon (1), Sky Blue center lens (6), Orange left lobe + 2 adjacent cusps (7),
+  // Coral Red upper lobes (6), Bright Green lower-right lobes (6), Purple bottom crescent (1).
+  return regions.map((region, id) => {
+    const pt = interiorPointOfRegion(region);
+    const inA = Math.hypot(pt.x - cA.cx, pt.y - cA.cy) < cA.r - 1e-4;
+    const inB = Math.hypot(pt.x - cB.cx, pt.y - cB.cy) < cB.r - 1e-4;
+    let color: string;
+    if (inB && !inA) {
+      color = '#facc15'; // Yellow crescent moon
+    } else if (inB && inA) {
+      color = '#0ea5e9'; // Sky Blue central oval + inner pieces
+    } else if (!inB && inA) {
+      color = '#f97316'; // Orange left lobe + 6 adjacent cusp pieces
+    } else {
+      const deg = (Math.atan2(pt.y, pt.x) * 180) / Math.PI; // (-180, 180]
+      if (deg >= -138 && deg <= -80) {
+        color = '#a855f7'; // Purple bottom crescent alone
+      } else if (deg > 7 || (deg >= -10 && pt.y > 0.14)) {
+        color = '#f43f5e'; // Coral Red top & upper-right lobes + upper-right triangle
+      } else {
+        color = '#22c55e'; // Bright Green lower-right lobe + cusps
+      }
+    }
+    return {
+      id,
+      region,
+      color,
+      homeColor: color,
+      area: regionSignedArea(region.edges),
+    };
+  });
+}
+
+/**
+ * Cube4you OctoCrystal (64 pieces, 8 equal 45° circles, true jumbling):
+ * Exact r = 1 unit circles centered at distance 1 around an octagon, plus the exact
+ * 135°-jumbling lens cuts (dBig = 1 + √2 and dFar = √((1+√2)² + 2)), yielding
+ * 64 sliver-free pieces (min area π/4 - √2/2 ≈ 0.0783) in 8 swirling rainbow arms.
+ */
+export function buildExactOctoCrystalPieces(spec: PuzzleSpec): Piece[] {
+  const circles = spec.circles;
+  let regions: ArcRegion[] = sliceCircles(circles).map((r) => ({ edges: r.edges }));
+
+  const dBig = 1 + Math.sqrt(2);
+  for (let k = 0; k < 8; k++) {
+    const rad = (k * Math.PI) / 4;
+    regions = splitRegionsByCircle(regions, {
+      cx: dBig * Math.cos(rad),
+      cy: dBig * Math.sin(rad),
+      r: 1,
+    });
+  }
+
+  const dFar = Math.hypot(1 + Math.sqrt(2), Math.sqrt(2));
+  const aFar = Math.atan2(-Math.sqrt(2), 1 + Math.sqrt(2));
+  for (const ang0 of [aFar, -aFar]) {
+    for (let k = 0; k < 8; k++) {
+      const rad = ang0 + (k * Math.PI) / 4;
+      regions = splitRegionsByCircle(regions, {
+        cx: dFar * Math.cos(rad),
+        cy: dFar * Math.sin(rad),
+        r: 1,
+      });
+    }
+  }
+
+  // Exact 8 swirling rainbow arms clockwise from top (matching Cube4you OctoCrystal):
+  const armColors = [
+    '#ef4444', // A (135°): Red
+    '#f472b6', // B (90°):  Pink
+    '#9333ea', // C (45°):  Purple
+    '#1d4ed8', // D (0°):   Dark Blue
+    '#06b6d4', // E (-45°): Light Blue / Cyan
+    '#4ade80', // F (-90°): Light Green
+    '#facc15', // G (-135°): Yellow
+    '#f97316', // H (180°): Orange
+  ];
+
+  return regions.map((region, id) => {
+    const pt = interiorPointOfRegion(region);
+    const inside = circles.map((c) => Math.hypot(pt.x - c.cx, pt.y - c.cy) < c.r - 1e-4);
+    let arm = 0;
+    for (let k = 0; k < 8; k++) {
+      if (inside[k] && !inside[(k + 1) % 8]) {
+        arm = k;
+        break;
+      }
+    }
+    return {
+      id,
+      region,
+      color: armColors[arm],
+      homeColor: armColors[arm],
+      area: regionSignedArea(region.edges),
+    };
+  });
+}
+
+/**
+ * Cube4you 2D Puzzle – XO:
+ * Big 90° Red circle A (r = 1) + small 180° Sky Blue circle B (r = d = 1/√2).
+ * Exact analytical tangency at A's center & 45° intersections produces 33 clean pieces
+ * (18 Red + 15 Sky Blue, zero micro-slivers).
+ */
+export function buildExactCube4youXoPieces(spec: PuzzleSpec): Piece[] {
+  const [cA, cB] = spec.circles;
+  let regions: ArcRegion[] = sliceCircles([cA, cB]).map((r) => ({ edges: r.edges }));
+  let prev = -1;
+  for (let iter = 0; iter < 12 && regions.length !== prev; iter++) {
+    prev = regions.length;
+    for (let k = 0; k < 4; k++) {
+      regions = rotateRegionsInside(regions, cA, Math.PI / 2);
+      regions = splitRegionsByCircle(regions, cB);
+      regions = splitRegionsByCircle(regions, cA);
+      regions = rotateRegionsInside(regions, cB, Math.PI);
+      regions = splitRegionsByCircle(regions, cA);
+      regions = splitRegionsByCircle(regions, cB);
+    }
+  }
+  return regions.map((region, id) => {
+    const pt = interiorPointOfRegion(region);
+    const inB = Math.hypot(pt.x - cB.cx, pt.y - cB.cy) < cB.r - 1e-4;
+    const c = inB ? '#38bdf8' : '#ef4444';
+    return {
+      id,
+      region,
+      color: c,
+      homeColor: c,
+      area: regionSignedArea(region.edges),
+    };
+  });
+}
+
+// Verbatim James/10 Stars.txt = Cube4you UFO 2D (Evgeniy Grigoriev, 100 pieces)
+const UFO_2D_SCRIPT = `
+Param: radius, 200
+Param: radius2,105
+Ring: 1,  0, -radius, radius, 36
+Ring: 2,  0, 0, radius2, (36,108,36,36,108,36)
+CopyRing: 3, 2, 1R, radius2, (36,108,36,36,108,36)
+CopyRing: 4, 2, 1R2, radius2, (36,108,36,36,108,36)
+CopyRing: 5, 2, 1R3, radius2, (36,108,36,36,108,36)
+CopyRing: 6, 2, 1R4, radius2, (36,108,36,36,108,36)
+CopyRing: 7, 2, 1R5, radius2, (36,108,36,36,108,36)
+CopyRing: 8, 2, 1R6, radius2, (36,108,36,36,108,36)
+CopyRing: 9, 2, 1R7, radius2, (36,108,36,36,108,36)
+CopyRing:10, 2, 1R8, radius2, (36,108,36,36,108,36)
+CopyRing:11, 2, 1R9, radius2, (36,108,36,36,108,36)
+RemoveRings: 1
+AutoCutParts:
+AutoCutParts: ( (2R3,3),(3R3,4),(4R3,5),(5R3,6),(6R3,7),(7R3,8),(8R3,9),(9R3,10),(10R3,11),(11R3,2) ),4
+SetColorCircles: 2,1, 3,1, 4,1, 5,1, 6,1, 7,1, 8,1, 9,1, 10,1, 11,1
+SetColorCircles: (2,3),14, (3,4),6, (4,5),9, (5,6),3, (6,7),0, (7,8),13, (8,9),7, (9,10),11, (10,11),5, (11,2),10
+SetColorParts: (26,27,37,51,65,75,74,64,50,36),1, (8,13),14, (19,35),6, (43,59),9, (67,83),3, (92,94),0, (88,93),13
+SetColorParts: (66,82),7, (42,58),11, (18,34),5, (7,9),10
+`;
+
+export function buildExactUfo2dPieces(spec: PuzzleSpec): Piece[] {
+  return buildFromGeraniumsPotScript(UFO_2D_SCRIPT, spec, {
+    coordScale: 1 / 100,
+    originOffset: { x: 0, y: -200 },
   });
 }

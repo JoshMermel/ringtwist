@@ -440,8 +440,10 @@ export function buildFromGeraniumsPotScript(
       }
     }
     if (cutAfter) {
+      // Cut with larger rings before inner concentric rings so outer overlaps split disks before inner rings slice them
+      const sortedRings = [...rings].sort((a, b) => b.r - a.r);
       let didCut = false;
-      for (const r of rings) {
+      for (const r of sortedRings) {
         if (cutPartsByRing(r)) didCut = true;
       }
       if (didCut) removeDuplicateParts(parts, true);
@@ -451,10 +453,18 @@ export function buildFromGeraniumsPotScript(
   const ensureInitialized = () => {
     if (initialized) return;
     initialized = true;
-    // Match GeraniumsPot makeDefCircles: each playable ring starts as an uncut full disk
-    // (represented by two 180° CCW semicircles). Subsequent AutoCutParts / CutCircles
-    // split them and removeDuplicateParts deduplicates shared overlaps!
-    parts = playableRings().map((r, idx) => ({
+    // Match GeraniumsPot makeDefCircles: each playable ring starts as an uncut full disk,
+    // skipping inner concentric rings strictly enclosed inside a larger concentric playable ring.
+    const pr = playableRings();
+    const outerPlayable = pr.filter(
+      (r) =>
+        !pr.some(
+          (o) =>
+            o !== r &&
+            Math.hypot(o.cx - r.cx, o.cy - r.cy) + r.r <= o.r + 1e-4,
+        ),
+    );
+    parts = outerPlayable.map((r, idx) => ({
       num: idx + 1,
       region: {
         edges: [
@@ -501,13 +511,13 @@ export function buildFromGeraniumsPotScript(
       continue;
     }
 
-    // CopyRing: newNum, srcRingNum, (pivotRingNum, deg), radius, angleSpec [, type]
+    // CopyRing: newNum, srcRingNum, (pivotRingNum, deg) | 1R3, radius, angleSpec [, type]
     if (line.startsWith('CopyRing:')) {
       const body = line.slice('CopyRing:'.length).replace(/#.*$/, '').trim();
       const fields = splitTopLevel(body);
       const newNum = parseInt(fields[0], 10);
       const srcRing = ringMap.get(parseInt(fields[1], 10));
-      const turnTokens = splitTopLevel(unwrapParens(fields[2]));
+      const turnRaw = fields[2].trim();
       const r = evalParamExpr(fields[3], params);
       const angField = unwrapParens(fields[4]);
       const angles = angField.split(',').map((s) => evalParamExpr(s.trim(), params));
@@ -515,18 +525,48 @@ export function buildFromGeraniumsPotScript(
       if (srcRing) {
         let px = srcRing.cx;
         let py = srcRing.cy;
-        for (let t = 0; t + 1 < turnTokens.length; t += 2) {
-          const pivot = ringMap.get(parseInt(turnTokens[t], 10));
-          const deg = evalParamExpr(turnTokens[t + 1], params);
+        const cmd = parseRingCommand(turnRaw);
+        if (cmd) {
+          const pivot = ringMap.get(cmd.ringNum);
           if (pivot) {
-            const rot = rotatePointAround(px, py, pivot.cx, pivot.cy, deg2rad(-deg));
+            const deg = findAngleRotate(pivot, cmd.dir, true) * cmd.step;
+            const rot = rotatePointAround(px, py, pivot.cx, pivot.cy, deg2rad(-deg * cmd.dir));
             px = rot.x;
             py = rot.y;
+          }
+        } else {
+          const turnTokens = splitTopLevel(unwrapParens(turnRaw));
+          for (let t = 0; t + 1 < turnTokens.length; t += 2) {
+            const pivot = ringMap.get(parseInt(turnTokens[t], 10));
+            const deg = evalParamExpr(turnTokens[t + 1], params);
+            if (pivot) {
+              const rot = rotatePointAround(px, py, pivot.cx, pivot.cy, deg2rad(-deg));
+              px = rot.x;
+              py = rot.y;
+            }
           }
         }
         const ring: GpotRing = { num: newNum, cx: px, cy: py, r, angles, anglePos: 0, type };
         rings.push(ring);
         ringMap.set(newNum, ring);
+      }
+      continue;
+    }
+
+    // RemoveRings: r1, r2, ...
+    if (line.startsWith('RemoveRings:')) {
+      const nums = line
+        .slice('RemoveRings:'.length)
+        .replace(/#.*$/, '')
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n));
+      const removeSet = new Set(nums);
+      for (let i = rings.length - 1; i >= 0; i--) {
+        if (removeSet.has(rings[i].num)) {
+          ringMap.delete(rings[i].num);
+          rings.splice(i, 1);
+        }
       }
       continue;
     }
@@ -542,76 +582,86 @@ export function buildFromGeraniumsPotScript(
           cutPartsByRing(r);
         }
       } else {
-        const items = splitTopLevel(body);
-        for (let idx = 0; idx < items.length; idx++) {
-          const item = items[idx];
+        const execAutoCutItems = (items: string[]) => {
+          for (let idx = 0; idx < items.length; idx++) {
+            const item = items[idx];
 
-          // Random, N (deterministic seeded random cuts)
-          if (item.toLowerCase() === 'random') {
-            const count = idx + 1 < items.length ? parseInt(items[++idx], 10) : 20;
-            const pr = playableRings();
-            if (pr.length > 0) {
-              let rng = 0x51a7c3d9;
-              const nextRand = () => {
-                rng = (rng + 0x6d2b79f5) | 0;
-                let t = Math.imul(rng ^ (rng >>> 15), 1 | rng);
-                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-              };
-              for (let k = 0; k < count; k++) {
-                const chosen = pr[Math.floor(nextRand() * pr.length)];
-                const dir: 1 | -1 = nextRand() < 0.5 ? 1 : -1;
-                turnRing(chosen.num, dir, 1, true);
+            // Random, N (deterministic seeded random cuts)
+            if (item.toLowerCase() === 'random') {
+              const count = idx + 1 < items.length ? parseInt(items[++idx], 10) : 20;
+              const pr = playableRings();
+              if (pr.length > 0) {
+                let rng = 0x51a7c3d9;
+                const nextRand = () => {
+                  rng = (rng + 0x6d2b79f5) | 0;
+                  let t = Math.imul(rng ^ (rng >>> 15), 1 | rng);
+                  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+                for (let k = 0; k < count; k++) {
+                  const chosen = pr[Math.floor(nextRand() * pr.length)];
+                  const dir: 1 | -1 = nextRand() < 0.5 ? 1 : -1;
+                  turnRing(chosen.num, dir, 1, true);
+                }
               }
+              continue;
             }
-            continue;
-          }
 
-          if (item.startsWith('(') && item.endsWith(')')) {
-            // Check if the next top-level item is a repeat count, e.g. `(1R,2R),7`
-            let repeat = 1;
-            const hasRepeat = idx + 1 < items.length && /^\d+$/.test(items[idx + 1]);
-            if (hasRepeat) {
-              repeat = parseInt(items[++idx], 10);
-            }
-            const subItems = splitTopLevel(unwrapParens(item));
-            const cutRingNums: number[] = [];
-            const cmds: { ringNum: number; dir: 1 | -1; step: number }[] = [];
-            for (const sub of subItems) {
-              const cmd = parseRingCommand(sub);
-              if (cmd) {
-                cmds.push(cmd);
-              } else if (/^\d+$/.test(sub)) {
-                cutRingNums.push(parseInt(sub, 10));
+            if (item.startsWith('(') && item.endsWith(')')) {
+              // Check if the next top-level item is a repeat count, e.g. `(1R,2R),7`
+              let repeat = 1;
+              const hasRepeat = idx + 1 < items.length && /^\d+$/.test(items[idx + 1]);
+              if (hasRepeat) {
+                repeat = parseInt(items[++idx], 10);
               }
-            }
+              const subItems = splitTopLevel(unwrapParens(item));
+              // Support nested groups like `( (2R3,3),(3R3,4),... ),4`
+              if (subItems.some((sub) => sub.startsWith('(') && sub.endsWith(')'))) {
+                for (let rep = 0; rep < repeat; rep++) {
+                  execAutoCutItems(subItems);
+                }
+                continue;
+              }
 
-            if (hasRepeat && cutRingNums.length === 0) {
-              // `(1R,2R),7` executes each command in sequence (turning + cutting) `repeat` times
-              for (let rep = 0; rep < repeat; rep++) {
-                for (const cmd of cmds) {
-                  turnRing(cmd.ringNum, cmd.dir, cmd.step, true);
+              const cutRingNums: number[] = [];
+              const cmds: { ringNum: number; dir: 1 | -1; step: number }[] = [];
+              for (const sub of subItems) {
+                const cmd = parseRingCommand(sub);
+                if (cmd) {
+                  cmds.push(cmd);
+                } else if (/^\d+$/.test(sub)) {
+                  cutRingNums.push(parseInt(sub, 10));
+                }
+              }
+
+              if (hasRepeat && cutRingNums.length === 0) {
+                // `(1R,2R),7` executes each command in sequence (turning + cutting) `repeat` times
+                for (let rep = 0; rep < repeat; rep++) {
+                  for (const cmd of cmds) {
+                    turnRing(cmd.ringNum, cmd.dir, cmd.step, true);
+                  }
+                }
+              } else {
+                for (let rep = 0; rep < repeat; rep++) {
+                  for (const cmd of cmds) {
+                    turnRing(cmd.ringNum, cmd.dir, cmd.step, false);
+                  }
+                  const cutters =
+                    cutRingNums.length > 0
+                      ? cutRingNums.map((n) => ringMap.get(n)!).filter(Boolean)
+                      : playableRings();
+                  for (const c of cutters) cutPartsByRing(c);
                 }
               }
             } else {
-              for (let rep = 0; rep < repeat; rep++) {
-                for (const cmd of cmds) {
-                  turnRing(cmd.ringNum, cmd.dir, cmd.step, false);
-                }
-                const cutters =
-                  cutRingNums.length > 0
-                    ? cutRingNums.map((n) => ringMap.get(n)!).filter(Boolean)
-                    : playableRings();
-                for (const c of cutters) cutPartsByRing(c);
+              const cmd = parseRingCommand(item);
+              if (cmd) {
+                turnRing(cmd.ringNum, cmd.dir, cmd.step, true);
               }
             }
-          } else {
-            const cmd = parseRingCommand(item);
-            if (cmd) {
-              turnRing(cmd.ringNum, cmd.dir, cmd.step, true);
-            }
           }
-        }
+        };
+        execAutoCutItems(splitTopLevel(body));
       }
 
       removeDuplicateParts(parts);
@@ -659,6 +709,18 @@ export function buildFromGeraniumsPotScript(
 
     if (line === 'ShowAllParts') {
       for (const p of parts) p.visible = true;
+      continue;
+    }
+
+    // RemoveMicroParts: threshold (removes tiny sliver artifacts and renumbers)
+    if (line.startsWith('RemoveMicroParts:')) {
+      const thresh = evalParamExpr(line.slice('RemoveMicroParts:'.length), params);
+      parts = parts.filter((p) => {
+        const b = getRegionBoundingCircle(p.region);
+        return b.r * 2 >= thresh && regionSignedArea(p.region.edges) >= thresh;
+      });
+      removeDuplicateParts(parts);
+      sortAndRenumber(parts);
       continue;
     }
 
@@ -800,6 +862,40 @@ export function buildFromGeraniumsPotScript(
             ) {
               p.color = GPOT_COLORS[c0];
             }
+          }
+        }
+      }
+      continue;
+    }
+
+    // SetColorCircles: ringId,colorId, (r1,r2),colorId, ...
+    if (line.startsWith('SetColorCircles:')) {
+      removeDuplicateParts(parts);
+      const body = line.slice('SetColorCircles:'.length).replace(/#.*$/, '').trim();
+      const items = splitTopLevel(body);
+      const pr = playableRings();
+      for (let i = 0; i + 1 < items.length; i += 2) {
+        const reqRingNums = unwrapParens(items[i])
+          .split(',')
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => !Number.isNaN(n));
+        const cid = parseInt(items[i + 1].trim(), 10);
+        const hex = GPOT_COLORS[cid];
+        if (!hex || reqRingNums.length === 0) continue;
+        const reqSet = new Set(reqRingNums);
+        for (const p of parts) {
+          if (!p.visible) continue;
+          const memberNums: number[] = [];
+          for (const r of pr) {
+            if (classifyRegionAgainstCircle(p.region, r, 1e-3) === 'inside') {
+              memberNums.push(r.num);
+            }
+          }
+          if (
+            memberNums.length === reqSet.size &&
+            memberNums.every((rn) => reqSet.has(rn))
+          ) {
+            p.color = hex;
           }
         }
       }

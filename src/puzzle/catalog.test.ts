@@ -3,17 +3,25 @@ import { regionSignedArea } from '../geom/arcRegion.ts';
 import { sliceCircles } from '../geom/slicer.ts';
 import { buildPuzzle } from './builder.ts';
 import {
+  CRAZY_LEKKI,
+  CUBE4YOU_XO,
   GERANIUM_PLUS,
   GERANIUM_STANDARD,
+  GIGAHEX,
+  GIGAHEX_PLUS,
   MINI_GERANIUM,
   MINI_GERANIUM_PLUS,
+  MOONSPINNER,
+  OCTOCRYSTAL,
   POCKET_GERANIUM,
   PUZZLE_CATALOG,
   SUPER_GERANIUM,
   SUPER_GERANIUM_PLUS,
   TWIN_RINGS,
   TWO_CIRCLE_VENN,
+  UFO_2D,
 } from './catalog.ts';
+import { PHI } from './geraniumBuilder.ts';
 import {
   generateScramble,
   getAllCircleStatuses,
@@ -30,18 +38,36 @@ describe('puzzle catalog & Geranium geometry', () => {
       const state = buildPuzzle(spec);
       expect(state.pieces.length).toBeGreaterThan(2);
 
-      // Exact area conservation against union of playable circles
-      const unionArea = sliceCircles(spec.circles).reduce(
+      // Exact area conservation against union of playable circles (or 5-lobe flower for Moonspinner)
+      const areaCircles =
+        spec.id === 'moonspinner'
+          ? [
+              spec.circles[1],
+              ...Array.from({ length: 5 }, (_, k) => {
+                const ang = Math.PI + (k * 2 * Math.PI) / 5;
+                return { cx: Math.cos(ang) / PHI, cy: Math.sin(ang) / PHI, r: 1 };
+              }),
+            ]
+          : spec.circles;
+      const unionArea = sliceCircles(areaCircles).reduce(
         (s, r) => s + regionSignedArea(r.edges),
         0,
       );
       const pieceArea = state.pieces.reduce((s, p) => s + p.area, 0);
       expect(pieceArea, `${spec.id} area conservation`).toBeCloseTo(unionArea, 3);
 
-      // Every playable circle must start unblocked (0 straddling pieces)
+      // Every playable circle (and every concentric layer/slice) must start unblocked
       const statuses = getAllCircleStatuses(state);
       for (const c of spec.circles) {
         expect(statuses[c.id].blocked, `${spec.id} circle ${c.id} should be free`).toBe(false);
+        if (c.layerRadii && c.layerRadii.length > 1) {
+          for (const lo of [{ layer: 1 }, { layer: 2 }, { wide: true }]) {
+            expect(
+              getCircleStatus(state, c.id, lo).blocked,
+              `${spec.id} circle ${c.id} layer ${JSON.stringify(lo)} should be free`,
+            ).toBe(false);
+          }
+        }
       }
 
       // Whole-puzzle rotation by a full cycle preserves solved state (when symmetric)
@@ -156,5 +182,56 @@ describe('puzzle catalog & Geranium geometry', () => {
       expect(nextRes.angleDeg).toBeCloseTo(36, 4);
       expect(getCircleStatus(nextRes.nextState, 'D').blocked).toBe(false);
     }
+  });
+
+  it('verifies exact piece counts, multi-layer blocking, exterior turns, and jumbling on Phase 2 & 3 puzzles', () => {
+    const lekki = buildPuzzle(CRAZY_LEKKI);
+    expect(lekki.pieces.length).toBe(37);
+    // Turning B by 90° bandages A's outer ring (2A & a) while leaving inner disk A free!
+    const afterB1 = turnCircleBySteps(lekki, 'B', 1);
+    expect(afterB1.ok).toBe(true);
+    if (afterB1.ok) {
+      expect(getCircleStatus(afterB1.nextState, 'A', { layer: 1 }).blocked).toBe(false);
+      expect(getCircleStatus(afterB1.nextState, 'A', { layer: 2 }).blocked).toBe(true);
+      expect(getCircleStatus(afterB1.nextState, 'A', { wide: true }).blocked).toBe(true);
+      // Completing a 180° flip on B unlocks 2A and wide a again!
+      const afterB2 = turnCircleBySteps(afterB1.nextState, 'B', 1);
+      expect(afterB2.ok).toBe(true);
+      if (afterB2.ok) {
+        expect(getCircleStatus(afterB2.nextState, 'A', { layer: 2 }).blocked).toBe(false);
+        expect(getCircleStatus(afterB2.nextState, 'A', { wide: true }).blocked).toBe(false);
+      }
+    }
+
+    const gigahex = buildPuzzle(GIGAHEX);
+    expect(gigahex.pieces.length).toBe(105);
+    const gigahexPlus = buildPuzzle(GIGAHEX_PLUS);
+    expect(gigahexPlus.pieces.length).toBe(133);
+
+    const moon = buildPuzzle(MOONSPINNER);
+    expect(moon.pieces.length).toBe(27);
+    // B rotates 20 exterior pieces around (0,0), keeping the 7 inner pieces (moon + lens) fixed!
+    const moonB = turnCircleBySteps(moon, 'B', 1);
+    expect(moonB.ok).toBe(true);
+    if (moonB.ok) {
+      expect(moonB.movedPieceIds.length).toBe(20);
+      expect(getCircleStatus(moonB.nextState, 'A').blocked).toBe(false);
+    }
+
+    const octo = buildPuzzle(OCTOCRYSTAL);
+    expect(octo.pieces.length).toBe(64);
+    // 135° jumbling move on A unlocks C and D!
+    const octoA3 = turnCircleBySteps(octo, 'A', 3);
+    expect(octoA3.ok).toBe(true);
+    if (octoA3.ok) {
+      expect(getCircleStatus(octoA3.nextState, 'C').blocked).toBe(false);
+      expect(getCircleStatus(octoA3.nextState, 'D').blocked).toBe(false);
+    }
+
+    const xo = buildPuzzle(CUBE4YOU_XO);
+    expect(xo.pieces.length).toBe(33);
+
+    const ufo = buildPuzzle(UFO_2D);
+    expect(ufo.pieces.length).toBe(100);
   });
 });

@@ -1,5 +1,5 @@
 import { edgeEnd, edgePointAt, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
-import { CircleStatus, getAllCircleStatuses } from '../puzzle/engine.ts';
+import { CircleStatus, MoveLayerSpec, getAllCircleStatuses } from '../puzzle/engine.ts';
 import { CircleDef, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
 
 function stickerWedgeToSvgPath(s: StickerWedge, decimals = 4): string {
@@ -44,7 +44,7 @@ export interface TurnAnimationSpec {
 }
 
 export interface SvgRendererCallbacks {
-  onCircleClick: (circleId: string, direction: 1 | -1) => void;
+  onCircleClick: (circleId: string, direction: 1 | -1, layerOpt?: MoveLayerSpec) => void;
 }
 
 export function computePuzzleViewBox(spec: PuzzleSpec, padRatio = 0.12, minPad = 0.42): string {
@@ -58,6 +58,12 @@ export function computePuzzleViewBox(spec: PuzzleSpec, padRatio = 0.12, minPad =
     maxX = Math.max(maxX, c.cx + c.r);
     minY = Math.min(minY, -c.cy - c.r);
     maxY = Math.max(maxY, -c.cy + c.r);
+  }
+  if (spec.viewBounds) {
+    minX = Math.min(minX, spec.viewBounds.minX);
+    maxX = Math.max(maxX, spec.viewBounds.maxX);
+    minY = Math.min(minY, -spec.viewBounds.maxY);
+    maxY = Math.max(maxY, -spec.viewBounds.minY);
   }
 
   const span = Math.max(maxX - minX, maxY - minY);
@@ -116,6 +122,9 @@ function computeCircleLabelPosition(
   spec: PuzzleSpec,
   symCenter: { x: number; y: number },
 ): { lx: number; ly: number } {
+  if (c.labelPos) {
+    return { lx: c.labelPos.x, ly: -c.labelPos.y };
+  }
   const labelDist = c.r + 0.22;
   const candidates: [number, number][] = [];
 
@@ -181,16 +190,22 @@ export function renderStaticPuzzleSvg(
 
   const rimsG = svgEl('g');
   for (const c of state.spec.circles) {
-    rimsG.appendChild(
-      svgEl('circle', {
-        cx: c.cx,
-        cy: -c.cy,
-        r: c.r,
-        fill: 'none',
-        stroke: 'rgba(226, 232, 240, 0.45)',
-        'stroke-width': compact ? 0.032 : 0.024,
-      }),
-    );
+    const radii = c.layerRadii && c.layerRadii.length > 1 ? c.layerRadii : [c.r];
+    for (let ri = 0; ri < radii.length; ri++) {
+      const r = radii[ri];
+      const isInner = ri < radii.length - 1;
+      rimsG.appendChild(
+        svgEl('circle', {
+          cx: c.cx,
+          cy: -c.cy,
+          r,
+          fill: 'none',
+          stroke: isInner ? 'rgba(226, 232, 240, 0.55)' : 'rgba(226, 232, 240, 0.45)',
+          'stroke-width': compact ? 0.032 : 0.024,
+          ...(isInner ? { 'stroke-dasharray': '0.07 0.045' } : {}),
+        }),
+      );
+    }
   }
   svg.appendChild(rimsG);
 
@@ -270,33 +285,64 @@ export class PuzzleSvgRenderer {
       return { x: svgPt.x, y: -svgPt.y };
     };
 
-    const pickCircleAt = (ev: MouseEvent): CircleDef | null => {
+    const pickCircleAt = (
+      ev: MouseEvent,
+    ): { circle: CircleDef; layerOpt?: MoveLayerSpec } | null => {
       if (!this.currentSpec) return null;
       const target = ev.target as Element | null;
       const labelGroup = target?.closest?.('[data-circle-id]') as Element | null;
       if (labelGroup) {
         const id = labelGroup.getAttribute('data-circle-id');
-        return this.currentSpec.circles.find((c) => c.id === id) ?? null;
+        const c = this.currentSpec.circles.find((x) => x.id === id) ?? null;
+        if (!c) return null;
+        // Clicking the label badge on a multi-layer circle turns the wide full circle (`a`)
+        const layerOpt: MoveLayerSpec | undefined =
+          c.layerRadii && c.layerRadii.length > 1 ? { wide: true } : undefined;
+        return { circle: c, layerOpt };
       }
 
       const pt = clientToMath(ev);
       if (!pt) return null;
-      // Pick circle containing pt whose center is closest to pt
+      // Pick circle containing pt whose center is closest to pt (standard 'inside' circles first)
       let best: CircleDef | null = null;
       let bestDist = Infinity;
       for (const c of this.currentSpec.circles) {
+        if (c.turnRegion === 'outside') continue;
         const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
         if (d <= c.r && d < bestDist) {
           bestDist = d;
           best = c;
         }
       }
-      return best;
+      // If not inside any standard circle, check exterior-turn ('outside') circles (e.g. Moonspinner)
+      if (!best) {
+        for (const c of this.currentSpec.circles) {
+          if (c.turnRegion !== 'outside') continue;
+          const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
+          if (d > c.r) {
+            return { circle: c };
+          }
+        }
+        return null;
+      }
+      if (best.layerRadii && best.layerRadii.length > 1) {
+        if (ev.altKey) {
+          return { circle: best, layerOpt: { wide: true } };
+        }
+        // Layer 1 = innermost disk (`A`), layer 2 = outer annulus (`2A`)
+        for (let i = 0; i < best.layerRadii.length; i++) {
+          if (bestDist <= best.layerRadii[i]) {
+            return { circle: best, layerOpt: { layer: i + 1 } };
+          }
+        }
+        return { circle: best, layerOpt: { layer: best.layerRadii.length } };
+      }
+      return { circle: best };
     };
 
     this.svg.addEventListener('mousemove', (ev) => {
-      const c = pickCircleAt(ev);
-      const nextId = c?.id ?? null;
+      const hit = pickCircleAt(ev);
+      const nextId = hit?.circle.id ?? null;
       if (nextId !== this.hoveredCircleId) {
         this.hoveredCircleId = nextId;
         this.updateHoverRing();
@@ -311,17 +357,17 @@ export class PuzzleSvgRenderer {
     });
 
     this.svg.addEventListener('click', (ev) => {
-      const c = pickCircleAt(ev);
-      if (!c) return;
+      const hit = pickCircleAt(ev);
+      if (!hit) return;
       const dir: 1 | -1 = ev.shiftKey ? -1 : 1;
-      this.callbacks.onCircleClick(c.id, dir);
+      this.callbacks.onCircleClick(hit.circle.id, dir, hit.layerOpt);
     });
 
     this.svg.addEventListener('contextmenu', (ev) => {
-      const c = pickCircleAt(ev);
-      if (!c) return;
+      const hit = pickCircleAt(ev);
+      if (!hit) return;
       ev.preventDefault();
-      this.callbacks.onCircleClick(c.id, -1);
+      this.callbacks.onCircleClick(hit.circle.id, -1, hit.layerOpt);
     });
 
     const WHEEL_THRESHOLD_PX = 95;
@@ -331,8 +377,9 @@ export class PuzzleSvgRenderer {
     this.svg.addEventListener(
       'wheel',
       (ev) => {
-        const c = pickCircleAt(ev);
-        if (!c) return;
+        const hit = pickCircleAt(ev);
+        if (!hit) return;
+        const c = hit.circle;
         ev.preventDefault();
 
         const now = performance.now();
@@ -365,7 +412,7 @@ export class PuzzleSvgRenderer {
           const dir: 1 | -1 = this.wheelAccum > 0 ? 1 : -1;
           this.wheelAccum = 0;
           this.lastWheelFireMs = now;
-          this.callbacks.onCircleClick(c.id, dir);
+          this.callbacks.onCircleClick(c.id, dir, hit.layerOpt);
         }
       },
       { passive: false },
@@ -555,14 +602,20 @@ export class PuzzleSvgRenderer {
           ? 'circle-rim blocked'
           : 'circle-rim free';
 
-      const rim = svgEl('circle', {
-        cx: c.cx,
-        cy: -c.cy,
-        r: c.r,
-        class: rimClass,
-        'data-rim-id': c.id,
-      });
-      this.rimsLayer.appendChild(rim);
+      const radii = c.layerRadii && c.layerRadii.length > 1 ? c.layerRadii : [c.r];
+      for (let ri = 0; ri < radii.length; ri++) {
+        const r = radii[ri];
+        const isInner = ri < radii.length - 1;
+        const rim = svgEl('circle', {
+          cx: c.cx,
+          cy: -c.cy,
+          r,
+          class: rimClass,
+          'data-rim-id': c.id,
+          ...(isInner ? { 'stroke-dasharray': '0.07 0.045' } : {}),
+        });
+        this.rimsLayer.appendChild(rim);
+      }
 
       // Position label cleanly outside this circle without landing inside any sibling circle
       const { lx, ly } = computeCircleLabelPosition(c, spec, symCenter);
@@ -573,9 +626,15 @@ export class PuzzleSvgRenderer {
       });
 
       const title = svgEl('title');
-      title.textContent = st?.blocked
-        ? `Circle ${c.id} — BLOCKED by ${st.blockingPieceIds.length} piece(s)`
-        : `Circle ${c.id} — Free (click: CW, shift/right-click: CCW)`;
+      if (st?.blocked) {
+        title.textContent = `Circle ${c.id} — BLOCKED by ${st.blockingPieceIds.length} piece(s)`;
+      } else if (c.turnRegion === 'outside') {
+        title.textContent = `Circle ${c.id} (exterior turn) — Free (click outer frame or badge: CW, shift/right-click: CCW)`;
+      } else if (c.layerRadii && c.layerRadii.length > 1) {
+        title.textContent = `Circle ${c.id} (multi-layer) — click inner for ${c.id}, outer ring for 2${c.id}, badge/Alt-click for wide ${c.id.toLowerCase()}`;
+      } else {
+        title.textContent = `Circle ${c.id} — Free (click: CW, shift/right-click: CCW)`;
+      }
       g.appendChild(title);
 
       const bg = svgEl('circle', {

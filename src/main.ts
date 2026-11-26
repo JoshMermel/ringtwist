@@ -9,7 +9,9 @@ import {
 import { buildPuzzle } from './puzzle/builder.ts';
 import { getPuzzleSpec } from './puzzle/catalog.ts';
 import {
+  MoveLayerSpec,
   MoveResult,
+  formatMoveToken,
   generateScramble,
   getAllCircleStatuses,
   getCircleStatus,
@@ -304,7 +306,7 @@ class RingTwistApp {
     // Mount SVG renderer
     const stageWrap = root.querySelector<HTMLElement>('#stage-wrap')!;
     this.renderer = new PuzzleSvgRenderer(stageWrap, {
-      onCircleClick: (cid, dir) => this.handleCircleClick(cid, dir),
+      onCircleClick: (cid, dir, layerOpt) => this.handleCircleClick(cid, dir, layerOpt),
     });
 
     // Mount editor
@@ -847,21 +849,32 @@ class RingTwistApp {
     }
     this.statusPillsEl.innerHTML = pills.join('');
 
-    // Circle free/blocked chips
+    // Circle free/blocked chips (shows A, 2A, a separately for multi-layer concentric circles)
     this.circleChipsEl.innerHTML = '';
     for (const c of this.currentSpec.circles) {
-      const st = statuses[c.id];
-      const chip = document.createElement('button');
-      chip.className = `circle-chip ${st.blocked ? 'blocked' : 'free'}`;
-      chip.textContent = `${c.id} ${st.blocked ? '✕' : '✓'}`;
-      chip.style.borderLeft = `3px solid ${c.color}`;
-      chip.title = st.blocked
-        ? `Circle ${c.id} blocked by ${st.blockingPieceIds.length} piece(s)`
-        : `Circle ${c.id} free — click for CW, shift-click for CCW`;
-      chip.addEventListener('click', (ev) => {
-        this.handleCircleClick(c.id, ev.shiftKey ? -1 : 1);
-      });
-      this.circleChipsEl.appendChild(chip);
+      const chipSpecs: { label: string; layerOpt?: MoveLayerSpec; desc: string }[] =
+        c.layerRadii && c.layerRadii.length > 1
+          ? [
+              { label: c.id, layerOpt: { layer: 1 }, desc: `Inner disk ${c.id}` },
+              { label: `2${c.id}`, layerOpt: { layer: 2 }, desc: `Outer ring 2${c.id}` },
+              { label: c.id.toLowerCase(), layerOpt: { wide: true }, desc: `Wide full circle ${c.id.toLowerCase()}` },
+            ]
+          : [{ label: c.id, desc: `Circle ${c.id}` }];
+
+      for (const cs of chipSpecs) {
+        const st = cs.layerOpt ? getCircleStatus(state, c.id, cs.layerOpt) : statuses[c.id];
+        const chip = document.createElement('button');
+        chip.className = `circle-chip ${st.blocked ? 'blocked' : 'free'}`;
+        chip.textContent = `${cs.label} ${st.blocked ? '✕' : '✓'}`;
+        chip.style.borderLeft = `3px solid ${c.color}`;
+        chip.title = st.blocked
+          ? `${cs.desc} blocked by ${st.blockingPieceIds.length} piece(s)`
+          : `${cs.desc} free — click for CW, shift-click for CCW`;
+        chip.addEventListener('click', (ev) => {
+          this.handleCircleClick(c.id, ev.shiftKey ? -1 : 1, cs.layerOpt);
+        });
+        this.circleChipsEl.appendChild(chip);
+      }
     }
 
     // Diagnostic banner (blocked / parseError / runtimeError)
@@ -1034,7 +1047,11 @@ class RingTwistApp {
     }
   }
 
-  private handleCircleClick(circleId: string, direction: 1 | -1): void {
+  private handleCircleClick(
+    circleId: string,
+    direction: 1 | -1,
+    layerOpt?: MoveLayerSpec,
+  ): void {
     this.flushPendingEval();
     this.stopPlayback();
     // Interactive moves always append/coalesce at the end of the sequence, so validate
@@ -1043,27 +1060,29 @@ class RingTwistApp {
       this.jumpToStep(this.evalResult.steps.length);
     }
     const curState = this.evalResult.finalState;
-    const status = getCircleStatus(curState, circleId);
+    const status = getCircleStatus(curState, circleId, layerOpt);
 
     if (status.blocked) {
       this.renderer.flashBlocked(circleId, status.blockingPieceIds);
+      const label = formatMoveToken(circleId, 1, layerOpt);
       this.showToast(
-        `Circle ${circleId} is blocked by ${status.blockingPieceIds.length} piece(s)`,
+        `Circle ${label} is blocked by ${status.blockingPieceIds.length} piece(s)`,
       );
       return;
     }
 
     const useNext = this.clickUsesNextUnblocked;
+    const base = formatMoveToken(circleId, 1, layerOpt);
     const token = useNext
-      ? `${circleId}${direction === 1 ? '>' : '<'}`
-      : `${circleId}${direction === 1 ? '' : "'"}`;
+      ? `${base}${direction === 1 ? '>' : '<'}`
+      : formatMoveToken(circleId, direction, layerOpt);
 
     this.appendInteractiveMove(token, {
       allowCoalesce: true,
       incrementalMove: (st) =>
         useNext
-          ? turnCircleNextUnblocked(st, circleId, direction, 1)
-          : turnCircleBySteps(st, circleId, direction),
+          ? turnCircleNextUnblocked(st, circleId, direction, 1, layerOpt)
+          : turnCircleBySteps(st, circleId, direction, layerOpt),
     });
   }
 
