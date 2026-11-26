@@ -67,11 +67,7 @@ function uniqueSortedAngles(angles: number[], eps = 1e-6): number[] {
  * tie-breaker = signed curvature (+1/r bends more CCW than -1/r)
  */
 function compareOutgoingCCW(a: HalfEdge, b: HalfEdge): number {
-  let da = a.tangent - b.tangent;
-  if (da > Math.PI) da -= TWO_PI;
-  if (da < -Math.PI) da += TWO_PI;
-  // Wait: we want linear order around [0, 2*PI), not cyclic pairwise comparison.
-  // Normalize near 2*PI wrap:
+  // Linear order around [0, 2*PI) normalized near the 2*PI wrap
   const ta = a.tangent >= TWO_PI - 1e-6 ? 0 : a.tangent;
   const tb = b.tangent >= TWO_PI - 1e-6 ? 0 : b.tangent;
   if (Math.abs(ta - tb) > 1e-5) {

@@ -146,10 +146,11 @@ export class AlgorithmEditor {
         const start = i;
         while (i < n && /[A-Za-z0-9_<>']/.test(src[i])) i++;
         const word = src.slice(start, i);
-        // Check if followed by '=' (macro def)
-        const after = src.slice(i).match(/^[ \t]*=/);
+        // Check if followed by '=' (macro def) without O(n^2) string slicing
+        let j = i;
+        while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
         let cls = '';
-        if (after) cls = 'tok-macro-def';
+        if (src[j] === '=') cls = 'tok-macro-def';
         else if (/^r\d*'?$/.test(word)) cls = 'tok-rot';
         else if (/^[A-Z][<>]\d*'?$/.test(word)) cls = 'tok-next';
         for (let k = start; k < i; k++) syntax[k] = cls;

@@ -173,24 +173,117 @@ function unwrapParens(s: string): string {
 }
 
 /**
- * Safely evaluate simple arithmetic expressions from GeraniumsPot `Param:` lines.
+ * Pure, CSP-safe recursive-descent arithmetic evaluator for GeraniumsPot `Param:` / `Ring:`
+ * expressions (supports `+`, `-`, `*`, `/`, unary `+/-`, `(...)`, numbers, `pi`,
+ * `sin`, `cos`, `tan`, `sqrt`, `abs`, and named parameters — no `eval` / `new Function`).
  */
 function evalParamExpr(expr: string, params: Record<string, number>): number {
-  let clean = expr.replace(/#.*$/, '').trim();
-  const keys = Object.keys(params).sort((a, b) => b.length - a.length);
-  for (const k of keys) {
-    clean = clean.replace(new RegExp(`\\b${k}\\b`, 'g'), `(${params[k]})`);
-  }
-  const fn = new Function(
-    'pi',
-    'sin',
-    'cos',
-    'tan',
-    'sqrt',
-    'abs',
-    `return (${clean});`,
-  );
-  return Number(fn(Math.PI, Math.sin, Math.cos, Math.tan, Math.sqrt, Math.abs));
+  const src = expr.replace(/#.*$/, '');
+  let pos = 0;
+
+  const skipWs = () => {
+    while (pos < src.length && /\s/.test(src[pos])) pos++;
+  };
+
+  const parseAddSub = (): number => {
+    let left = parseMulDiv();
+    while (true) {
+      skipWs();
+      const ch = src[pos];
+      if (ch === '+') {
+        pos++;
+        left += parseMulDiv();
+      } else if (ch === '-') {
+        pos++;
+        left -= parseMulDiv();
+      } else {
+        return left;
+      }
+    }
+  };
+
+  const parseMulDiv = (): number => {
+    let left = parseUnary();
+    while (true) {
+      skipWs();
+      const ch = src[pos];
+      if (ch === '*') {
+        pos++;
+        left *= parseUnary();
+      } else if (ch === '/') {
+        pos++;
+        left /= parseUnary();
+      } else {
+        return left;
+      }
+    }
+  };
+
+  const parseUnary = (): number => {
+    skipWs();
+    if (src[pos] === '+') {
+      pos++;
+      return parseUnary();
+    }
+    if (src[pos] === '-') {
+      pos++;
+      return -parseUnary();
+    }
+    return parsePrimary();
+  };
+
+  const parsePrimary = (): number => {
+    skipWs();
+    if (src[pos] === '(') {
+      pos++;
+      const val = parseAddSub();
+      skipWs();
+      if (src[pos] === ')') pos++;
+      return val;
+    }
+
+    // Number literal
+    const numMatch = src.slice(pos).match(/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/);
+    if (numMatch) {
+      pos += numMatch[0].length;
+      return parseFloat(numMatch[0]);
+    }
+
+    // Identifier (constant, param, or math function call)
+    const idMatch = src.slice(pos).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (idMatch) {
+      const name = idMatch[0];
+      pos += name.length;
+      skipWs();
+      if (src[pos] === '(') {
+        pos++;
+        const arg = parseAddSub();
+        skipWs();
+        if (src[pos] === ')') pos++;
+        switch (name) {
+          case 'sin':
+            return Math.sin(arg);
+          case 'cos':
+            return Math.cos(arg);
+          case 'tan':
+            return Math.tan(arg);
+          case 'sqrt':
+            return Math.sqrt(arg);
+          case 'abs':
+            return Math.abs(arg);
+          default:
+            throw new Error(`Unknown math function "${name}" in puzzle script`);
+        }
+      }
+      if (name === 'pi') return Math.PI;
+      if (Object.prototype.hasOwnProperty.call(params, name)) return params[name];
+      throw new Error(`Unknown parameter "${name}" in puzzle script`);
+    }
+
+    throw new Error(`Unexpected token in puzzle expression: "${src.slice(pos)}"`);
+  };
+
+  return parseAddSub();
 }
 
 function transformRegion(

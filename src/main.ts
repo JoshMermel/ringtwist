@@ -963,7 +963,12 @@ class CircleSimApp {
 
   private handleCircleClick(circleId: string, direction: 1 | -1): void {
     this.stopPlayback();
-    const curState = this.getDisplayedState();
+    // Interactive moves always append/coalesce at the end of the sequence, so validate
+    // against `finalState` (and jump scrubber to end first if user had scrubbed earlier).
+    if (this.currentStepIndex !== this.evalResult.steps.length) {
+      this.jumpToStep(this.evalResult.steps.length);
+    }
+    const curState = this.evalResult.finalState;
     const status = getCircleStatus(curState, circleId);
 
     if (status.blocked) {

@@ -152,13 +152,27 @@ export function computeStopDeltaDeg(
 }
 
 /**
+ * Fast short-circuiting check for whether `circle` has any straddling piece.
+ */
+function isCircleBlocked(state: PuzzleState, circle: CircleDef): boolean {
+  for (const p of state.pieces) {
+    if (classifyRegionAgainstCircle(p.region, circle) === 'straddling') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Rotate all pieces inside `circleId` clockwise by `cwDeg` degrees.
+ * Optionally accepts precomputed `knownInsideIds` (when caller already verified the circle is free).
  */
 export function turnCircleByAngle(
   state: PuzzleState,
   circleId: string,
   cwDeg: number,
   nextStopIdx?: number,
+  knownInsideIds?: number[],
 ): MoveResult {
   const circle = getCircleDef(state.spec, circleId);
   if (!circle) {
@@ -170,19 +184,23 @@ export function turnCircleByAngle(
     };
   }
 
-  const status = getCircleStatus(state, circleId);
-  if (status.blocked) {
-    return {
-      ok: false,
-      circleId,
-      blockingPieceIds: status.blockingPieceIds,
-      reason: `Circle ${circleId} is blocked by ${status.blockingPieceIds.length} piece${
-        status.blockingPieceIds.length === 1 ? '' : 's'
-      }`,
-    };
+  let insidePieceIds = knownInsideIds;
+  if (!insidePieceIds) {
+    const status = getCircleStatus(state, circleId);
+    if (status.blocked) {
+      return {
+        ok: false,
+        circleId,
+        blockingPieceIds: status.blockingPieceIds,
+        reason: `Circle ${circleId} is blocked by ${status.blockingPieceIds.length} piece${
+          status.blockingPieceIds.length === 1 ? '' : 's'
+        }`,
+      };
+    }
+    insidePieceIds = status.insidePieceIds;
   }
 
-  const insideSet = new Set(status.insidePieceIds);
+  const insideSet = new Set(insidePieceIds);
   const rad = deg2rad(-cwDeg); // CW in +y-up math coords is negative angle
 
   const nextPieces: Piece[] = state.pieces.map((p) => {
@@ -207,7 +225,7 @@ export function turnCircleByAngle(
       circleStopIndex: nextStops,
     },
     angleDeg: cwDeg,
-    movedPieceIds: status.insidePieceIds,
+    movedPieceIds: insidePieceIds,
     pivot: { x: circle.cx, y: circle.cy },
   };
 }
@@ -389,21 +407,33 @@ export function hashPuzzleShape(state: PuzzleState): string {
   return entries.join('\n');
 }
 
-/**
- * Check if `state` is solved relative to `solvedState`, modulo whole-puzzle symmetry rotations.
- */
-export function isPuzzleSolved(state: PuzzleState, solvedState: PuzzleState): boolean {
-  const targetHash = hashPuzzleState(state);
+const solvedOrbitCache = new WeakMap<PuzzleState, Set<string>>();
+
+function getSolvedOrbitHashes(solvedState: PuzzleState): Set<string> {
+  const cached = solvedOrbitCache.get(solvedState);
+  if (cached) return cached;
+
+  const hashes = new Set<string>();
   const symStep = solvedState.spec.symmetryStepDeg;
   const symCount = symStep > 0 ? Math.round(360 / symStep) : 1;
 
   let ref = solvedState;
   for (let k = 0; k < symCount; k++) {
-    if (hashPuzzleState(ref) === targetHash) return true;
-    const rot = rotateWholePuzzle(ref, 1);
-    if (rot.ok) ref = rot.nextState;
+    hashes.add(hashPuzzleState(ref));
+    if (k + 1 < symCount) {
+      const rot = rotateWholePuzzle(ref, 1);
+      if (rot.ok) ref = rot.nextState;
+    }
   }
-  return false;
+  solvedOrbitCache.set(solvedState, hashes);
+  return hashes;
+}
+
+/**
+ * Check if `state` is solved relative to `solvedState`, modulo whole-puzzle symmetry rotations.
+ */
+export function isPuzzleSolved(state: PuzzleState, solvedState: PuzzleState): boolean {
+  return getSolvedOrbitHashes(solvedState).has(hashPuzzleState(state));
 }
 
 /**
@@ -448,6 +478,24 @@ export function generateScramble(
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 
+  // Precompute circle adjacency once so scramble checks only re-test overlapping neighbors
+  const circleMap = new Map(initialState.spec.circles.map((c) => [c.id, c]));
+  const overlapMap = new Map<string, CircleDef[]>();
+  const nonOverlapMap = new Map<string, string[]>();
+  for (const c of initialState.spec.circles) {
+    const ovIds = new Set(overlappingCircleIds(initialState.spec, c));
+    overlapMap.set(
+      c.id,
+      [...ovIds].map((id) => circleMap.get(id)!),
+    );
+    nonOverlapMap.set(
+      c.id,
+      initialState.spec.circles
+        .filter((o) => o.id !== c.id && !ovIds.has(o.id))
+        .map((o) => o.id),
+    );
+  }
+
   let cur = initialState;
   let lastCircle = '';
   let lastSteps = 0;
@@ -472,17 +520,27 @@ export function generateScramble(
     for (const c of candidates) {
       const n = c.stopsDeg.length;
       const maxHalf = Math.floor(n / 2);
+      const curIdx = cur.circleStopIndex[c.id] ?? 0;
+      const insideIds = statuses[c.id].insidePieceIds;
+      const nonOverlappingOtherFree = nonOverlapMap
+        .get(c.id)!
+        .some((oid) => !statuses[oid].blocked);
+      const neighbors = overlapMap.get(c.id)!;
+
       for (let step = 1; step <= maxHalf; step++) {
         for (const dir of [1, -1]) {
           if (step === maxHalf && n % 2 === 0 && dir === -1) continue;
           const signedSteps = dir * step;
           if (c.id === lastCircle && signedSteps === -lastSteps) continue;
-          const res = turnCircleBySteps(cur, c.id, signedSteps);
+
+          const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(c, curIdx, signedSteps);
+          const res = turnCircleByAngle(cur, c.id, deltaDeg, nextStopIdx, insideIds);
           if (!res.ok) continue;
-          const nextStatuses = getAllCircleStatuses(res.nextState);
-          const otherFree = cur.spec.circles.some(
-            (o) => o.id !== c.id && !nextStatuses[o.id].blocked,
-          );
+
+          const otherFree =
+            nonOverlappingOtherFree ||
+            neighbors.some((nb) => !isCircleBlocked(res.nextState, nb));
+
           if (otherFree) {
             goodMoves.push({ cid: c.id, steps: signedSteps, next: res.nextState });
           } else {

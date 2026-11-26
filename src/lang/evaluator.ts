@@ -306,12 +306,20 @@ export function evaluateProgram(
       const state1 = currentState;
 
       // Case 1: Shape-invariant! Acts as a pure permutation group element => O(n) exact jump!
-      if (hashPuzzleShape(state1) === shape0) {
+      const rotDelta =
+        (((state1.puzzleRotationDeg - state0.puzzleRotationDeg) % 360) + 360) % 360;
+      const allCirclesEvenStops = state0.spec.circles.every((c) => {
+        const len = c.stopsDeg.length;
+        if (len === 0) return true;
+        const step = 360 / len;
+        return c.stopsDeg.every((a, idx) => Math.abs(a - idx * step) < 1e-4);
+      });
+      // When a sequence includes whole-puzzle rotation `r` on uneven-stop puzzles,
+      // circleStopIndex permutes across circles rather than shifting uniformly; defer to exact cycle detection.
+      if (hashPuzzleShape(state1) === shape0 && (rotDelta === 0 || allCirclesEvenStops)) {
         const perm = extractShapePermutation(state0, state1);
         if (perm) {
           const permPow = powPermutation(perm, repeat);
-          const rotDelta =
-            (((state1.puzzleRotationDeg - state0.puzzleRotationDeg) % 360) + 360) % 360;
           currentState = applyShapePermutation(state0, state1, permPow, rotDelta, repeat);
           usedFastForward = true;
           if (recordSteps) {

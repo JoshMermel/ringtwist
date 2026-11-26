@@ -11,7 +11,7 @@ const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
     { name: 'pair', body: 'A2 E2', note: '108° exchange across A and E' },
   ],
   'two-circle': [
-    { name: 'flip', body: '[A3, B3]', note: '180° commutator across the central lens' },
+    { name: 'comm', body: '[A, B]', note: '120° commutator across the unbandaged Mandorla lens' },
   ],
 };
 
@@ -88,7 +88,12 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     let macros: MacroLibraryEntry[] | undefined;
     if (macrosRaw) {
       const parsed = JSON.parse(fromBase64Url(macrosRaw));
-      if (Array.isArray(parsed)) macros = parsed;
+      if (Array.isArray(parsed)) {
+        macros = parsed.filter(
+          (m): m is MacroLibraryEntry =>
+            typeof m?.name === 'string' && typeof m?.body === 'string',
+        );
+      }
     }
     return { puzzleId, alg, macros };
   } catch {
