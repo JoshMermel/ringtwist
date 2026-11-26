@@ -20,7 +20,6 @@ import {
   TWO_PI,
   angleOffsetOnArc,
   circlesEqual,
-  dist,
   intersectCircles,
   normAngle,
   pointOnCircle,
@@ -95,50 +94,50 @@ function extractCCWFaces(
     return vertices.length - 1;
   };
 
-  // Deduplicate identical directed arcs; if both traversable and non-traversable
-  // exist for the same directed arc, keep traversable = true.
-  const deduped: DirectedArcSpec[] = [];
+  // Deduplicate identical directed arcs; precompute (s, e, mid) once per arc so comparisons avoid repeated trig.
+  interface CachedArcSpec extends DirectedArcSpec {
+    s: Point;
+    e: Point;
+    mid: Point;
+  }
+  const makeCached = (arc: ArcEdge, traversable: boolean): CachedArcSpec => ({
+    arc,
+    traversable,
+    s: edgeStart(arc),
+    e: edgeEnd(arc),
+    mid: edgePointAt(arc, 0.5),
+  });
+  const sameArc = (a: CachedArcSpec, b: CachedArcSpec): boolean =>
+    Math.sign(a.arc.sweep) === Math.sign(b.arc.sweep) &&
+    Math.abs(a.mid.x - b.mid.x) <= vertexEps &&
+    Math.abs(a.mid.y - b.mid.y) <= vertexEps &&
+    circlesEqual(a.arc, b.arc, vertexEps) &&
+    pointsEqual(a.s, b.s, vertexEps) &&
+    pointsEqual(a.e, b.e, vertexEps) &&
+    pointsEqual(a.mid, b.mid, vertexEps);
+
+  const deduped: CachedArcSpec[] = [];
   for (const spec of specs) {
     if (Math.abs(spec.arc.sweep) < 1e-6) continue;
-    const mid = edgePointAt(spec.arc, 0.5);
-    const s = edgeStart(spec.arc);
-    const e = edgeEnd(spec.arc);
+    const cand = makeCached(spec.arc, spec.traversable);
     let found = false;
     for (const ex of deduped) {
-      if (
-        circlesEqual(ex.arc, spec.arc, vertexEps) &&
-        Math.sign(ex.arc.sweep) === Math.sign(spec.arc.sweep) &&
-        pointsEqual(edgeStart(ex.arc), s, vertexEps) &&
-        pointsEqual(edgeEnd(ex.arc), e, vertexEps) &&
-        pointsEqual(edgePointAt(ex.arc, 0.5), mid, vertexEps)
-      ) {
+      if (sameArc(ex, cand)) {
         ex.traversable = ex.traversable || spec.traversable;
         found = true;
         break;
       }
     }
     if (!found) {
-      deduped.push({ arc: spec.arc, traversable: spec.traversable });
+      deduped.push(cand);
     }
   }
 
   // Ensure every directed arc has a reverse twin (sentinel if not already present)
-  const allSpecs: DirectedArcSpec[] = [...deduped];
-  const findSpecIndex = (arc: ArcEdge): number => {
-    const mid = edgePointAt(arc, 0.5);
-    const s = edgeStart(arc);
-    const e = edgeEnd(arc);
+  const allSpecs: CachedArcSpec[] = [...deduped];
+  const findSpecIndex = (cand: CachedArcSpec): number => {
     for (let i = 0; i < allSpecs.length; i++) {
-      const ex = allSpecs[i].arc;
-      if (
-        circlesEqual(ex, arc, vertexEps) &&
-        Math.sign(ex.sweep) === Math.sign(arc.sweep) &&
-        pointsEqual(edgeStart(ex), s, vertexEps) &&
-        pointsEqual(edgeEnd(ex), e, vertexEps) &&
-        pointsEqual(edgePointAt(ex, 0.5), mid, vertexEps)
-      ) {
-        return i;
-      }
+      if (sameArc(allSpecs[i], cand)) return i;
     }
     return -1;
   };
@@ -147,19 +146,27 @@ function extractCCWFaces(
   const initialLen = allSpecs.length;
   for (let i = 0; i < initialLen; i++) {
     if (twinMap.has(i)) continue;
-    const rev = reverseEdge(allSpecs[i].arc);
-    let j = findSpecIndex(rev);
+    const orig = allSpecs[i];
+    const revArc = reverseEdge(orig.arc);
+    const revCand: CachedArcSpec = {
+      arc: revArc,
+      traversable: false,
+      s: orig.e,
+      e: orig.s,
+      mid: orig.mid,
+    };
+    let j = findSpecIndex(revCand);
     if (j === -1) {
       j = allSpecs.length;
-      allSpecs.push({ arc: rev, traversable: false });
+      allSpecs.push(revCand);
     }
     twinMap.set(i, j);
     twinMap.set(j, i);
   }
 
   const halfEdges: HalfEdge[] = allSpecs.map((spec, id) => {
-    const from = getVertexId(edgeStart(spec.arc));
-    const to = getVertexId(edgeEnd(spec.arc));
+    const from = getVertexId(spec.s);
+    const to = getVertexId(spec.e);
     return {
       id,
       arc: spec.arc,
@@ -280,7 +287,7 @@ export function sliceCircles(circles: Circle[], minArea = 1e-5): ArcRegion[] {
   // Keep only faces whose interior lies inside at least one circle
   return allFaces.filter((face) => {
     const pt = interiorPointOfRegion(face);
-    return uniqueCircles.some((c) => dist(pt, { x: c.cx, y: c.cy }) < c.r - 1e-5);
+    return uniqueCircles.some((c) => Math.hypot(pt.x - c.cx, pt.y - c.cy) < c.r - 1e-5);
   });
 }
 
@@ -372,7 +379,7 @@ export function splitRegionByCircle(
     // Skip if midpoint lies right on a boundary arc of region
     let onBoundary = false;
     for (const e of region.edges) {
-      if (Math.abs(dist(mid, { x: e.cx, y: e.cy }) - e.r) < 1e-4) {
+      if (Math.abs(Math.hypot(mid.x - e.cx, mid.y - e.cy) - e.r) < 1e-4) {
         const ang = Math.atan2(mid.y - e.cy, mid.x - e.cx);
         if (angleOffsetOnArc(ang, e.startAngle, e.sweep, 1e-4) !== null) {
           onBoundary = true;

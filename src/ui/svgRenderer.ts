@@ -1,14 +1,19 @@
-import { edgeEnd, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
+import { edgeEnd, edgePointAt, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
 import { CircleStatus, getAllCircleStatuses } from '../puzzle/engine.ts';
 import { CircleDef, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
 
 function stickerWedgeToSvgPath(s: StickerWedge, decimals = 4): string {
   const fmt = (n: number) => Number(n.toFixed(decimals)).toString();
   const start = edgeStart(s.arc);
-  const end = edgeEnd(s.arc);
-  const largeArc = Math.abs(s.arc.sweep) > Math.PI ? 1 : 0;
   const sweepFlag = s.arc.sweep > 0 ? 0 : 1;
-  return `M ${fmt(s.apex.x)} ${fmt(-s.apex.y)} L ${fmt(start.x)} ${fmt(-start.y)} A ${fmt(s.arc.r)} ${fmt(s.arc.r)} 0 ${largeArc} ${sweepFlag} ${fmt(end.x)} ${fmt(-end.y)} Z`;
+  const segments = Math.max(1, Math.ceil(Math.abs(s.arc.sweep) / (Math.PI * 0.44)));
+  const parts = [`M ${fmt(s.apex.x)} ${fmt(-s.apex.y)}`, `L ${fmt(start.x)} ${fmt(-start.y)}`];
+  for (let i = 1; i <= segments; i++) {
+    const pt = i === segments ? edgeEnd(s.arc) : edgePointAt(s.arc, i / segments);
+    parts.push(`A ${fmt(s.arc.r)} ${fmt(s.arc.r)} 0 0 ${sweepFlag} ${fmt(pt.x)} ${fmt(-pt.y)}`);
+  }
+  parts.push('Z');
+  return parts.join(' ');
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';

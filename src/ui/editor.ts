@@ -21,6 +21,7 @@ export class AlgorithmEditor {
   public readonly textarea: HTMLTextAreaElement;
   private backdrop: HTMLPreElement;
   private highlightState: EditorHighlightState = { errorSpans: [] };
+  private lastBackdropKey = '';
 
   constructor(
     container: HTMLElement,
@@ -106,6 +107,17 @@ export class AlgorithmEditor {
 
   private renderBackdrop(): void {
     const src = this.textarea.value;
+    const act = this.highlightState.activeSpan;
+    const errs = this.highlightState.errorSpans;
+    const errKey = errs.length === 0 ? '' : errs.map((s) => `${s.start}:${s.end}`).join(',');
+    const key = `${act ? `${act.start}:${act.end}` : ''}|${errKey}|${src}`;
+    if (key === this.lastBackdropKey) {
+      this.backdrop.scrollTop = this.textarea.scrollTop;
+      this.backdrop.scrollLeft = this.textarea.scrollLeft;
+      return;
+    }
+    this.lastBackdropKey = key;
+
     if (!src) {
       this.backdrop.innerHTML = '';
       return;
@@ -144,15 +156,15 @@ export class AlgorithmEditor {
       }
       if (/[A-Za-z_]/.test(ch)) {
         const start = i;
-        while (i < n && /[A-Za-z0-9_<>']/.test(src[i])) i++;
+        while (i < n && /[A-Za-z0-9_<>'’]/.test(src[i])) i++;
         const word = src.slice(start, i);
         // Check if followed by '=' (macro def) without O(n^2) string slicing
         let j = i;
         while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
         let cls = '';
         if (src[j] === '=') cls = 'tok-macro-def';
-        else if (/^r\d*'?$/.test(word)) cls = 'tok-rot';
-        else if (/^[A-Z][<>]\d*'?$/.test(word)) cls = 'tok-next';
+        else if (/^r(?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-rot';
+        else if (/^[A-Z][<>](?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-next';
         for (let k = start; k < i; k++) syntax[k] = cls;
         continue;
       }

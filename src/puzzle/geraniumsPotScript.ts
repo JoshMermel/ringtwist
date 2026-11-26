@@ -2,7 +2,9 @@ import {
   ArcRegion,
   classifyRegionAgainstCircle,
   edgePointAt,
+  getRegionBoundingCircle,
   interiorPointOfRegion,
+  pointInRegion,
   regionSignedArea,
   regionSilhouetteKey,
   rotateRegion,
@@ -48,11 +50,16 @@ interface GpotPart {
   color: string;
 }
 
+const contourCentroidCache = new WeakMap<ArcRegion, Point>();
+
 /**
  * Exact polygon centroid matching GeraniumsPot's `calcPartsContour` (`maxIter=4` => 16 segments/arc)
- * + `calcCentroid` (shoelace area centroid).
+ * + `calcCentroid` (shoelace area centroid), cached per immutable ArcRegion.
  */
 function contourCentroid(region: ArcRegion): Point {
+  const cached = contourCentroidCache.get(region);
+  if (cached) return cached;
+
   const pts: Point[] = [];
   const segsPerArc = region.edges.length === 1 ? 64 : 16;
   for (const e of region.edges) {
@@ -73,12 +80,16 @@ function contourCentroid(region: ArcRegion): Point {
     cx += (p0.x + p1.x) * cross;
     cy += (p0.y + p1.y) * cross;
   }
+  let res: Point;
   if (Math.abs(area2) < 1e-8) {
     const sx = pts.reduce((s, p) => s + p.x, 0);
     const sy = pts.reduce((s, p) => s + p.y, 0);
-    return { x: sx / pts.length, y: sy / pts.length };
+    res = { x: sx / pts.length, y: sy / pts.length };
+  } else {
+    res = { x: cx / (3 * area2), y: cy / (3 * area2) };
   }
-  return { x: cx / (3 * area2), y: cy / (3 * area2) };
+  contourCentroidCache.set(region, res);
+  return res;
 }
 
 /**
@@ -102,12 +113,13 @@ function sortAndRenumber(parts: GpotPart[]): void {
   });
 }
 
-function removeDuplicateParts(parts: GpotPart[]): void {
+function removeDuplicateParts(parts: GpotPart[], respectVisibility = false): void {
   const seen = new Set<string>();
   const kept: GpotPart[] = [];
   for (const p of parts) {
     // In native scale ~50-70, quantum 0.05 (~1e-3 in unit coords) matches compareXY(..., 3)
-    const key = regionSilhouetteKey(p.region, 0.05);
+    const sil = regionSilhouetteKey(p.region, 0.05);
+    const key = respectVisibility ? `${p.visible ? '1' : '0'}|${sil}` : sil;
     if (!seen.has(key)) {
       seen.add(key);
       kept.push(p);
@@ -377,7 +389,7 @@ export function buildFromGeraniumsPotScript(
     }
   };
 
-  const cutPartsByRing = (cutterRing: GpotRing) => {
+  const cutPartsByRing = (cutterRing: GpotRing): boolean => {
     let nextNum = getMaxNum() + 1;
     const appended: GpotPart[] = [];
     for (let i = 0; i < parts.length; i++) {
@@ -397,7 +409,11 @@ export function buildFromGeraniumsPotScript(
         }
       }
     }
-    if (appended.length > 0) parts.push(...appended);
+    if (appended.length > 0) {
+      parts.push(...appended);
+      return true;
+    }
+    return false;
   };
 
   const turnRing = (ringNum: number, dir: 1 | -1, step: number, cutAfter: boolean) => {
@@ -414,9 +430,11 @@ export function buildFromGeraniumsPotScript(
       }
     }
     if (cutAfter) {
+      let didCut = false;
       for (const r of rings) {
-        cutPartsByRing(r);
+        if (cutPartsByRing(r)) didCut = true;
       }
+      if (didCut) removeDuplicateParts(parts, true);
     }
   };
 
@@ -651,6 +669,7 @@ export function buildFromGeraniumsPotScript(
     if (line.startsWith('MoveParts:')) {
       const body = line.slice('MoveParts:'.length).replace(/#.*$/, '').trim();
       const items = splitTopLevel(body);
+      const partByNum = new Map(parts.map((p) => [p.num, p]));
       for (let i = 0; i + 1 < items.length; i += 2) {
         const partNums = unwrapParens(items[i])
           .split(',')
@@ -658,7 +677,7 @@ export function buildFromGeraniumsPotScript(
           .filter((n) => !Number.isNaN(n));
         const turnSpec = items[i + 1].trim();
         const targets = partNums
-          .map((pn) => parts.find((p) => p.num === pn))
+          .map((pn) => partByNum.get(pn))
           .filter((p): p is GpotPart => Boolean(p));
         applyTurnSpec(targets, turnSpec);
       }
@@ -669,6 +688,8 @@ export function buildFromGeraniumsPotScript(
     if (line.startsWith('CopyParts:')) {
       const body = line.slice('CopyParts:'.length).replace(/#.*$/, '').trim();
       const items = splitTopLevel(body);
+      const partByNum = new Map(parts.map((p) => [p.num, p]));
+      let nextNum = getMaxNum() + 1;
       for (let i = 0; i + 1 < items.length; i += 2) {
         const partNums = unwrapParens(items[i])
           .split(',')
@@ -677,16 +698,17 @@ export function buildFromGeraniumsPotScript(
         const turnSpec = items[i + 1].trim();
 
         const clones: GpotPart[] = [];
-        let nextNum = getMaxNum() + 1;
         for (const pn of partNums) {
-          const orig = parts.find((p) => p.num === pn);
+          const orig = partByNum.get(pn);
           if (!orig) continue;
-          clones.push({
+          const clone: GpotPart = {
             num: nextNum++,
             region: { edges: orig.region.edges.map((e) => ({ ...e })) },
             visible: true,
             color: orig.color,
-          });
+          };
+          clones.push(clone);
+          partByNum.set(clone.num, clone);
         }
 
         applyTurnSpec(clones, turnSpec);
@@ -832,8 +854,14 @@ export function attachCenterPentagonStickers(pieces: Piece[], spec: PuzzleSpec):
   );
   if (!centerPiece || centerPiece.region.edges.length !== 5) return;
 
-  const others = pieces.filter((p) => p !== centerPiece);
   const centerPt = interiorPointOfRegion(centerPiece.region);
+  const centerBounds = getRegionBoundingCircle(centerPiece.region);
+  // Pre-filter candidate neighbors by bounding-circle proximity (skips >90% of pieces on Super Geranium)
+  const nearby = pieces.filter((p) => {
+    if (p === centerPiece) return false;
+    const b = getRegionBoundingCircle(p.region);
+    return Math.hypot(b.cx - centerPt.x, b.cy - centerPt.y) <= centerBounds.r + b.r + 0.15;
+  });
 
   const stickers: StickerWedge[] = centerPiece.region.edges.map((arc) => {
     const mid = edgePointAt(arc, 0.5);
@@ -841,9 +869,19 @@ export function attachCenterPentagonStickers(pieces: Piece[], spec: PuzzleSpec):
     const dy = mid.y - centerPt.y;
     const len = Math.hypot(dx, dy) || 1;
     const probe = { x: mid.x + (dx / len) * 0.06, y: mid.y + (dy / len) * 0.06 };
+
+    // Fast exact hit test first (probe lies directly inside the bordering piece)
+    for (const o of nearby) {
+      const b = getRegionBoundingCircle(o.region);
+      if (Math.hypot(probe.x - b.cx, probe.y - b.cy) <= b.r + 1e-4 && pointInRegion(probe, o.region)) {
+        return { apex: centerPt, arc, color: o.color };
+      }
+    }
+
+    // Fallback: nearest interior point among nearby pieces
     let bestColor = innerCircles[0].color;
     let bestD = Infinity;
-    for (const o of others) {
+    for (const o of nearby) {
       const pt = interiorPointOfRegion(o.region);
       const d = dist(probe, pt);
       if (d < bestD) {

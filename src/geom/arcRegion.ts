@@ -35,8 +35,9 @@ export interface ArcRegion {
   _bounds?: Circle;
   /** Optional lazily cached SVG path string (for default decimals = 4). */
   _svgPath?: string;
-  /** Optional lazily cached canonical silhouette key (for default quantum = 1e-3). */
+  /** Optional lazily cached canonical silhouette key and the quantum it was computed at. */
   _silhouetteKey?: string;
+  _silhouetteQuantum?: number;
 }
 
 /** Return (and lazily cache) a tight enclosing circle for `region`. */
@@ -369,12 +370,28 @@ export function classifyRegionAgainstCircle(
       }
     }
 
-    // Sample interior points of edge e (quarter, mid, three-quarter) and endpoints
-    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
-      const pt = edgePointAt(e, t);
-      const d = Math.hypot(pt.x - circle.cx, pt.y - circle.cy);
-      if (d < circle.r - eps) hasInside = true;
-      else if (d > circle.r + eps) hasOutside = true;
+    // Since any strict interior transverse crossing was already caught above,
+    // the open arc (0, 1) stays on one side of `circle` (except possibly at an isolated tangency).
+    // Sample midpoint first; only fall back to quarter points / start vertex if midpoint is on the boundary
+    // or the circles intersected near an endpoint.
+    const midPt = edgePointAt(e, 0.5);
+    const dMid = Math.hypot(midPt.x - circle.cx, midPt.y - circle.cy);
+    if (dMid < circle.r - eps) hasInside = true;
+    else if (dMid > circle.r + eps) hasOutside = true;
+    else {
+      for (const t of [0.25, 0.75, 0]) {
+        const pt = edgePointAt(e, t);
+        const d = Math.hypot(pt.x - circle.cx, pt.y - circle.cy);
+        if (d < circle.r - eps) hasInside = true;
+        else if (d > circle.r + eps) hasOutside = true;
+      }
+    }
+
+    if (pts.length > 0 && !(hasInside && hasOutside)) {
+      const startPt = edgeStart(e);
+      const dStart = Math.hypot(startPt.x - circle.cx, startPt.y - circle.cy);
+      if (dStart < circle.r - eps) hasInside = true;
+      else if (dStart > circle.r + eps) hasOutside = true;
     }
 
     if (hasInside && hasOutside) return 'straddling';
@@ -425,7 +442,7 @@ export function regionToSvgPath(region: ArcRegion, decimals = 4): string {
  * shape-invariance checks and state hashing).
  */
 export function regionSilhouetteKey(region: ArcRegion, quantum = 1e-3): string {
-  if (quantum === 1e-3 && region._silhouetteKey !== undefined) {
+  if (region._silhouetteKey !== undefined && region._silhouetteQuantum === quantum) {
     return region._silhouetteKey;
   }
   // Sort edge midpoints + lengths + signed curvature canonically
@@ -439,7 +456,8 @@ export function regionSilhouetteKey(region: ArcRegion, quantum = 1e-3): string {
   });
   tokens.sort();
   const key = tokens.join(';');
-  if (quantum === 1e-3) region._silhouetteKey = key;
+  region._silhouetteKey = key;
+  region._silhouetteQuantum = quantum;
   return key;
 }
 

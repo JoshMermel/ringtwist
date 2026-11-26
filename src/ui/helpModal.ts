@@ -10,7 +10,7 @@ export function createHelpModal(): { open: () => void; close: () => void } {
       <div class="modal-body">
         <h3>Circle Moves (Fixed Stops)</h3>
         <table class="help-table">
-          <tr><td>A, B, C, D, E</td><td>Turn the named circle <b>1 stop clockwise</b> (e.g. 36° on Geranium Plus, 60° on 2-Circle/Hex).</td></tr>
+          <tr><td>A, B, C, D, E</td><td>Turn the named circle <b>1 stop clockwise</b> (e.g. 36° on Geranium Plus, 120° on 2-Circle Venn, 90° on Clover/Twin Rings, 60° on Hex).</td></tr>
           <tr><td>A2, A3, A4</td><td>Turn <b>N stops clockwise</b> (e.g. <code>A3</code> = 108° on Geranium Plus).</td></tr>
           <tr><td>A', A2', A3'</td><td>Turn <b>counter-clockwise</b> (prime <code>'</code> inverts direction).</td></tr>
         </table>
@@ -57,7 +57,7 @@ export function createHelpModal(): { open: () => void; close: () => void } {
         <table class="help-table">
           <tr><td>Scramble ▾</td><td>Generate a deterministic legal scramble from any word or numeric <b>seed</b> and move count so you can replay or share the exact same scramble.</td></tr>
           <tr><td>👁 Solved</td><td>Toggle a floating <b>Solved Reference</b> preview card in the bottom-right corner of the canvas (click <code>⤢</code> to expand).</td></tr>
-          <tr><td>Click circle</td><td>Appends a CW move (or <code>&gt;</code> when "Click uses &gt;/&lt;" is enabled) at the editor cursor.</td></tr>
+          <tr><td>Click circle</td><td>Appends a CW move (or <code>&gt;</code> when "Click uses &gt;/&lt;" is enabled) at the editor cursor. Adjacent turns on the same circle automatically coalesce (<code>B</code> + <code>B</code> → <code>B2</code>) and inverses cancel (<code>B</code> + <code>B'</code>).</td></tr>
           <tr><td>Shift/Right-click</td><td>Appends a CCW move (or <code>&lt;</code>). Mouse wheel over a circle turns CW/CCW too.</td></tr>
           <tr><td>Cursor Sync</td><td>Clicking or moving your cursor inside the algorithm text immediately previews the puzzle at that step.</td></tr>
           <tr><td>Alt + ← / →</td><td>Step backward / forward 1 move. <code>Alt + Space</code> toggles play/pause.</td></tr>

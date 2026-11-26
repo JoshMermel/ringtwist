@@ -101,16 +101,6 @@ button {
   color: var(--text);
 }
 
-.select-puzzle {
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
 .btn {
   display: inline-flex;
   align-items: center;

@@ -118,6 +118,7 @@ class CircleSimApp {
   private applySharedHash(): void {
     const shared = decodeShareHash(window.location.hash);
     if (!shared) return;
+    this.cancelPendingEval();
     this.stopPlayback();
     this.hideAnalysisBanner();
     this.currentSpec = getPuzzleSpec(shared.puzzleId);
@@ -464,6 +465,7 @@ class CircleSimApp {
 
     // Analyze Order button
     root.querySelector('#btn-analyze')!.addEventListener('click', () => {
+      this.flushPendingEval();
       const sel = this.editor.getSelection();
       const target = sel.text.trim() || this.editor.getValue().trim();
       if (!target) {
@@ -528,11 +530,24 @@ class CircleSimApp {
       try {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
-        const valid = parsed.filter(
-          (m): m is MacroLibraryEntry =>
-            typeof m?.name === 'string' && typeof m?.body === 'string',
-        );
-        if (valid.length === 0) throw new Error('No valid macros found');
+        const reserved = new Set([...this.currentSpec.circles.map((c) => c.id), 'r']);
+        const valid = parsed
+          .filter(
+            (m): m is MacroLibraryEntry =>
+              typeof m?.name === 'string' && typeof m?.body === 'string',
+          )
+          .map((m) => ({
+            name: m.name.trim(),
+            body: m.body.trim(),
+            ...(typeof m.note === 'string' ? { note: m.note } : {}),
+          }))
+          .filter(
+            (m) =>
+              /^[A-Za-z_][A-Za-z0-9_]*$/.test(m.name) &&
+              m.body.length > 0 &&
+              !reserved.has(m.name),
+          );
+        if (valid.length === 0) throw new Error('No valid non-reserved macros found');
         // Merge by name
         for (const entry of valid) {
           const idx = this.macros.findIndex((m) => m.name === entry.name);
@@ -703,11 +718,13 @@ class CircleSimApp {
   }
 
   private switchPuzzle(puzzleId: string): void {
+    this.cancelPendingEval();
     this.stopPlayback();
     this.hideAnalysisBanner();
     this.currentSpec = getPuzzleSpec(puzzleId);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = loadMacros(this.currentSpec.id);
+    this.lastMacroListKey = '';
     this.editor.setValue('');
     this.syncPuzzleButton();
     this.syncSolvedRefCard();
@@ -716,8 +733,22 @@ class CircleSimApp {
     this.reevaluate(true);
   }
 
+  private cancelPendingEval(): void {
+    if (this.evalDebounceId !== null) {
+      clearTimeout(this.evalDebounceId);
+      this.evalDebounceId = null;
+    }
+  }
+
+  private flushPendingEval(): void {
+    if (this.evalDebounceId !== null) {
+      this.cancelPendingEval();
+      this.reevaluate(true);
+    }
+  }
+
   private scheduleReevaluate(): void {
-    if (this.evalDebounceId !== null) clearTimeout(this.evalDebounceId);
+    this.cancelPendingEval();
     this.evalDebounceId = window.setTimeout(() => {
       this.evalDebounceId = null;
       this.reevaluate(true);
@@ -725,6 +756,7 @@ class CircleSimApp {
   }
 
   private reevaluate(jumpToEnd: boolean): void {
+    this.cancelPendingEval();
     this.stopPlayback();
     const src = this.editor.getValue();
     this.evalResult = evaluateProgram(this.solvedState, src, this.macros, {
@@ -878,6 +910,7 @@ class CircleSimApp {
   }
 
   private stepForward(onDone?: () => void): void {
+    this.flushPendingEval();
     const total = this.evalResult.steps.length;
     if (this.currentStepIndex >= total) {
       onDone?.();
@@ -908,6 +941,7 @@ class CircleSimApp {
   }
 
   private stepBackward(): void {
+    this.flushPendingEval();
     if (this.currentStepIndex <= 0) return;
     const step = this.evalResult.steps[this.currentStepIndex - 1];
     const fromState = step.stateAfter;
@@ -935,6 +969,7 @@ class CircleSimApp {
   }
 
   private startPlayback(): void {
+    this.flushPendingEval();
     if (this.evalResult.steps.length === 0) return;
     if (this.currentStepIndex >= this.evalResult.steps.length) {
       this.jumpToStep(0);
@@ -988,6 +1023,7 @@ class CircleSimApp {
   }
 
   private handleCircleClick(circleId: string, direction: 1 | -1): void {
+    this.flushPendingEval();
     this.stopPlayback();
     // Interactive moves always append/coalesce at the end of the sequence, so validate
     // against `finalState` (and jump scrubber to end first if user had scrubbed earlier).
@@ -1026,6 +1062,7 @@ class CircleSimApp {
       incrementalMove?: (state: PuzzleState) => MoveResult;
     } = {},
   ): void {
+    this.flushPendingEval();
     const prevCount = this.evalResult.steps.length;
     const wasAtEnd = this.currentStepIndex === prevCount;
 
@@ -1112,7 +1149,14 @@ class CircleSimApp {
   }
 
   private runAnalysis(algSource: string, baseState: PuzzleState, label: string): void {
-    const res = analyzeAlgorithm(baseState, algSource, this.macros);
+    // Merge sidebar macros + inline macros defined in the editor so analyzing a
+    // selected macro call or inline macro body resolves all script-local macros.
+    const mergedMap = new Map<string, MacroLibraryEntry>();
+    for (const m of this.macros) mergedMap.set(m.name, m);
+    for (const [name, body] of Object.entries(this.evalResult.inlineMacros)) {
+      mergedMap.set(name, { name, body });
+    }
+    const res = analyzeAlgorithm(baseState, algSource, Array.from(mergedMap.values()));
     this.analysisBannerEl.className = 'diagnostic-banner analysis visible';
     this.analysisBannerEl.innerHTML = `
       <span><b>${escapeHtml(label)} analysis:</b> ${escapeHtml(res.message)}</span>
@@ -1129,6 +1173,7 @@ class CircleSimApp {
   }
 
   private shareCurrentState(): void {
+    this.flushPendingEval();
     const hash = encodeShareHash({
       puzzleId: this.currentSpec.id,
       alg: this.editor.getValue(),
