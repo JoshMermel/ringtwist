@@ -1,0 +1,576 @@
+import { edgeEnd, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
+import { CircleStatus, getAllCircleStatuses } from '../puzzle/engine.ts';
+import { CircleDef, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
+
+function stickerWedgeToSvgPath(s: StickerWedge, decimals = 4): string {
+  const fmt = (n: number) => Number(n.toFixed(decimals)).toString();
+  const start = edgeStart(s.arc);
+  const end = edgeEnd(s.arc);
+  const largeArc = Math.abs(s.arc.sweep) > Math.PI ? 1 : 0;
+  const sweepFlag = s.arc.sweep > 0 ? 0 : 1;
+  return `M ${fmt(s.apex.x)} ${fmt(-s.apex.y)} L ${fmt(start.x)} ${fmt(-start.y)} A ${fmt(s.arc.r)} ${fmt(s.arc.r)} 0 ${largeArc} ${sweepFlag} ${fmt(end.x)} ${fmt(-end.y)} Z`;
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string | number> = {},
+): SVGElementTagNameMap[K] {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    el.setAttribute(k, String(v));
+  }
+  return el;
+}
+
+export interface RenderHighlight {
+  blockedCircleId?: string;
+  blockingPieceIds?: number[];
+}
+
+export interface TurnAnimationSpec {
+  fromState: PuzzleState;
+  toState: PuzzleState;
+  angleDeg: number; // signed CW degrees
+  pivot: { x: number; y: number };
+  movedPieceIds: number[];
+  durationMs: number;
+}
+
+export interface SvgRendererCallbacks {
+  onCircleClick: (circleId: string, direction: 1 | -1) => void;
+}
+
+export function computePuzzleViewBox(spec: PuzzleSpec, padRatio = 0.12, minPad = 0.42): string {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (const c of spec.circles) {
+    minX = Math.min(minX, c.cx - c.r);
+    maxX = Math.max(maxX, c.cx + c.r);
+    minY = Math.min(minY, -c.cy - c.r);
+    maxY = Math.max(maxY, -c.cy + c.r);
+  }
+
+  const span = Math.max(maxX - minX, maxY - minY);
+  const pad = Math.max(minPad, span * padRatio);
+  return `${(minX - pad).toFixed(3)} ${(minY - pad).toFixed(3)} ${(maxX - minX + pad * 2).toFixed(3)} ${(maxY - minY + pad * 2).toFixed(3)}`;
+}
+
+function buildPieceSvgNode(p: Piece, isBlocking: boolean, compact = false): SVGElement {
+  const strokeW = compact ? '0.022' : undefined;
+  if (!p.stickers || p.stickers.length === 0) {
+    const attrs: Record<string, string | number> = {
+      d: regionToSvgPath(p.region),
+      fill: p.color,
+      class: isBlocking ? 'puzzle-piece blocking' : 'puzzle-piece',
+      'data-piece-id': p.id,
+    };
+    if (strokeW) attrs['stroke-width'] = strokeW;
+    return svgEl('path', attrs);
+  }
+
+  const g = svgEl('g', { 'data-piece-id': p.id });
+  for (const s of p.stickers) {
+    g.appendChild(
+      svgEl('path', {
+        d: stickerWedgeToSvgPath(s),
+        fill: s.color,
+        stroke: 'rgba(9, 14, 28, 0.5)',
+        'stroke-width': compact ? 0.018 : 0.012,
+        'stroke-linejoin': 'round',
+      }),
+    );
+  }
+  const apex = p.stickers[0].apex;
+  g.appendChild(
+    svgEl('circle', {
+      cx: apex.x,
+      cy: -apex.y,
+      r: 0.055,
+      fill: '#0f172a',
+      stroke: 'rgba(248, 250, 252, 0.55)',
+      'stroke-width': 0.012,
+    }),
+  );
+  const outlineAttrs: Record<string, string | number> = {
+    d: regionToSvgPath(p.region),
+    fill: 'none',
+    class: isBlocking ? 'puzzle-piece blocking' : 'puzzle-piece',
+  };
+  if (strokeW) outlineAttrs['stroke-width'] = strokeW;
+  g.appendChild(svgEl('path', outlineAttrs));
+  return g;
+}
+
+function computeCircleLabelPosition(
+  c: CircleDef,
+  spec: PuzzleSpec,
+  symCenter: { x: number; y: number },
+): { lx: number; ly: number } {
+  const labelDist = c.r + 0.22;
+  const candidates: [number, number][] = [];
+
+  let dx = c.cx - symCenter.x;
+  let dy = c.cy - symCenter.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-4) {
+    candidates.push([0, 1], [0, -1], [1, 0], [-1, 0]);
+  } else {
+    dx /= len;
+    dy /= len;
+    candidates.push([dx, dy], [0, 1], [0, -1], [-dx, -dy]);
+  }
+
+  // Pick the first candidate that doesn't land inside any other circle
+  for (const [ux, uy] of candidates) {
+    const px = c.cx + ux * labelDist;
+    const py = c.cy + uy * labelDist;
+    const insideOther = spec.circles.some(
+      (o) => o.id !== c.id && Math.hypot(px - o.cx, py - o.cy) < o.r + 0.12,
+    );
+    if (!insideOther) {
+      return { lx: px, ly: -py };
+    }
+  }
+
+  // Fallback: directly above the circle
+  return { lx: c.cx, ly: -(c.cy + labelDist) };
+}
+
+/**
+ * Render a lightweight static SVG snapshot of a PuzzleState — used for
+ * the Solved Reference preview card and visual Puzzle Picker thumbnails.
+ */
+export function renderStaticPuzzleSvg(
+  state: PuzzleState,
+  options: { showLabels?: boolean; compact?: boolean; className?: string } = {},
+): SVGSVGElement {
+  const showLabels = options.showLabels ?? false;
+  const compact = options.compact ?? !showLabels;
+  const svg = svgEl('svg', {
+    class: options.className ?? 'static-puzzle-svg',
+    viewBox: computePuzzleViewBox(
+      state.spec,
+      showLabels ? 0.13 : 0.06,
+      showLabels ? 0.36 : 0.14,
+    ),
+    'aria-hidden': 'true',
+  });
+
+  const sorted = [...state.pieces].sort((a, b) => b.area - a.area);
+  const piecesG = svgEl('g');
+  for (const p of sorted) {
+    piecesG.appendChild(buildPieceSvgNode(p, false, compact));
+  }
+  svg.appendChild(piecesG);
+
+  const rimsG = svgEl('g');
+  for (const c of state.spec.circles) {
+    rimsG.appendChild(
+      svgEl('circle', {
+        cx: c.cx,
+        cy: -c.cy,
+        r: c.r,
+        fill: 'none',
+        stroke: 'rgba(226, 232, 240, 0.45)',
+        'stroke-width': compact ? 0.032 : 0.024,
+      }),
+    );
+  }
+  svg.appendChild(rimsG);
+
+  if (showLabels) {
+    const symCenter = state.spec.symmetryCenter ?? { x: 0, y: 0 };
+    const labelsG = svgEl('g');
+    for (const c of state.spec.circles) {
+      const { lx, ly } = computeCircleLabelPosition(c, state.spec, symCenter);
+      labelsG.appendChild(
+        svgEl('circle', {
+          cx: lx,
+          cy: ly,
+          r: 0.17,
+          class: 'circle-label-bg',
+          stroke: c.color,
+        }),
+      );
+      const txt = svgEl('text', {
+        x: lx,
+        y: ly,
+        class: 'circle-label-text',
+      });
+      txt.textContent = c.id;
+      labelsG.appendChild(txt);
+    }
+    svg.appendChild(labelsG);
+  }
+
+  return svg;
+}
+
+export class PuzzleSvgRenderer {
+  private svg: SVGSVGElement;
+  private piecesLayer: SVGGElement;
+  private movingLayer: SVGGElement;
+  private rimsLayer: SVGGElement;
+  private labelsLayer: SVGGElement;
+  private callbacks: SvgRendererCallbacks;
+  private animFrameId: number | null = null;
+  private currentSpec: PuzzleSpec | null = null;
+  private currentState: PuzzleState | null = null;
+  private currentStatuses: Record<string, CircleStatus> = {};
+  private hoveredCircleId: string | null = null;
+  private wheelAccum = 0;
+  private wheelCircleId: string | null = null;
+  private lastWheelEventMs = 0;
+  private lastWheelFireMs = 0;
+
+  constructor(container: HTMLElement, callbacks: SvgRendererCallbacks) {
+    this.callbacks = callbacks;
+    this.svg = svgEl('svg', { class: 'puzzle-svg' });
+    this.piecesLayer = svgEl('g', { class: 'layer-pieces' });
+    this.movingLayer = svgEl('g', { class: 'layer-moving' });
+    this.rimsLayer = svgEl('g', { class: 'layer-rims' });
+    this.labelsLayer = svgEl('g', { class: 'layer-labels' });
+
+    this.svg.append(
+      this.piecesLayer,
+      this.movingLayer,
+      this.rimsLayer,
+      this.labelsLayer,
+    );
+    container.appendChild(this.svg);
+
+    this.setupPointerInteraction();
+  }
+
+  private setupPointerInteraction(): void {
+    const clientToMath = (ev: MouseEvent): { x: number; y: number } | null => {
+      const ctm = this.svg.getScreenCTM();
+      if (!ctm) return null;
+      const pt = this.svg.createSVGPoint();
+      pt.x = ev.clientX;
+      pt.y = ev.clientY;
+      const svgPt = pt.matrixTransform(ctm.inverse());
+      return { x: svgPt.x, y: -svgPt.y };
+    };
+
+    const pickCircleAt = (ev: MouseEvent): CircleDef | null => {
+      if (!this.currentSpec) return null;
+      const target = ev.target as Element | null;
+      const labelGroup = target?.closest?.('[data-circle-id]') as Element | null;
+      if (labelGroup) {
+        const id = labelGroup.getAttribute('data-circle-id');
+        return this.currentSpec.circles.find((c) => c.id === id) ?? null;
+      }
+
+      const pt = clientToMath(ev);
+      if (!pt) return null;
+      // Pick circle containing pt whose center is closest to pt
+      let best: CircleDef | null = null;
+      let bestDist = Infinity;
+      for (const c of this.currentSpec.circles) {
+        const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
+        if (d <= c.r && d < bestDist) {
+          bestDist = d;
+          best = c;
+        }
+      }
+      return best;
+    };
+
+    this.svg.addEventListener('mousemove', (ev) => {
+      const c = pickCircleAt(ev);
+      const nextId = c?.id ?? null;
+      if (nextId !== this.hoveredCircleId) {
+        this.hoveredCircleId = nextId;
+        this.updateHoverRing();
+      }
+    });
+
+    this.svg.addEventListener('mouseleave', () => {
+      if (this.hoveredCircleId !== null) {
+        this.hoveredCircleId = null;
+        this.updateHoverRing();
+      }
+    });
+
+    this.svg.addEventListener('click', (ev) => {
+      const c = pickCircleAt(ev);
+      if (!c) return;
+      const dir: 1 | -1 = ev.shiftKey ? -1 : 1;
+      this.callbacks.onCircleClick(c.id, dir);
+    });
+
+    this.svg.addEventListener('contextmenu', (ev) => {
+      const c = pickCircleAt(ev);
+      if (!c) return;
+      ev.preventDefault();
+      this.callbacks.onCircleClick(c.id, -1);
+    });
+
+    const WHEEL_THRESHOLD_PX = 95;
+    const WHEEL_COOLDOWN_MS = 210;
+    const WHEEL_RESET_GAP_MS = 240;
+
+    this.svg.addEventListener(
+      'wheel',
+      (ev) => {
+        const c = pickCircleAt(ev);
+        if (!c) return;
+        ev.preventDefault();
+
+        const now = performance.now();
+        // Reset accumulator if switching circles or pausing between gestures
+        if (this.wheelCircleId !== c.id || now - this.lastWheelEventMs > WHEEL_RESET_GAP_MS) {
+          this.wheelAccum = 0;
+          this.wheelCircleId = c.id;
+        }
+        this.lastWheelEventMs = now;
+
+        // Absorb Mac trackpad momentum/inertia right after firing a turn
+        if (now - this.lastWheelFireMs < WHEEL_COOLDOWN_MS) {
+          this.wheelAccum = 0;
+          return;
+        }
+
+        // Normalize deltaY across pixel / line / page wheel modes
+        let deltaPx = ev.deltaY;
+        if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) deltaPx *= 32;
+        else if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) deltaPx *= 120;
+        if (deltaPx === 0) return;
+
+        // If user reverses direction mid-gesture, flush opposite accumulated delta immediately
+        if (this.wheelAccum !== 0 && Math.sign(deltaPx) !== Math.sign(this.wheelAccum)) {
+          this.wheelAccum = 0;
+        }
+        this.wheelAccum += deltaPx;
+
+        if (Math.abs(this.wheelAccum) >= WHEEL_THRESHOLD_PX) {
+          const dir: 1 | -1 = this.wheelAccum > 0 ? 1 : -1;
+          this.wheelAccum = 0;
+          this.lastWheelFireMs = now;
+          this.callbacks.onCircleClick(c.id, dir);
+        }
+      },
+      { passive: false },
+    );
+  }
+
+  private updateHoverRing(): void {
+    const rims = this.rimsLayer.querySelectorAll<SVGCircleElement>('[data-rim-id]');
+    for (const rim of rims) {
+      const id = rim.getAttribute('data-rim-id');
+      const isHovered = id === this.hoveredCircleId;
+      const isFree = id ? !this.currentStatuses[id]?.blocked : false;
+      if (isHovered && isFree) {
+        rim.style.stroke = 'rgba(255, 255, 255, 0.72)';
+        rim.style.strokeWidth = '0.045';
+      } else if (isHovered && !isFree) {
+        rim.style.stroke = 'rgba(244, 63, 94, 0.75)';
+        rim.style.strokeWidth = '0.04';
+      } else {
+        rim.style.stroke = '';
+        rim.style.strokeWidth = '';
+      }
+    }
+  }
+
+  public cancelAnimation(): void {
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+  }
+
+  private updateViewBox(spec: PuzzleSpec): void {
+    this.svg.setAttribute('viewBox', computePuzzleViewBox(spec));
+  }
+
+  public render(
+    state: PuzzleState,
+    highlight: RenderHighlight = {},
+    statuses?: Record<string, CircleStatus>,
+  ): void {
+    this.cancelAnimation();
+    this.currentSpec = state.spec;
+    this.currentState = state;
+    this.currentStatuses = statuses ?? getAllCircleStatuses(state);
+    this.updateViewBox(state.spec);
+
+    this.drawPieces(state, new Set(highlight.blockingPieceIds ?? []), null);
+    this.drawRimsAndLabels(state.spec, this.currentStatuses, highlight.blockedCircleId);
+  }
+
+  /**
+   * Smoothly animate a turn from `fromState` to `toState`, then snap cleanly to `toState`.
+   */
+  public animateTurn(
+    anim: TurnAnimationSpec,
+    highlightAfter: RenderHighlight,
+    onDone?: () => void,
+  ): void {
+    this.cancelAnimation();
+    if (anim.durationMs <= 16 || Math.abs(anim.angleDeg) < 1e-4) {
+      this.render(anim.toState, highlightAfter);
+      onDone?.();
+      return;
+    }
+
+    this.currentSpec = anim.fromState.spec;
+    this.currentState = anim.fromState;
+    this.updateViewBox(anim.fromState.spec);
+
+    const movedSet = new Set(anim.movedPieceIds);
+    this.drawPieces(anim.fromState, new Set(), movedSet);
+    this.drawRimsAndLabels(
+      anim.fromState.spec,
+      getAllCircleStatuses(anim.fromState),
+      undefined,
+    );
+
+    const startTime = performance.now();
+    const { x: px, y: py } = anim.pivot;
+    const svgPy = -py;
+
+    const tick = (now: number) => {
+      const rawT = Math.min(1, (now - startTime) / anim.durationMs);
+      // Cubic ease-out
+      const t = 1 - Math.pow(1 - rawT, 3);
+      const curDeg = anim.angleDeg * t;
+      this.movingLayer.setAttribute(
+        'transform',
+        `rotate(${curDeg.toFixed(3)} ${px.toFixed(4)} ${svgPy.toFixed(4)})`,
+      );
+
+      if (rawT < 1) {
+        this.animFrameId = requestAnimationFrame(tick);
+      } else {
+        this.animFrameId = null;
+        this.movingLayer.removeAttribute('transform');
+        this.render(anim.toState, highlightAfter);
+        onDone?.();
+      }
+    };
+
+    this.animFrameId = requestAnimationFrame(tick);
+  }
+
+  /** Briefly flash a blocked circle + its blocking pieces when clicked directly. */
+  public flashBlocked(circleId: string, blockingPieceIds: number[]): void {
+    if (!this.currentState) return;
+    this.render(this.currentState, {
+      blockedCircleId: circleId,
+      blockingPieceIds,
+    });
+    window.setTimeout(() => {
+      if (this.currentState) {
+        this.render(this.currentState, {});
+      }
+    }, 900);
+  }
+
+  private buildPieceElement(p: Piece, isBlocking: boolean): SVGElement {
+    return buildPieceSvgNode(p, isBlocking, false);
+  }
+
+  private drawPieces(
+    state: PuzzleState,
+    blockingIds: Set<number>,
+    movingIds: Set<number> | null,
+  ): void {
+    this.piecesLayer.innerHTML = '';
+    this.movingLayer.innerHTML = '';
+    this.movingLayer.removeAttribute('transform');
+
+    // Draw larger pieces first, smaller pieces on top for clean crisp strokes
+    const sorted = [...state.pieces].sort((a, b) => b.area - a.area);
+    const deferredBlocking: SVGElement[] = [];
+
+    for (const p of sorted) {
+      const isBlocking = blockingIds.has(p.id);
+      const el = this.buildPieceElement(p, isBlocking);
+
+      if (movingIds && movingIds.has(p.id)) {
+        this.movingLayer.appendChild(el);
+      } else if (isBlocking) {
+        deferredBlocking.push(el);
+      } else {
+        this.piecesLayer.appendChild(el);
+      }
+    }
+
+    // Place blocking pieces on top so their glowing highlight isn't occluded
+    for (const el of deferredBlocking) {
+      this.piecesLayer.appendChild(el);
+    }
+  }
+
+  private drawRimsAndLabels(
+    spec: PuzzleSpec,
+    statuses: Record<string, CircleStatus>,
+    blockedCircleId?: string,
+  ): void {
+    this.rimsLayer.innerHTML = '';
+    this.labelsLayer.innerHTML = '';
+
+    const symCenter = spec.symmetryCenter ?? { x: 0, y: 0 };
+
+    for (const c of spec.circles) {
+      const st = statuses[c.id];
+      const isTargetBlocked = c.id === blockedCircleId;
+      const rimClass = isTargetBlocked
+        ? 'circle-rim target-blocked'
+        : st?.blocked
+          ? 'circle-rim blocked'
+          : 'circle-rim free';
+
+      const rim = svgEl('circle', {
+        cx: c.cx,
+        cy: -c.cy,
+        r: c.r,
+        class: rimClass,
+        'data-rim-id': c.id,
+      });
+      this.rimsLayer.appendChild(rim);
+
+      // Position label cleanly outside this circle without landing inside any sibling circle
+      const { lx, ly } = computeCircleLabelPosition(c, spec, symCenter);
+
+      const g = svgEl('g', {
+        class: 'circle-label-group',
+        'data-circle-id': c.id,
+      });
+
+      const title = svgEl('title');
+      title.textContent = st?.blocked
+        ? `Circle ${c.id} — BLOCKED by ${st.blockingPieceIds.length} piece(s)`
+        : `Circle ${c.id} — Free (click: CW, shift/right-click: CCW)`;
+      g.appendChild(title);
+
+      const bg = svgEl('circle', {
+        cx: lx,
+        cy: ly,
+        r: 0.175,
+        class: 'circle-label-bg',
+        stroke: isTargetBlocked ? '#f43f5e' : st?.blocked ? '#475569' : c.color,
+        opacity: st?.blocked && !isTargetBlocked ? 0.65 : 1,
+      });
+      const txt = svgEl('text', {
+        x: lx,
+        y: ly,
+        class: 'circle-label-text',
+        opacity: st?.blocked && !isTargetBlocked ? 0.55 : 1,
+      });
+      txt.textContent = c.id;
+
+      g.append(bg, txt);
+      this.labelsLayer.appendChild(g);
+    }
+
+    this.updateHoverRing();
+  }
+}
