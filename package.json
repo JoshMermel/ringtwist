@@ -1,6 +1,14 @@
 {
   "name": "circle-sim",
   "version": "0.1.0",
+  "description": "Text-first 2D twisty circle puzzle simulator for non-doctrinaire (blocking/bandaged) puzzles like VeryPuzzle Geranium Plus",
+  "license": "MIT",
+  "author": "Josh Mermelstein <joshmermel@gmail.com>",
+  "homepage": "https://joshmermelstein.com/circle_sim/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoshMermel/circle_sim.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {

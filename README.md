@@ -2,19 +2,23 @@
 
 A **text-first 2D twisty circle puzzle simulator** built for exploring and solving **non-doctrinaire (blocking / bandaged)** circle puzzles like the VeryPuzzle Geranium Plus.
 
-Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algorithm notation/playback and [GeraniumsPot](https://github.com/grigorusha/GeraniumsPot/) for exact 2D circle-puzzle geometry — running 100% locally in the browser with **zero runtime dependencies**.
+**Live demo:** [joshmermelstein.com/circle_sim](https://joshmermelstein.com/circle_sim/) · **License:** [MIT](LICENSE)
+
+![CircleSim running Geranium Plus with a symmetry macro](docs/screenshot.png)
+
+Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algorithm notation/playback and [GeraniumsPot](https://github.com/grigorusha/GeraniumsPot/) for exact 2D circle-puzzle geometry — running 100% client-side in the browser with **zero runtime dependencies**.
 
 ---
 
 ## Features
 
-- **Analytical 2D Arc-Region Geometry**: Exact circular-arc piece representation (`ArcRegion`), planar DCEL circle slicing, analytical Green's-theorem areas, and drift-free canonical snapping.
+- **Analytical 2D Arc-Region Geometry**: Exact circular-arc piece representation (`ArcRegion`), planar DCEL circle slicing, analytical Green's-theorem areas, and zero-drift canonical snapping across 600+ move round-trips.
 - **Twizzle-Style Notation & Non-Doctrinaire Execution**:
   - Fixed stop turns (`A`, `A2`, `A'`), next-unblocked alignment (`A>`, `A<`), and whole-puzzle symmetry rotations (`r`, `r'`) that keep spatial labels `A..Z` fixed on screen.
   - Commutators `[X, Y]`, conjugates `[X: Y]`, grouping & repeats `(X)3`, algebraic inverses `(...)'`, inline macros `name = expr`, and line comments (`//`, `#`).
   - Stops immediately before a blocked move, underlines the offending token in the editor, and highlights the target circle and every straddling piece on the canvas.
-- **Group-Theory Fast-Forward & Order Analyzer**: Detects shape-preserving permutations (jumping huge repeats in $O(n)$ via cycle powers) and state-hash cycles, plus one-click **Analyze Order** for any algorithm or selection.
-- **Macro Library & URL Sharing**: Save reusable macros per puzzle (`localStorage`), import/export JSON, and share puzzles + algorithms + macros via URL hash.
+- **Group-Theory Fast-Forward & Order Analyzer**: Detects shape-preserving permutations (jumping huge repeats in $O(n)$ via cycle powers with exact `BigInt` prime-factor order reduction) and state-hash cycles, plus one-click **Analyze Order** for any algorithm, selection, or macro.
+- **Macro Library & URL Sharing**: Save reusable macros per puzzle (`localStorage`), import/export JSON, and share puzzles + algorithms + macros via live URL hashes (`#p=...`).
 - **Seeded Scrambles & Solved Reference**: Deterministic seeded scramble generator (numeric or word seeds) and a toggleable **👁 Solved** reference overlay.
 - **Playback & Auxiliary Mouse Input**: Scrubber, step/play/pause, logarithmic `0.25×–4.0×` speed control, cursor-synced preview, and optional click/trackpad-smoothed wheel input with automatic move coalescing and cancellation (`B` + `B'` cancels, `B` + `B` → `B2`).
 
@@ -73,19 +77,33 @@ npm run build    # Type-check and build static bundle into dist/
 
 A GitHub Actions workflow is included at [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
 
-1. Create a GitHub repository and push `main`:
+1. Create the repository on GitHub and push `main`:
    ```bash
-   git remote add origin git@github.com:<your-username>/circle_sim.git
+   git remote add origin git@github.com:JoshMermel/circle_sim.git
    git push -u origin main
    ```
 2. In your repository **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. Every push to `main` automatically runs tests, builds `./dist` (with relative `./` asset paths), and publishes to GitHub Pages.
+3. Every push to `main` automatically runs tests, builds `./dist` (with relative `./` asset paths), and publishes to `https://joshmermelstein.com/circle_sim/`.
 
 ---
 
-## Architecture
+## Architecture & Adding Puzzles
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module responsibilities, core geometric/evaluator invariants, and a step-by-step guide to adding new puzzles.
 
 - `src/geom/` — Analytical circular-arc geometry (`math.ts`, `arcRegion.ts`) and DCEL planar circle slicer (`slicer.ts`).
 - `src/puzzle/` — Non-doctrinaire move/blocking engine (`engine.ts`), `GeraniumsPot` script runner (`geraniumsPotScript.ts`), exact puzzle builders (`geraniumBuilder.ts`), and catalog (`catalog.ts`).
 - `src/lang/` — Recursive-descent algorithm parser (`parser.ts`), AST (`ast.ts`), and non-doctrinaire evaluator with group-theory fast-forward (`evaluator.ts`).
 - `src/ui/` — Animated SVG renderer & static thumbnails (`svgRenderer.ts`), syntax-highlighted editor (`editor.ts`), visual puzzle picker (`puzzlePicker.ts`), interactive move coalescing (`moveCoalesce.ts`), help modal (`helpModal.ts`), and `localStorage`/URL-hash storage (`storage.ts`).
+
+---
+
+## Acknowledgments
+
+- **[Twizzle](https://alpha.twizzle.net/)** for pioneering clean web-based twisty puzzle notation and playback UX.
+- **[VeryPuzzle](https://www.verypuzzle.com/)** for designing the physical Geranium, Geranium Plus, Super Geranium, Pocket Geranium, and Mini Geranium puzzles.
+- **[GeraniumsPot](https://github.com/grigorusha/GeraniumsPot/)** and **[twisty-puzzles-2d](https://github.com/gloomyswan/twisty-puzzles-2d)** for the `.txt` puzzle construction scripts and geometric reference.
+
+## License
+
+MIT © 2026 Josh Mermelstein — see [`LICENSE`](LICENSE).
