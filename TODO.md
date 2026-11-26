@@ -7,5 +7,6 @@
   - Prototype new puzzles directly in the **Puzzle JSON Studio (`ringtwist/v1`)** and promote favorites into [`src/puzzle/definitions.ts`](src/puzzle/definitions.ts).
 
 ## Interactive Solving Experience (Goal #3)
-- [ ] Design & implement opaque `Scramble(seed, count)` (and/or `setup` blocks) so solves start cleanly from a scrambled state without cluttering the move script or spoiling the scramble.
-- [ ] Evaluate solve-focused UX upgrades (e.g. auto-save in-progress solve per puzzle, solve timer / move counter excluding scramble, Undo / Redo hotkeys, bookmarkable checkpoints, and a dedicated "Solve Mode" vs "Explorer Mode" toggle).
+- [x] Separate opaque Scramble Seed & Move Count bar (shared cleanly via `#p=...&s=...&n=...` without cluttering or spoiling the transcript).
+- [x] Solve Mode vs Explorer Mode toggle, auto-save session per puzzle (`localStorage`), solve timer, move counter, Undo button, `// @milestone` checkpoints with jump/revert, and solve completion banner.
+- [x] Multi-layer outer-ring wide default (`a`, with `Alt+Click`/`Alt+Scroll` for outer slice `2A`) and live macro hover piece-cycle arrows.

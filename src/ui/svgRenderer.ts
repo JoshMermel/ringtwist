@@ -1,5 +1,6 @@
 import { edgeEnd, edgePointAt, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
-import { CircleStatus, MoveLayerSpec, getAllCircleStatuses } from '../puzzle/engine.ts';
+import { CyclePreviewResult } from '../puzzle/cyclePreview.ts';
+import { CircleStatus, MoveLayerSpec, getAllCircleStatuses, getCircleStatus } from '../puzzle/engine.ts';
 import { CircleDef, MirrorAxis, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
 
 function stickerWedgeToSvgPath(s: StickerWedge, decimals = 4): string {
@@ -244,6 +245,7 @@ export class PuzzleSvgRenderer {
   private piecesLayer: SVGGElement;
   private movingLayer: SVGGElement;
   private rimsLayer: SVGGElement;
+  private previewLayer: SVGGElement;
   private labelsLayer: SVGGElement;
   private callbacks: SvgRendererCallbacks;
   private animFrameId: number | null = null;
@@ -251,7 +253,8 @@ export class PuzzleSvgRenderer {
   private currentSpec: PuzzleSpec | null = null;
   private currentState: PuzzleState | null = null;
   private currentStatuses: Record<string, CircleStatus> = {};
-  private hoveredCircleId: string | null = null;
+  private hoveredHit: { circleId: string; layerOpt?: MoveLayerSpec } | null = null;
+  private lastPointerEvent: MouseEvent | null = null;
   private wheelAccum = 0;
   private wheelCircleId: string | null = null;
   private lastWheelEventMs = 0;
@@ -263,12 +266,14 @@ export class PuzzleSvgRenderer {
     this.piecesLayer = svgEl('g', { class: 'layer-pieces' });
     this.movingLayer = svgEl('g', { class: 'layer-moving' });
     this.rimsLayer = svgEl('g', { class: 'layer-rims' });
+    this.previewLayer = svgEl('g', { class: 'layer-cycle-preview' });
     this.labelsLayer = svgEl('g', { class: 'layer-labels' });
 
     this.svg.append(
       this.piecesLayer,
       this.movingLayer,
       this.rimsLayer,
+      this.previewLayer,
       this.labelsLayer,
     );
     container.appendChild(this.svg);
@@ -289,17 +294,24 @@ export class PuzzleSvgRenderer {
 
     const pickCircleAt = (
       ev: MouseEvent,
+      altOverride?: boolean,
     ): { circle: CircleDef; layerOpt?: MoveLayerSpec } | null => {
       if (!this.currentSpec) return null;
+      const altHeld = altOverride ?? ev.altKey;
       const target = ev.target as Element | null;
       const labelGroup = target?.closest?.('[data-circle-id]') as Element | null;
       if (labelGroup) {
         const id = labelGroup.getAttribute('data-circle-id');
         const c = this.currentSpec.circles.find((x) => x.id === id) ?? null;
         if (!c) return null;
-        // Clicking the label badge on a multi-layer circle turns the wide full circle (`a`)
+        // Clicking the label badge on a multi-layer circle turns the wide full circle (`a`),
+        // or holds Alt to turn only the outer annulus slice (`2A`).
         const layerOpt: MoveLayerSpec | undefined =
-          c.layerRadii && c.layerRadii.length > 1 ? { wide: true } : undefined;
+          c.layerRadii && c.layerRadii.length > 1
+            ? altHeld
+              ? { layer: c.layerRadii.length }
+              : { wide: true }
+            : undefined;
         return { circle: c, layerOpt };
       }
 
@@ -328,35 +340,62 @@ export class PuzzleSvgRenderer {
         return null;
       }
       if (best.layerRadii && best.layerRadii.length > 1) {
-        if (ev.altKey) {
-          return { circle: best, layerOpt: { wide: true } };
+        // Innermost disk (`A`): turns inner layer only.
+        if (bestDist <= best.layerRadii[0]) {
+          return { circle: best, layerOpt: { layer: 1 } };
         }
-        // Layer 1 = innermost disk (`A`), layer 2 = outer annulus (`2A`)
-        for (let i = 0; i < best.layerRadii.length; i++) {
-          if (bestDist <= best.layerRadii[i]) {
-            return { circle: best, layerOpt: { layer: i + 1 } };
+        // Outer ring(s): drag inner rings along by default (wide `a`).
+        // Holding Alt/Option turns only that outer slice (`2A`) without dragging the inner ring!
+        if (altHeld) {
+          for (let i = 1; i < best.layerRadii.length; i++) {
+            if (bestDist <= best.layerRadii[i]) {
+              return { circle: best, layerOpt: { layer: i + 1 } };
+            }
           }
+          return { circle: best, layerOpt: { layer: best.layerRadii.length } };
         }
-        return { circle: best, layerOpt: { layer: best.layerRadii.length } };
+        return { circle: best, layerOpt: { wide: true } };
       }
       return { circle: best };
     };
 
+    const sameHover = (
+      a: { circleId: string; layerOpt?: MoveLayerSpec } | null,
+      b: { circleId: string; layerOpt?: MoveLayerSpec } | null,
+    ): boolean =>
+      a?.circleId === b?.circleId &&
+      a?.layerOpt?.layer === b?.layerOpt?.layer &&
+      a?.layerOpt?.wide === b?.layerOpt?.wide;
+
     this.svg.addEventListener('mousemove', (ev) => {
+      this.lastPointerEvent = ev;
       const hit = pickCircleAt(ev);
-      const nextId = hit?.circle.id ?? null;
-      if (nextId !== this.hoveredCircleId) {
-        this.hoveredCircleId = nextId;
+      const next = hit ? { circleId: hit.circle.id, layerOpt: hit.layerOpt } : null;
+      if (!sameHover(next, this.hoveredHit)) {
+        this.hoveredHit = next;
         this.updateHoverRing();
       }
     });
 
     this.svg.addEventListener('mouseleave', () => {
-      if (this.hoveredCircleId !== null) {
-        this.hoveredCircleId = null;
+      this.lastPointerEvent = null;
+      if (this.hoveredHit !== null) {
+        this.hoveredHit = null;
         this.updateHoverRing();
       }
     });
+
+    const refreshHoverOnAlt = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Alt' || !this.lastPointerEvent || !this.hoveredHit) return;
+      const hit = pickCircleAt(this.lastPointerEvent, ev.altKey);
+      const next = hit ? { circleId: hit.circle.id, layerOpt: hit.layerOpt } : null;
+      if (!sameHover(next, this.hoveredHit)) {
+        this.hoveredHit = next;
+        this.updateHoverRing();
+      }
+    };
+    window.addEventListener('keydown', refreshHoverOnAlt);
+    window.addEventListener('keyup', refreshHoverOnAlt);
 
     this.svg.addEventListener('click', (ev) => {
       const hit = pickCircleAt(ev);
@@ -423,20 +462,184 @@ export class PuzzleSvgRenderer {
 
   private updateHoverRing(): void {
     const rims = this.rimsLayer.querySelectorAll<SVGCircleElement>('[data-rim-id]');
+    const hit = this.hoveredHit;
+    let hoveredFree = false;
+    if (hit && this.currentState) {
+      const st = hit.layerOpt
+        ? getCircleStatus(this.currentState, hit.circleId, hit.layerOpt)
+        : this.currentStatuses[hit.circleId];
+      hoveredFree = !st?.blocked;
+    }
+
     for (const rim of rims) {
       const id = rim.getAttribute('data-rim-id');
-      const isHovered = id === this.hoveredCircleId;
-      const isFree = id ? !this.currentStatuses[id]?.blocked : false;
-      if (isHovered && isFree) {
-        rim.style.stroke = 'rgba(255, 255, 255, 0.72)';
-        rim.style.strokeWidth = '0.045';
-      } else if (isHovered && !isFree) {
-        rim.style.stroke = 'rgba(244, 63, 94, 0.75)';
-        rim.style.strokeWidth = '0.04';
+      const layerNum = parseInt(rim.getAttribute('data-rim-layer') ?? '1', 10);
+      const isHoveredCircle = !!hit && id === hit.circleId;
+      let isHoveredRim = false;
+      if (isHoveredCircle && hit) {
+        if (!hit.layerOpt || hit.layerOpt.wide) {
+          // Single-layer or wide turn: highlight every rim of this circle (signals outer drags inner)
+          isHoveredRim = true;
+        } else if (hit.layerOpt.layer !== undefined) {
+          isHoveredRim = layerNum === hit.layerOpt.layer;
+        }
+      }
+
+      if (isHoveredRim && hoveredFree) {
+        rim.style.stroke = 'rgba(255, 255, 255, 0.8)';
+        rim.style.strokeWidth = '0.048';
+      } else if (isHoveredRim && !hoveredFree) {
+        rim.style.stroke = 'rgba(244, 63, 94, 0.8)';
+        rim.style.strokeWidth = '0.044';
       } else {
         rim.style.stroke = '';
         rim.style.strokeWidth = '';
       }
+    }
+  }
+
+  /**
+   * Render (or clear when null) live piece-cycle arrows overlaid on the puzzle when hovering a macro.
+   */
+  public setCyclePreview(preview: CyclePreviewResult | null): void {
+    this.previewLayer.innerHTML = '';
+    if (!preview || !preview.ok || !this.currentState) return;
+
+    if (preview.blocked) {
+      const target = this.currentSpec?.circles.find((c) => c.id === preview.blocked!.circleId);
+      if (target) {
+        this.previewLayer.appendChild(
+          svgEl('circle', {
+            cx: target.cx,
+            cy: -target.cy,
+            r: target.r,
+            fill: 'none',
+            stroke: '#f43f5e',
+            'stroke-width': 0.06,
+            'stroke-dasharray': '0.12 0.08',
+            opacity: 0.9,
+          }),
+        );
+      }
+      return;
+    }
+
+    const fmt = (n: number) => Number(n.toFixed(4)).toString();
+
+    for (const arrow of preview.arrows) {
+      const x1 = arrow.from.x;
+      const y1 = -arrow.from.y;
+      const x2 = arrow.to.x;
+      const y2 = -arrow.to.y;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-3) continue;
+
+      // Arch slightly to the right of chord so 2-cycles form clean non-overlapping lenses
+      const ux = dx / len;
+      const uy = dy / len;
+      const nx = -uy;
+      const ny = ux;
+      const bend = Math.min(0.28, Math.max(0.08, len * 0.16));
+      const cx = (x1 + x2) / 2 + nx * bend;
+      const cy = (y1 + y2) / 2 + ny * bend;
+
+      // Trim start/end slightly so dots and arrowheads sit cleanly inside pieces
+      const trimEnd = Math.min(0.09, len * 0.18);
+      const tx = x2 - cx;
+      const ty = y2 - cy;
+      const tLen = Math.hypot(tx, ty) || 1;
+      const tux = tx / tLen;
+      const tuy = ty / tLen;
+      const tipX = x2 - tux * (trimEnd * 0.35);
+      const tipY = y2 - tuy * (trimEnd * 0.35);
+      const shaftEndX = tipX - tux * 0.075;
+      const shaftEndY = tipY - tuy * 0.075;
+
+      const dCurve = `M ${fmt(x1)} ${fmt(y1)} Q ${fmt(cx)} ${fmt(cy)} ${fmt(shaftEndX)} ${fmt(shaftEndY)}`;
+
+      // Dark casing underneath so arrows pop crisply over bright yellow/white/orange pieces
+      this.previewLayer.appendChild(
+        svgEl('path', {
+          d: dCurve,
+          fill: 'none',
+          stroke: 'rgba(9, 14, 28, 0.85)',
+          'stroke-width': 0.068,
+          'stroke-linecap': 'round',
+        }),
+      );
+      this.previewLayer.appendChild(
+        svgEl('path', {
+          d: dCurve,
+          fill: 'none',
+          stroke: arrow.color,
+          'stroke-width': 0.036,
+          'stroke-linecap': 'round',
+          opacity: 0.96,
+        }),
+      );
+
+      // Origin dot
+      this.previewLayer.appendChild(
+        svgEl('circle', {
+          cx: fmt(x1),
+          cy: fmt(y1),
+          r: 0.042,
+          fill: arrow.color,
+          stroke: '#090e1c',
+          'stroke-width': 0.018,
+        }),
+      );
+
+      // Crisp geometric arrowhead aligned with tangent at tip
+      const headLen = 0.12;
+      const headHalfW = 0.068;
+      const baseX = tipX - tux * headLen;
+      const baseY = tipY - tuy * headLen;
+      const pnx = -tuy;
+      const pny = tux;
+      const leftX = baseX + pnx * headHalfW;
+      const leftY = baseY + pny * headHalfW;
+      const rightX = baseX - pnx * headHalfW;
+      const rightY = baseY - pny * headHalfW;
+
+      this.previewLayer.appendChild(
+        svgEl('path', {
+          d: `M ${fmt(tipX)} ${fmt(tipY)} L ${fmt(leftX)} ${fmt(leftY)} L ${fmt(rightX)} ${fmt(rightY)} Z`,
+          fill: arrow.color,
+          stroke: '#090e1c',
+          'stroke-width': 0.016,
+          'stroke-linejoin': 'round',
+        }),
+      );
+    }
+
+    for (const spin of preview.spins) {
+      const sx = spin.point.x;
+      const sy = -spin.point.y;
+      this.previewLayer.appendChild(
+        svgEl('circle', {
+          cx: fmt(sx),
+          cy: fmt(sy),
+          r: 0.14,
+          fill: 'none',
+          stroke: '#090e1c',
+          'stroke-width': 0.06,
+          'stroke-dasharray': '0.18 0.08',
+        }),
+      );
+      this.previewLayer.appendChild(
+        svgEl('circle', {
+          cx: fmt(sx),
+          cy: fmt(sy),
+          r: 0.14,
+          fill: 'none',
+          stroke: spin.color,
+          'stroke-width': 0.034,
+          'stroke-dasharray': '0.18 0.08',
+        }),
+      );
     }
   }
 
@@ -630,6 +833,7 @@ export class PuzzleSvgRenderer {
           r,
           class: rimClass,
           'data-rim-id': c.id,
+          'data-rim-layer': String(ri + 1),
           ...(isInner ? { 'stroke-dasharray': '0.07 0.045' } : {}),
         });
         this.rimsLayer.appendChild(rim);
@@ -649,7 +853,7 @@ export class PuzzleSvgRenderer {
       } else if (c.turnRegion === 'outside') {
         title.textContent = `Circle ${c.id} (exterior turn) — Free (click outer frame or badge: CW, shift/right-click: CCW)`;
       } else if (c.layerRadii && c.layerRadii.length > 1) {
-        title.textContent = `Circle ${c.id} (multi-layer) — click inner for ${c.id}, outer ring for 2${c.id}, badge/Alt-click for wide ${c.id.toLowerCase()}`;
+        title.textContent = `Circle ${c.id} (multi-layer) — click inner for ${c.id}, outer ring or badge for wide ${c.id.toLowerCase()} (drags inner), Alt+click outer ring for slice 2${c.id}`;
       } else {
         title.textContent = `Circle ${c.id} — Free (click: CW, shift/right-click: CCW)`;
       }

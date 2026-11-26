@@ -61,13 +61,16 @@ export function createHelpModal(): { open: () => void; close: () => void } {
           <b>state-hash cycles</b> so fast-forwarding is instantaneous. Use <b>Analyze Order</b> to inspect any algorithm's cycle structure.
         </p>
 
-        <h3>Mouse, Reference &amp; Keyboard Shortcuts</h3>
+        <h3>Mouse, Solve Mode &amp; Shortcuts</h3>
         <table class="help-table">
-          <tr><td>Scramble ▾</td><td>Generate a deterministic legal scramble from any word or numeric <b>seed</b> and move count so you can replay or share the exact same scramble.</td></tr>
+          <tr><td>Explorer / Solve</td><td>Switch between <b>Explorer Mode</b> (full script editor + order analysis) and <b>Solve Mode</b> (large puzzle canvas, separate opaque Scramble seed bar, live move counter, pauseable timer, milestones, and quick macro toolbar). Progress auto-saves per puzzle in <code>localStorage</code>.</td></tr>
+          <tr><td>Scramble Seed</td><td>Enter any word or number seed + move count to start from a deterministic scrambled state without cluttering or spoiling your move transcript. Shared URLs encode the seed + transcript cleanly.</td></tr>
+          <tr><td>+ Milestone</td><td>Drop named milestone comments (<code>// @milestone ...</code>) into your solve transcript so you can annotate phases or roll back cleanly.</td></tr>
+          <tr><td>Macro Hover</td><td>Hover over any saved macro's <b>Insert</b> or <b>Inv '</b> button to preview its live <b>piece-cycle arrows</b> directly on the puzzle before applying it.</td></tr>
           <tr><td>👁 Solved</td><td>Toggle a floating <b>Solved Reference</b> preview card in the bottom-right corner of the canvas (click <code>⤢</code> to expand).</td></tr>
-          <tr><td>Click circle</td><td>Appends a CW move (or <code>&gt;</code> when "Click uses &gt;/&lt;" is enabled) at the editor cursor. Adjacent turns on the same circle automatically coalesce (<code>B</code> + <code>B</code> → <code>B2</code>) and inverses cancel (<code>B</code> + <code>B'</code>). On multi-layer puzzles, click the inner disk for <code>A</code>, outer ring for <code>2A</code>, or label badge / <code>Alt+click</code> for wide <code>a</code>. On exterior-turn puzzles (Moonspinner), click the outer lobes or badge <code>B</code>.</td></tr>
+          <tr><td>Click circle</td><td>Appends a CW move (or <code>&gt;</code> when "Click uses &gt;/&lt;" is enabled). Adjacent turns on the same circle automatically coalesce (<code>B</code> + <code>B</code> → <code>B2</code>) and inverses cancel (<code>B</code> + <code>B'</code>). On multi-layer puzzles, clicking the <b>inner disk</b> turns <code>A</code>, clicking the <b>outer ring</b> turns <b>wide</b> <code>a</code> (outer ring drags inner ring by default), and <b>Alt+Click / Alt+Scroll</b> on the outer ring turns only the outer slice <code>2A</code>.</td></tr>
           <tr><td>Shift/Right-click</td><td>Appends a CCW move (or <code>&lt;</code>). Mouse wheel over a circle turns CW/CCW too.</td></tr>
-          <tr><td>Cursor Sync</td><td>Clicking or moving your cursor inside the algorithm text immediately previews the puzzle at that step.</td></tr>
+          <tr><td>Cursor Sync</td><td>Clicking or moving your cursor inside the algorithm text immediately previews the puzzle at that step. Standard textbox editing shortcuts stay untouched.</td></tr>
           <tr><td>Alt + ← / →</td><td>Step backward / forward 1 move. <code>Alt + Space</code> toggles play/pause.</td></tr>
         </table>
       </div>

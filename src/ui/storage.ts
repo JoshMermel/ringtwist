@@ -4,6 +4,18 @@ import { RingTwistPuzzleDoc, validateRingTwistDoc } from '../puzzle/format.ts';
 const STORAGE_PREFIX = 'ringtwist:macros:v1:';
 const LEGACY_STORAGE_PREFIX = 'circle-sim:macros:v1:';
 const CUSTOM_PUZZLES_KEY = 'ringtwist:custom-puzzles:v1';
+const SESSION_PREFIX = 'ringtwist:session:v1:';
+const UI_MODE_KEY = 'ringtwist:ui-mode:v1';
+
+export type UiMode = 'explorer' | 'solve';
+
+export interface SavedSession {
+  alg: string;
+  scrambleSeed?: string;
+  scrambleMoves?: number;
+  elapsedMs?: number;
+  solved?: boolean;
+}
 
 const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
   'geranium-plus': [
@@ -70,6 +82,56 @@ export function saveCustomPuzzles(docs: RingTwistPuzzleDoc[]): void {
   }
 }
 
+export function loadUiMode(): UiMode {
+  try {
+    const raw = localStorage.getItem(UI_MODE_KEY);
+    if (raw === 'solve' || raw === 'explorer') return raw;
+  } catch {
+    // Ignore storage errors
+  }
+  return 'explorer';
+}
+
+export function saveUiMode(mode: UiMode): void {
+  try {
+    localStorage.setItem(UI_MODE_KEY, mode);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function loadSession(puzzleId: string): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_PREFIX + puzzleId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.alg !== 'string') return null;
+    return {
+      alg: parsed.alg,
+      ...(typeof parsed.scrambleSeed === 'string' && parsed.scrambleSeed.length > 0
+        ? { scrambleSeed: parsed.scrambleSeed }
+        : {}),
+      ...(typeof parsed.scrambleMoves === 'number' && Number.isFinite(parsed.scrambleMoves)
+        ? { scrambleMoves: parsed.scrambleMoves }
+        : {}),
+      ...(typeof parsed.elapsedMs === 'number' && Number.isFinite(parsed.elapsedMs)
+        ? { elapsedMs: Math.max(0, parsed.elapsedMs) }
+        : {}),
+      ...(typeof parsed.solved === 'boolean' ? { solved: parsed.solved } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveSession(puzzleId: string, session: SavedSession): void {
+  try {
+    localStorage.setItem(SESSION_PREFIX + puzzleId, JSON.stringify(session));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 /** UTF-8 safe base64url encode (zero external dependencies). */
 function toBase64Url(str: string): string {
   const bytes = new TextEncoder().encode(str);
@@ -92,11 +154,19 @@ export interface SharedPayload {
   alg: string;
   macros?: MacroLibraryEntry[];
   customDoc?: RingTwistPuzzleDoc;
+  scrambleSeed?: string;
+  scrambleMoves?: number;
 }
 
 export function encodeShareHash(payload: SharedPayload): string {
   const params = new URLSearchParams();
   params.set('p', payload.puzzleId);
+  if (payload.scrambleSeed && payload.scrambleSeed.trim().length > 0) {
+    params.set('s', payload.scrambleSeed.trim());
+    if (payload.scrambleMoves && Number.isFinite(payload.scrambleMoves)) {
+      params.set('n', String(Math.round(payload.scrambleMoves)));
+    }
+  }
   if (payload.customDoc) {
     params.set('d', toBase64Url(JSON.stringify(payload.customDoc)));
   }
@@ -119,6 +189,8 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     const algRaw = params.get('a');
     const macrosRaw = params.get('m');
     const docRaw = params.get('d');
+    const seedRaw = params.get('s')?.trim();
+    const movesRaw = params.get('n');
     const alg = algRaw ? fromBase64Url(algRaw) : '';
     let macros: MacroLibraryEntry[] | undefined;
     if (macrosRaw) {
@@ -136,7 +208,19 @@ export function decodeShareHash(hash: string): SharedPayload | null {
       const check = validateRingTwistDoc(parsedDoc);
       if (check.ok) customDoc = check.doc;
     }
-    return { puzzleId, alg, macros, customDoc };
+    const parsedMoves = movesRaw ? parseInt(movesRaw, 10) : NaN;
+    const scrambleMoves =
+      Number.isFinite(parsedMoves) && parsedMoves >= 1 && parsedMoves <= 120
+        ? parsedMoves
+        : undefined;
+    return {
+      puzzleId,
+      alg,
+      macros,
+      customDoc,
+      ...(seedRaw ? { scrambleSeed: seedRaw } : {}),
+      ...(seedRaw && scrambleMoves !== undefined ? { scrambleMoves } : {}),
+    };
   } catch {
     return null;
   }
