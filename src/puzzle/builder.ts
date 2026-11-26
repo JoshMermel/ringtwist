@@ -19,6 +19,7 @@ import {
   rotatePoint,
 } from '../geom/math.ts';
 import { mergeRegions, sliceCircles, splitRegionByCircle } from '../geom/slicer.ts';
+import { detectMirrorAxes } from './engine.ts';
 import {
   AtomicPieceInfo,
   CircleDef,
@@ -120,6 +121,7 @@ export function buildPuzzle(spec: PuzzleSpec): PuzzleState {
       pieces,
       circleStopIndex,
       puzzleRotationDeg: 0,
+      mirrorAxes: detectMirrorAxes(spec, pieces),
     };
   }
 
@@ -372,5 +374,6 @@ export function buildPuzzle(spec: PuzzleSpec): PuzzleState {
     pieces,
     circleStopIndex,
     puzzleRotationDeg: 0,
+    mirrorAxes: detectMirrorAxes(spec, pieces),
   };
 }

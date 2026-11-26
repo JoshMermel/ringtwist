@@ -163,8 +163,8 @@ export class AlgorithmEditor {
         while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
         let cls = '';
         if (src[j] === '=') cls = 'tok-macro-def';
-        else if (/^z(?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-rot';
-        else if (/^[A-Za-y][<>](?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-next';
+        else if (/^[xyz](?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-rot';
+        else if (/^[A-Za-w][<>](?:\d*['’]?|['’]\d*)$/.test(word)) cls = 'tok-next';
         for (let k = start; k < i; k++) syntax[k] = cls;
         continue;
       }

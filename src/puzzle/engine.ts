@@ -1,10 +1,14 @@
 import {
+  ArcRegion,
   classifyRegionAgainstCircle,
   edgePointAt,
+  reflectRegion,
   regionSilhouetteKey,
   rotateRegion,
+  simplifyRegion,
 } from '../geom/arcRegion.ts';
 import {
+  Point,
   deg2rad,
   dist,
   normAngle,
@@ -12,7 +16,36 @@ import {
   rotatePoint,
   snapFloat,
 } from '../geom/math.ts';
-import { CircleDef, Piece, PuzzleSpec, PuzzleState, StickerWedge } from './types.ts';
+import { CircleDef, MirrorAxis, Piece, PuzzleSpec, PuzzleState, StickerWedge } from './types.ts';
+
+function reflectPoint(p: Point, axis: MirrorAxis, center: Point): Point {
+  return axis === 'x'
+    ? { x: p.x, y: 2 * center.y - p.y }
+    : { x: 2 * center.x - p.x, y: p.y };
+}
+
+function reflectStickers(
+  stickers: StickerWedge[] | undefined,
+  axis: MirrorAxis,
+  center: Point,
+): StickerWedge[] | undefined {
+  if (!stickers) return undefined;
+  const baseAngle = axis === 'x' ? 0 : Math.PI;
+  return stickers.map((s) => {
+    const nc = reflectPoint({ x: s.arc.cx, y: s.arc.cy }, axis, center);
+    return {
+      apex: reflectPoint(s.apex, axis, center),
+      arc: {
+        cx: nc.x,
+        cy: nc.y,
+        r: s.arc.r,
+        startAngle: normAngle(baseAngle - (s.arc.startAngle + s.arc.sweep)),
+        sweep: s.arc.sweep,
+      },
+      color: s.color,
+    };
+  });
+}
 
 function rotateStickers(
   stickers: StickerWedge[] | undefined,
@@ -55,6 +88,8 @@ export type MoveResult =
       movedPieceIds: number[];
       /** Center of rotation for animation. */
       pivot: { x: number; y: number };
+      /** If set, this move is a 180° mirror flip across 'x' (top↔bottom) or 'y' (left↔right). */
+      flipAxis?: MirrorAxis;
     }
   | {
       ok: false;
@@ -473,6 +508,174 @@ export function rotateWholePuzzle(state: PuzzleState, steps: number): MoveResult
   };
 }
 
+function mirrorAngleDeg(deg: number): number {
+  return (((360 - deg) % 360) + 360) % 360;
+}
+
+function findStopIndex(stopsDeg: number[], targetDeg: number): number {
+  const norm = ((targetDeg % 360) + 360) % 360;
+  for (let i = 0; i < stopsDeg.length; i++) {
+    const s = ((stopsDeg[i] % 360) + 360) % 360;
+    const diff = Math.abs(s - norm);
+    if (diff < 1e-3 || Math.abs(diff - 360) < 1e-3) return i;
+  }
+  return -1;
+}
+
+function circlesMatchMirrored(
+  a: CircleDef,
+  b: CircleDef,
+): boolean {
+  if (Math.abs(a.r - b.r) > 1e-3) return false;
+  if ((a.turnRegion ?? 'inside') !== (b.turnRegion ?? 'inside')) return false;
+  const la = a.layerRadii ?? [];
+  const lb = b.layerRadii ?? [];
+  if (la.length !== lb.length) return false;
+  for (let i = 0; i < la.length; i++) {
+    if (Math.abs(la[i] - lb[i]) > 1e-3) return false;
+  }
+  if (a.stopsDeg.length !== b.stopsDeg.length) return false;
+  for (const s of a.stopsDeg) {
+    if (findStopIndex(b.stopsDeg, mirrorAngleDeg(s)) === -1) return false;
+  }
+  return true;
+}
+
+function mirrorPartnerMap(
+  spec: PuzzleSpec,
+  axis: MirrorAxis,
+): Map<string, CircleDef> | null {
+  const symCenter = spec.symmetryCenter ?? { x: 0, y: 0 };
+  const map = new Map<string, CircleDef>();
+  for (const c of spec.circles) {
+    const refPos = reflectPoint({ x: c.cx, y: c.cy }, axis, symCenter);
+    const dest = spec.circles.find((o) => pointsEqual({ x: o.cx, y: o.cy }, refPos, 1e-3));
+    if (!dest || !circlesMatchMirrored(c, dest)) return null;
+    map.set(c.id, dest);
+  }
+  return map;
+}
+
+function regionsGeometricallyEqual(a: ArcRegion, b: ArcRegion, eps = 2e-3): boolean {
+  if (a.edges.length !== b.edges.length) return false;
+  const used = new Uint8Array(b.edges.length);
+  for (const ea of a.edges) {
+    const ma = edgePointAt(ea, 0.5);
+    let found = false;
+    for (let j = 0; j < b.edges.length; j++) {
+      if (used[j]) continue;
+      const eb = b.edges[j];
+      if (Math.abs(ea.r - eb.r) > eps || Math.abs(ea.sweep - eb.sweep) > eps) continue;
+      const mb = edgePointAt(eb, 0.5);
+      if (Math.hypot(ma.x - mb.x, ma.y - mb.y) <= eps) {
+        used[j] = 1;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+/**
+ * Automatically detect which mirror axes ('x' = top↔bottom, 'y' = left↔right)
+ * are exact geometric & cut-silhouette symmetries of a puzzle's solved state.
+ */
+export function detectMirrorAxes(spec: PuzzleSpec, pieces: Piece[]): MirrorAxis[] {
+  const symCenter = spec.symmetryCenter ?? { x: 0, y: 0 };
+  const origSimple = pieces.map((p) => ({
+    region: simplifyRegion(p.region),
+    area: p.area,
+  }));
+  const axes: MirrorAxis[] = [];
+
+  for (const axis of ['x', 'y'] as const) {
+    if (!mirrorPartnerMap(spec, axis)) continue;
+    const used = new Uint8Array(origSimple.length);
+    let allMatched = true;
+    for (let i = 0; i < pieces.length; i++) {
+      const refReg = simplifyRegion(reflectRegion(pieces[i].region, axis, symCenter.x, symCenter.y));
+      const area = pieces[i].area;
+      let matched = false;
+      for (let j = 0; j < origSimple.length; j++) {
+        if (used[j]) continue;
+        if (Math.abs(origSimple[j].area - area) > 2e-3) continue;
+        if (regionsGeometricallyEqual(refReg, origSimple[j].region, 3e-3)) {
+          used[j] = 1;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        allMatched = false;
+        break;
+      }
+    }
+    if (allMatched) {
+      axes.push(axis);
+    }
+  }
+  return axes;
+}
+
+/** Return the supported mirror axes for a PuzzleState (computed once at build time). */
+export function getSupportedMirrorAxes(state: PuzzleState): MirrorAxis[] {
+  if (state.mirrorAxes !== undefined) return state.mirrorAxes;
+  return detectMirrorAxes(state.spec, state.pieces);
+}
+
+/**
+ * Whole-puzzle mirror flip:
+ *   - `'x'`: 180° flip around the horizontal x-axis (top ↔ bottom)
+ *   - `'y'`: 180° flip around the vertical y-axis (left ↔ right)
+ * Spatial circle labels (A, B, C, ...) stay fixed on screen, allowing one macro
+ * to handle both chiralities via `[x: myAlg]` or `[y: myAlg]`.
+ */
+export function flipWholePuzzle(state: PuzzleState, axis: MirrorAxis): MoveResult {
+  const supported = getSupportedMirrorAxes(state);
+  const partners = supported.includes(axis) ? mirrorPartnerMap(state.spec, axis) : null;
+  if (!partners) {
+    const axisName = axis === 'x' ? 'top↔bottom (x)' : 'left↔right (y)';
+    return {
+      ok: false,
+      circleId: axis,
+      blockingPieceIds: [],
+      reason: `${state.spec.name} does not have ${axisName} mirror symmetry`,
+    };
+  }
+
+  const symCenter = state.spec.symmetryCenter ?? { x: 0, y: 0 };
+  const nextPieces: Piece[] = state.pieces.map((p) => ({
+    ...p,
+    region: reflectRegion(p.region, axis, symCenter.x, symCenter.y),
+    stickers: reflectStickers(p.stickers, axis, symCenter),
+  }));
+
+  const nextStops: Record<string, number> = { ...state.circleStopIndex };
+  for (const c of state.spec.circles) {
+    const dest = partners.get(c.id)!;
+    const curIdx = state.circleStopIndex[c.id] ?? 0;
+    const curDeg = c.stopsDeg[curIdx] ?? 0;
+    const mappedIdx = findStopIndex(dest.stopsDeg, mirrorAngleDeg(curDeg));
+    nextStops[dest.id] = mappedIdx >= 0 ? mappedIdx : 0;
+  }
+
+  return {
+    ok: true,
+    nextState: {
+      ...state,
+      pieces: nextPieces,
+      circleStopIndex: nextStops,
+      puzzleFlipped: !(state.puzzleFlipped ?? false),
+    },
+    angleDeg: 180,
+    movedPieceIds: state.pieces.map((p) => p.id),
+    pivot: symCenter,
+    flipAxis: axis,
+  };
+}
+
 /**
  * Canonical snapped signature of a piece's multi-color orientation stickers
  * (empty string if the piece has no orientation stickers).
@@ -524,15 +727,35 @@ function getSolvedOrbitHashes(solvedState: PuzzleState): Set<string> {
   const hashes = new Set<string>();
   const symStep = solvedState.spec.symmetryStepDeg;
   const symCount = symStep > 0 ? Math.round(360 / symStep) : 1;
+  const mirrorAxes = getSupportedMirrorAxes(solvedState);
 
-  let ref = solvedState;
-  for (let k = 0; k < symCount; k++) {
-    hashes.add(hashPuzzleState(ref));
-    if (k + 1 < symCount) {
-      const rot = rotateWholePuzzle(ref, 1);
-      if (rot.ok) ref = rot.nextState;
+  const addRotations = (base: PuzzleState) => {
+    let ref = base;
+    for (let k = 0; k < symCount; k++) {
+      hashes.add(hashPuzzleState(ref));
+      if (k + 1 < symCount) {
+        const rot = rotateWholePuzzle(ref, 1);
+        if (rot.ok) ref = rot.nextState;
+      }
+    }
+  };
+
+  addRotations(solvedState);
+  // Include mirrored solved states across every supported mirror axis (full dihedral orbit)
+  for (const axis of mirrorAxes) {
+    const flipped = flipWholePuzzle(solvedState, axis);
+    if (flipped.ok) {
+      addRotations(flipped.nextState);
     }
   }
+  if (mirrorAxes.includes('x') && mirrorAxes.includes('y')) {
+    const fx = flipWholePuzzle(solvedState, 'x');
+    if (fx.ok) {
+      const fxy = flipWholePuzzle(fx.nextState, 'y');
+      if (fxy.ok) addRotations(fxy.nextState);
+    }
+  }
+
   solvedOrbitCache.set(solvedState, hashes);
   return hashes;
 }

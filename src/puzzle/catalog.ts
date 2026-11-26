@@ -924,7 +924,7 @@ export const GIGAHEX_PLUS: PuzzleSpec = {
   name: 'GigaHex Plus',
   category: 'Designer & Exotic',
   description:
-    'Cube4you GigaHex Plus: three 2-layer 60° circles (A, B, C) in an equilateral Venn triangle with 7-color RGB/CMY/White shading and 133 pieces.',
+    'Cube4you GigaHex Plus: three 2-layer 60° circles (A, B, C) in an equilateral Venn triangle with 7-color RGB/CMY/White shading and 139 pieces.',
   circles: [
     {
       id: 'A',

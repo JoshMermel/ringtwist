@@ -138,6 +138,41 @@ export function rotateRegion(
 }
 
 /**
+ * Reflect an entire ArcRegion across a horizontal ('x': top <-> bottom around y = cy)
+ * or vertical ('y': left <-> right around x = cx) mirror axis, reversing edge order
+ * so the reflected boundary remains counter-clockwise with identical positive signed area.
+ */
+export function reflectRegion(
+  region: ArcRegion,
+  axis: 'x' | 'y',
+  cx: number,
+  cy: number,
+): ArcRegion {
+  const baseAngle = axis === 'x' ? 0 : Math.PI;
+  const edges = new Array<ArcEdge>(region.edges.length);
+  for (let i = 0; i < region.edges.length; i++) {
+    const e = region.edges[region.edges.length - 1 - i];
+    edges[i] = {
+      cx: axis === 'y' ? 2 * cx - e.cx : e.cx,
+      cy: axis === 'x' ? 2 * cy - e.cy : e.cy,
+      r: e.r,
+      startAngle: normAngle(baseAngle - (e.startAngle + e.sweep)),
+      sweep: e.sweep,
+    };
+  }
+  let _bounds: Circle | undefined;
+  if (region._bounds) {
+    const b = region._bounds;
+    _bounds = {
+      cx: axis === 'y' ? 2 * cx - b.cx : b.cx,
+      cy: axis === 'x' ? 2 * cy - b.cy : b.cy,
+      r: b.r,
+    };
+  }
+  return { edges, _bounds };
+}
+
+/**
  * Intersect a ray P + t*D (t > 0, |D| = 1) with an ArcEdge.
  * Returns parameter values t > 0, or null if the ray hits too close to an endpoint or tangency.
  */

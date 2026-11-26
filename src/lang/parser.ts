@@ -3,6 +3,7 @@ import {
   ExprNode,
   GroupNode,
   MacroCallNode,
+  MirrorFlipNode,
   NextUnblockedMoveNode,
   ParseError,
   ProgramAST,
@@ -61,8 +62,8 @@ function isIdentContinue(ch: string): boolean {
   return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 95;
 }
 
-const CIRCLE_OR_ROT_DIGITS_RE = /^([A-Z]|z)(\d+)$/;
-const LOWER_DIGITS_RE = /^([a-y])(\d+)$/;
+const CIRCLE_OR_ROT_DIGITS_RE = /^([A-Z]|[xyz])(\d+)$/;
+const LOWER_DIGITS_RE = /^([a-w])(\d+)$/;
 
 function tokenize(
   source: string,
@@ -205,10 +206,12 @@ class Parser {
         this.advance(); // '='
         if (
           this.validCircles.has(nameTok.value) ||
+          nameTok.value === 'x' ||
+          nameTok.value === 'y' ||
           nameTok.value === 'z' ||
           (nameTok.value.length === 1 &&
             nameTok.value >= 'a' &&
-            nameTok.value <= 'y' &&
+            nameTok.value <= 'w' &&
             this.multiLayerCircles.has(nameTok.value.toUpperCase()))
         ) {
           this.errors.push({
@@ -386,7 +389,7 @@ class Parser {
       const idTok = this.peek(1);
       const isUpperCircle = /^[A-Z]$/.test(idTok.value);
       const isLowerWide =
-        /^[a-y]$/.test(idTok.value) && this.multiLayerCircles.has(idTok.value.toUpperCase());
+        /^[a-w]$/.test(idTok.value) && this.multiLayerCircles.has(idTok.value.toUpperCase());
       if (isUpperCircle || isLowerWide) {
         this.advance(); // NUMBER
         this.advance(); // IDENT
@@ -412,13 +415,25 @@ class Parser {
         return node;
       }
 
+      // Whole-puzzle mirror flip: x (top↔bottom) or y (left↔right); self-inverse so x' = x
+      if (tok.value === 'x' || tok.value === 'y') {
+        const mod = this.parseModifierSuffix(tok.end);
+        const node: MirrorFlipNode = {
+          kind: 'mirrorFlip',
+          axis: tok.value,
+          count: mod.repeat,
+          span: { start: tok.start, end: mod.end },
+        };
+        return node;
+      }
+
       // Single uppercase letter => circle move (layer 1 / innermost cap)
       if (/^[A-Z]$/.test(tok.value)) {
         return this.parseCircleMoveBody(tok.value, tok.start, tok.end, undefined, false);
       }
 
       // Single lowercase letter on a multi-layer circle => wide move (e.g. `a`, `a2`, `a'`)
-      if (/^[a-y]$/.test(tok.value) && this.multiLayerCircles.has(tok.value.toUpperCase())) {
+      if (/^[a-w]$/.test(tok.value) && this.multiLayerCircles.has(tok.value.toUpperCase())) {
         return this.parseCircleMoveBody(tok.value.toUpperCase(), tok.start, tok.end, undefined, true);
       }
 
@@ -515,6 +530,9 @@ export function invertExpr(node: ExprNode): ExprNode {
       return { ...node, direction: (node.direction === 1 ? -1 : 1) };
     case 'rotation':
       return { ...node, steps: -node.steps };
+    case 'mirrorFlip':
+      // Mirror flips are self-inverse involutions: x' = x, y' = y
+      return { ...node };
     case 'macroCall':
       return { ...node, invert: !node.invert };
     case 'group':

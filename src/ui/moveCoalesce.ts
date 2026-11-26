@@ -10,7 +10,8 @@ export interface CoalesceResult {
 type ParsedSimpleMove =
   | { kind: 'circle'; circleId: string; steps: number; layerOpt?: MoveLayerSpec }
   | { kind: 'next'; circleId: string; steps: number; layerOpt?: MoveLayerSpec }
-  | { kind: 'rot'; steps: number };
+  | { kind: 'rot'; steps: number }
+  | { kind: 'flip'; axis: 'x' | 'y'; count: number };
 
 function sameLayerOpt(a?: MoveLayerSpec, b?: MoveLayerSpec): boolean {
   return (a?.layer ?? 1) === (b?.layer ?? 1) && Boolean(a?.wide) === Boolean(b?.wide);
@@ -18,10 +19,10 @@ function sameLayerOpt(a?: MoveLayerSpec, b?: MoveLayerSpec): boolean {
 
 function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimpleMove | null {
   const trimmed = token.trim();
-  const nextMatch = trimmed.match(/^(\d*)([A-Za-y])([><])(\d*)$/);
+  const nextMatch = trimmed.match(/^(\d*)([A-Za-w])([><])(\d*)$/);
   if (nextMatch) {
     const rawLetter = nextMatch[2];
-    const isLower = rawLetter >= 'a' && rawLetter <= 'y';
+    const isLower = rawLetter >= 'a' && rawLetter <= 'w';
     const circleId = rawLetter.toUpperCase();
     const cDef = spec.circles.find((c) => c.id === circleId);
     if (!cDef) return null;
@@ -41,10 +42,17 @@ function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimp
     return { kind: 'rot', steps: rotMatch[2] === "'" ? -count : count };
   }
 
-  const circleMatch = trimmed.match(/^(\d*)([A-Za-y])(\d*)('?)$/);
+  const flipMatch = trimmed.match(/^([xy])(\d*)('?)$/);
+  if (flipMatch) {
+    const count = flipMatch[2] ? parseInt(flipMatch[2], 10) : 1;
+    if (count === 0) return null;
+    return { kind: 'flip', axis: flipMatch[1] as 'x' | 'y', count };
+  }
+
+  const circleMatch = trimmed.match(/^(\d*)([A-Za-w])(\d*)('?)$/);
   if (circleMatch) {
     const rawLetter = circleMatch[2];
-    const isLower = rawLetter >= 'a' && rawLetter <= 'y';
+    const isLower = rawLetter >= 'a' && rawLetter <= 'w';
     const circleId = rawLetter.toUpperCase();
     const cDef = spec.circles.find((c) => c.id === circleId);
     if (!cDef) return null;
@@ -183,6 +191,10 @@ export function applyInteractiveMoveToText(
     const symCount = Math.round(360 / spec.symmetryStepDeg);
     const combined = shortestSignedMod(parsedPrev.steps + parsedNew.steps, symCount);
     replacement = combined === 0 ? null : formatRotationToken(combined);
+  } else if (parsedPrev.kind === 'flip' && parsedNew.kind === 'flip') {
+    if (parsedPrev.axis !== parsedNew.axis) return fallbackAppend();
+    const combined = (parsedPrev.count + parsedNew.count) % 2;
+    replacement = combined === 0 ? null : parsedPrev.axis;
   } else {
     return fallbackAppend();
   }

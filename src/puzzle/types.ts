@@ -142,6 +142,8 @@ export interface Piece {
   stickers?: StickerWedge[];
 }
 
+export type MirrorAxis = 'x' | 'y';
+
 export interface PuzzleState {
   spec: PuzzleSpec;
   pieces: Piece[];
@@ -152,6 +154,10 @@ export interface PuzzleState {
   circleStopIndex: Record<string, number>;
   /** Cumulative whole-puzzle CW rotation in degrees (for visual orientation tracking). */
   puzzleRotationDeg: number;
+  /** True when an odd number of mirror flips (x / y) have been applied. */
+  puzzleFlipped?: boolean;
+  /** Mirror axes ('x' = top/bottom flip, 'y' = left/right flip) verified on this puzzle. */
+  mirrorAxes?: MirrorAxis[];
 }
 
 /** Helper to generate evenly spaced stop angles in degrees: e.g. evenStops(10) => [0, 36, ..., 324]. */

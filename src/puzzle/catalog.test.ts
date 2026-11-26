@@ -23,9 +23,12 @@ import {
 } from './catalog.ts';
 import { PHI } from './geraniumBuilder.ts';
 import {
+  flipWholePuzzle,
   generateScramble,
   getAllCircleStatuses,
   getCircleStatus,
+  getSupportedMirrorAxes,
+  hashPuzzleState,
   isPuzzleSolved,
   rotateWholePuzzle,
   turnCircleBySteps,
@@ -85,6 +88,29 @@ describe('puzzle catalog & Geranium geometry', () => {
         expect(rot.ok).toBe(false);
       }
 
+      // Mirror flip symmetries (x = top↔bottom, y = left↔right): involution, 0 straddlers, solved orbit
+      const mirrorAxes = getSupportedMirrorAxes(state);
+      for (const axis of mirrorAxes) {
+        const f1 = flipWholePuzzle(state, axis);
+        expect(f1.ok, `${spec.id} flip ${axis}`).toBe(true);
+        if (!f1.ok) continue;
+        expect(isPuzzleSolved(f1.nextState, state), `${spec.id} flipped ${axis} is solved`).toBe(true);
+        const f1Statuses = getAllCircleStatuses(f1.nextState);
+        for (const c of spec.circles) {
+          expect(f1Statuses[c.id].blocked, `${spec.id} flipped ${axis} circle ${c.id}`).toBe(false);
+        }
+        const f2 = flipWholePuzzle(f1.nextState, axis);
+        expect(f2.ok).toBe(true);
+        if (f2.ok) {
+          expect(hashPuzzleState(f2.nextState)).toBe(hashPuzzleState(state));
+        }
+      }
+      for (const axis of ['x', 'y'] as const) {
+        if (!mirrorAxes.includes(axis)) {
+          expect(flipWholePuzzle(state, axis).ok).toBe(false);
+        }
+      }
+
       // Seeded scramble generator is deterministic for both numeric and string seeds
       const scramble1 = generateScramble(state, 8, 'seed-42');
       const scramble2 = generateScramble(state, 8, 'seed-42');
@@ -95,7 +121,7 @@ describe('puzzle catalog & Geranium geometry', () => {
       const moves = scramble1.split(/\s+/).filter(Boolean);
       expect(moves.length, `${spec.id} scramble should have moves`).toBeGreaterThanOrEqual(6);
       console.log(
-        `${spec.id.padEnd(22)}: ${String(state.pieces.length).padStart(3)} pcs | scramble(${moves.length}): ${scramble1}`,
+        `${spec.id.padEnd(22)}: ${String(state.pieces.length).padStart(3)} pcs | mirror=[${mirrorAxes.join(',')}] | scramble(${moves.length}): ${scramble1}`,
       );
     }
   }, 15_000);
@@ -186,7 +212,8 @@ describe('puzzle catalog & Geranium geometry', () => {
 
   it('verifies exact piece counts, multi-layer blocking, exterior turns, and jumbling on Phase 2 & 3 puzzles', () => {
     const lekki = buildPuzzle(CRAZY_LEKKI);
-    expect(lekki.pieces.length).toBe(37);
+    expect(lekki.pieces.length).toBe(43);
+    expect(lekki.mirrorAxes).toEqual(['x']);
     // Turning B by 90° bandages A's outer ring (2A & a) while leaving inner disk A free!
     const afterB1 = turnCircleBySteps(lekki, 'B', 1);
     expect(afterB1.ok).toBe(true);
@@ -206,7 +233,8 @@ describe('puzzle catalog & Geranium geometry', () => {
     const gigahex = buildPuzzle(GIGAHEX);
     expect(gigahex.pieces.length).toBe(105);
     const gigahexPlus = buildPuzzle(GIGAHEX_PLUS);
-    expect(gigahexPlus.pieces.length).toBe(133);
+    expect(gigahexPlus.pieces.length).toBe(139);
+    expect(gigahexPlus.mirrorAxes).toEqual(['y']);
 
     const moon = buildPuzzle(MOONSPINNER);
     expect(moon.pieces.length).toBe(27);

@@ -1,6 +1,7 @@
 import { regionSilhouetteKey } from '../geom/arcRegion.ts';
 import {
   MoveResult,
+  flipWholePuzzle,
   formatMoveToken,
   hashPuzzleShape,
   hashPuzzleState,
@@ -10,7 +11,7 @@ import {
   turnCircleBySteps,
   turnCircleNextUnblocked,
 } from '../puzzle/engine.ts';
-import { Piece, PuzzleState } from '../puzzle/types.ts';
+import { MirrorAxis, Piece, PuzzleState } from '../puzzle/types.ts';
 import { ExprNode, ParseError, ProgramAST, Span } from './ast.ts';
 import { invertExpr, parseAlgorithm } from './parser.ts';
 
@@ -30,6 +31,7 @@ export interface ExecutedStep {
   macroStack: string[];
   angleDeg: number;
   pivot: { x: number; y: number };
+  flipAxis?: MirrorAxis;
   movedPieceIds: number[];
   /** True if this step was computed via group-theory / cycle-detection fast-forward. */
   fastForwarded?: boolean;
@@ -303,6 +305,7 @@ function runCompiledProgram(
         macroStack: [...macroStack],
         angleDeg: res.angleDeg,
         pivot: res.pivot,
+        ...(res.flipAxis ? { flipAxis: res.flipAxis } : {}),
         movedPieceIds: res.movedPieceIds,
         stateAfter: currentState,
       });
@@ -348,9 +351,15 @@ function runCompiledProgram(
         const step = 360 / len;
         return c.stopsDeg.every((a, idx) => Math.abs(a - idx * step) < 1e-4);
       });
-      // When a sequence includes whole-puzzle rotation `r` on uneven-stop puzzles,
-      // circleStopIndex permutes across circles rather than shifting uniformly; defer to exact cycle detection.
-      if (hashPuzzleShape(state1) === shape0 && (rotDelta === 0 || allCirclesEvenStops)) {
+      // When a sequence includes whole-puzzle rotation `z` on uneven-stop puzzles or an odd number
+      // of mirror flips (`x` / `y`), circleStopIndex permutes/reflects across circles rather than
+      // shifting uniformly; defer to exact state-hash cycle detection.
+      const flippedChanged = (state1.puzzleFlipped ?? false) !== (state0.puzzleFlipped ?? false);
+      if (
+        hashPuzzleShape(state1) === shape0 &&
+        !flippedChanged &&
+        (rotDelta === 0 || allCirclesEvenStops)
+      ) {
         const perm = extractShapePermutation(state0, state1);
         if (perm) {
           const permPow = powPermutation(perm, repeat);
@@ -504,6 +513,18 @@ function runCompiledProgram(
         const res = rotateWholePuzzle(currentState, node.steps);
         const spanToUse = macroStack.length === 0 ? node.span : topSpan;
         return execMove(res, label, 'z', node.span, spanToUse, macroStack, recordSteps);
+      }
+
+      case 'mirrorFlip': {
+        if (node.count <= 0) return true;
+        const spanToUse = macroStack.length === 0 ? node.span : topSpan;
+        for (let k = 0; k < node.count; k++) {
+          const res = flipWholePuzzle(currentState, node.axis);
+          if (!execMove(res, node.axis, node.axis, node.span, spanToUse, macroStack, recordSteps)) {
+            return false;
+          }
+        }
+        return true;
       }
 
       case 'group': {
@@ -714,8 +735,10 @@ export function analyzeAlgorithm(
 
   const shape0 = hashPuzzleShape(state);
   const shape1 = hashPuzzleShape(first.finalState);
+  const flippedChanged =
+    (first.finalState.puzzleFlipped ?? false) !== (state.puzzleFlipped ?? false);
 
-  if (shape0 === shape1) {
+  if (shape0 === shape1 && !flippedChanged) {
     const perm = extractShapePermutation(state, first.finalState);
     if (perm) {
       // Compute cycle lengths of the permutation (and also check color-visible order)

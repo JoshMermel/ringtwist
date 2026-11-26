@@ -28,9 +28,10 @@ export function createHelpModal(): { open: () => void; close: () => void } {
           <tr><td>2A, 2A2, 2A'</td><td><b>Slice turn</b>: turns only the outer annulus ring (layer 2 underneath cap <code>A</code>).</td></tr>
         </table>
 
-        <h3>Whole-Puzzle Rotations</h3>
+        <h3>Whole-Puzzle Rotations &amp; Mirror Flips</h3>
         <table class="help-table">
           <tr><td>z, z', z2</td><td>Rotate the entire puzzle clockwise/CCW by <b>1 symmetry step</b> (matching Twizzle's in-plane <code>z</code> axis: 72° on 5-fold Geranium &amp; Super Geranium, 60° on Hex/Flower, 90° on Clover, 120° on 3-Circle Clover, 180° on 2-Circle Venn &amp; Twin Rings). Spatial labels <code>A, B, C, ...</code> stay fixed on screen, so macros work symmetrically via <code>[z: myMacro]</code>!</td></tr>
+          <tr><td>x, y</td><td><b>Mirror flip</b> 180° around the horizontal <code>x</code>-axis (top↔bottom) or vertical <code>y</code>-axis (left↔right) on puzzles with mirror symmetry. Self-inverse (<code>x' = x</code>), so one macro handles both chiralities via <code>[x: myMacro]</code> or <code>[y: myMacro]</code>!</td></tr>
         </table>
 
         <h3>Combinators, Commutators &amp; Conjugates</h3>

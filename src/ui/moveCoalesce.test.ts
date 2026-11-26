@@ -108,4 +108,18 @@ describe('interactive move coalescing & cancellation', () => {
     expect(diff2.action).toBe('appended');
     expect(diff2.nextText).toBe('2A a');
   });
+
+  it('cancels consecutive same-axis mirror flips (x + x, y + y) and keeps distinct axes (x + y)', () => {
+    const fx = applyInteractiveMoveToText('A x', 3, 'x', GIGAHEX);
+    expect(fx.action).toBe('cancelled');
+    expect(fx.nextText).toBe('A');
+
+    const fy = applyInteractiveMoveToText('y', 1, 'y', GERANIUM_PLUS);
+    expect(fy.action).toBe('cancelled');
+    expect(fy.nextText).toBe('');
+
+    const fxy = applyInteractiveMoveToText('x', 1, 'y', GIGAHEX);
+    expect(fxy.action).toBe('appended');
+    expect(fxy.nextText).toBe('x y');
+  });
 });

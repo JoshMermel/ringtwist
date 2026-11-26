@@ -11,10 +11,12 @@ import { getPuzzleSpec } from './puzzle/catalog.ts';
 import {
   MoveLayerSpec,
   MoveResult,
+  flipWholePuzzle,
   formatMoveToken,
   generateScramble,
   getAllCircleStatuses,
   getCircleStatus,
+  getSupportedMirrorAxes,
   isPuzzleSolved,
   rotateWholePuzzle,
   turnCircleBySteps,
@@ -70,6 +72,8 @@ class RingTwistApp {
   private puzzleBtnEl!: HTMLButtonElement;
   private rotCwBtnEl!: HTMLButtonElement;
   private rotCcwBtnEl!: HTMLButtonElement;
+  private flipXBtnEl!: HTMLButtonElement;
+  private flipYBtnEl!: HTMLButtonElement;
   private solvedPeekBtnEl!: HTMLButtonElement;
   private solvedRefCardEl!: HTMLElement;
   private solvedRefStageEl!: HTMLElement;
@@ -200,6 +204,8 @@ class RingTwistApp {
             <div class="stage-overlay-tl">
               <button class="btn btn-sm" id="btn-rot-ccw" title="Whole-puzzle rotation CCW (z')">↺ z'</button>
               <button class="btn btn-sm" id="btn-rot-cw" title="Whole-puzzle rotation CW (z)">↻ z</button>
+              <button class="btn btn-sm" id="btn-flip-x" title="Flip puzzle top↔bottom (x)">⇅ x</button>
+              <button class="btn btn-sm" id="btn-flip-y" title="Flip puzzle left↔right (y)">⇄ y</button>
             </div>
             <div class="stage-overlay-tr">
               <button type="button" class="btn btn-sm solved-peek-btn" id="btn-solved-peek" title="Toggle a reference preview of the solved puzzle">👁 Solved</button>
@@ -284,6 +290,8 @@ class RingTwistApp {
     this.puzzleBtnEl = root.querySelector('#puzzle-picker-btn')!;
     this.rotCwBtnEl = root.querySelector('#btn-rot-cw')!;
     this.rotCcwBtnEl = root.querySelector('#btn-rot-ccw')!;
+    this.flipXBtnEl = root.querySelector('#btn-flip-x')!;
+    this.flipYBtnEl = root.querySelector('#btn-flip-y')!;
     this.solvedPeekBtnEl = root.querySelector('#btn-solved-peek')!;
     this.solvedRefCardEl = root.querySelector('#solved-ref-card')!;
     this.solvedRefStageEl = root.querySelector('#solved-ref-stage')!;
@@ -408,7 +416,7 @@ class RingTwistApp {
       this.helpModal.open();
     });
 
-    // Whole-puzzle rotation quick buttons
+    // Whole-puzzle rotation & mirror-flip quick buttons
     root.querySelector('#btn-rot-cw')!.addEventListener('click', () => {
       this.appendInteractiveMove('z', {
         allowCoalesce: true,
@@ -419,6 +427,18 @@ class RingTwistApp {
       this.appendInteractiveMove("z'", {
         allowCoalesce: true,
         incrementalMove: (st) => rotateWholePuzzle(st, -1),
+      });
+    });
+    this.flipXBtnEl.addEventListener('click', () => {
+      this.appendInteractiveMove('x', {
+        allowCoalesce: true,
+        incrementalMove: (st) => flipWholePuzzle(st, 'x'),
+      });
+    });
+    this.flipYBtnEl.addEventListener('click', () => {
+      this.appendInteractiveMove('y', {
+        allowCoalesce: true,
+        incrementalMove: (st) => flipWholePuzzle(st, 'y'),
       });
     });
 
@@ -640,6 +660,18 @@ class RingTwistApp {
     this.rotCcwBtnEl.title = hasSym
       ? `Whole-puzzle rotation CCW by ${this.currentSpec.symmetryStepDeg}° (z')`
       : `${this.currentSpec.name} has no rotational symmetry`;
+
+    const mirrorAxes = getSupportedMirrorAxes(this.solvedState);
+    const hasFlipX = mirrorAxes.includes('x');
+    const hasFlipY = mirrorAxes.includes('y');
+    this.flipXBtnEl.disabled = !hasFlipX;
+    this.flipYBtnEl.disabled = !hasFlipY;
+    this.flipXBtnEl.title = hasFlipX
+      ? 'Flip puzzle top↔bottom around horizontal x-axis (x)'
+      : `${this.currentSpec.name} does not have top↔bottom (x) mirror symmetry`;
+    this.flipYBtnEl.title = hasFlipY
+      ? 'Flip puzzle left↔right around vertical y-axis (y)'
+      : `${this.currentSpec.name} does not have left↔right (y) mirror symmetry`;
   }
 
   private renderSamples(): void {
@@ -958,6 +990,7 @@ class RingTwistApp {
         pivot: step.pivot,
         movedPieceIds: step.movedPieceIds,
         durationMs,
+        ...(step.flipAxis ? { flipAxis: step.flipAxis } : {}),
       },
       highlightAfter,
       onDone,
@@ -986,6 +1019,7 @@ class RingTwistApp {
         pivot: step.pivot,
         movedPieceIds: step.movedPieceIds,
         durationMs,
+        ...(step.flipAxis ? { flipAxis: step.flipAxis } : {}),
       },
       highlightAfter,
       undefined,
@@ -1152,6 +1186,7 @@ class RingTwistApp {
           pivot: deltaAnim.pivot,
           movedPieceIds: deltaAnim.movedPieceIds,
           durationMs: this.turnDurationMs(deltaAnim.angleDeg, false, 360),
+          ...(deltaAnim.flipAxis ? { flipAxis: deltaAnim.flipAxis } : {}),
         },
         highlightAfter,
         undefined,
@@ -1169,6 +1204,7 @@ class RingTwistApp {
           pivot: step.pivot,
           movedPieceIds: step.movedPieceIds,
           durationMs: this.turnDurationMs(step.angleDeg, step.fastForwarded, 400),
+          ...(step.flipAxis ? { flipAxis: step.flipAxis } : {}),
         },
         highlightAfter,
         undefined,

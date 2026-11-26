@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildPuzzle } from '../puzzle/builder.ts';
 import {
+  CRAZY_LEKKI,
   FOUR_CIRCLE_CLOVER,
   GERANIUM_PLUS,
+  GIGAHEX,
   MINI_GERANIUM,
   POCKET_GERANIUM,
   PUZZLE_CATALOG,
@@ -222,5 +224,49 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
       { kind: 'nextUnblocked', circleId: 'A', direction: 1, count: 1, layer: 2 },
       { kind: 'rotation', steps: -1 },
     ]);
+
+    // 6. Mirror flips (x top↔bottom, y left↔right) & chiral conjugates [x: alg] / [y: alg]
+    const flipAst = parseAlgorithm("x y x' y2 [y: A3]");
+    expect(flipAst.errors).toEqual([]);
+    const fst = flipAst.statements[0];
+    expect(fst.kind === 'exprStmt' && fst.expr.kind === 'sequence' && fst.expr.items).toMatchObject([
+      { kind: 'mirrorFlip', axis: 'x', count: 1 },
+      { kind: 'mirrorFlip', axis: 'y', count: 1 },
+      { kind: 'mirrorFlip', axis: 'x', count: 1 },
+      { kind: 'mirrorFlip', axis: 'y', count: 2 },
+      { kind: 'conjugate' },
+    ]);
+
+    // On Geranium Plus (vertical y-symmetry): [y: B3] mirrors B3 CW into E3' CCW!
+    const yConj = evaluateProgram(plus, '[y: B3]');
+    const directE = evaluateProgram(plus, "E3'");
+    expect(yConj.blocked).toBeUndefined();
+    expect(hashPuzzleState(yConj.finalState)).toBe(hashPuzzleState(directE.finalState));
+
+    // Leaving Geranium Plus flipped with `y` still counts as Solved (dihedral orbit)
+    const justY = evaluateProgram(plus, 'y');
+    expect(justY.blocked).toBeUndefined();
+    expect(justY.solved).toBe(true);
+
+    // On Crazy Lekki (horizontal x-symmetry only, no y-symmetry):
+    // [x: A] equals A', while `y` fails cleanly with a helpful reason!
+    const lekki = buildPuzzle(CRAZY_LEKKI);
+    const lekkiXConj = evaluateProgram(lekki, '[x: B A]');
+    const lekkiDirect = evaluateProgram(lekki, "B' A'");
+    expect(lekkiXConj.blocked).toBeUndefined();
+    expect(hashPuzzleState(lekkiXConj.finalState)).toBe(hashPuzzleState(lekkiDirect.finalState));
+    const lekkiBadY = evaluateProgram(lekki, 'y');
+    expect(lekkiBadY.blocked).toBeDefined();
+    expect(lekkiBadY.blocked?.reason).toContain('mirror symmetry');
+
+    // On GigaHex (both x and y symmetry): [y: a] equals b', and fast-forward works on ([y: a B])40!
+    const gigahex = buildPuzzle(GIGAHEX);
+    const ghConj = evaluateProgram(gigahex, '[y: a]');
+    const ghDirect = evaluateProgram(gigahex, "b'");
+    expect(ghConj.blocked).toBeUndefined();
+    expect(hashPuzzleState(ghConj.finalState)).toBe(hashPuzzleState(ghDirect.finalState));
+    const ghFast = evaluateProgram(gigahex, '([y: [a, B]])40');
+    expect(ghFast.blocked).toBeUndefined();
+    expect(ghFast.usedFastForward).toBe(true);
   });
 });

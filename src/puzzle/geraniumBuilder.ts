@@ -969,24 +969,34 @@ export function buildExactCrazyLekkiPieces(spec: PuzzleSpec): Piece[] {
   let prev = -1;
   for (let iter = 0; iter < 8 && regions.length !== prev; iter++) {
     prev = regions.length;
-    // Outer closure (B at 0°/180°): wide 120° on A + 180° on B
-    for (let k = 0; k < 6; k++) {
-      regions = rotateRegionsInside(regions, cAOuter, (2 * Math.PI) / 3);
-      cutAll();
-      regions = rotateRegionsInside(regions, cB, Math.PI);
+    // Propagate all inner-disk cuts symmetrically across all 3 sectors of A at B = 0° (legal move `A`)
+    for (let k = 0; k < 3; k++) {
+      regions = rotateRegionsInside(regions, cAInner, (2 * Math.PI) / 3);
       cutAll();
     }
-    // Inner commutator closure: B (±90°) -> A inner (120°) -> B (∓90°) -> A wide (120°)
+    // Outer closure (B at 0°/180°): wide ±120° on A + 180° on B
+    for (const aDir of [1, -1]) {
+      for (let k = 0; k < 6; k++) {
+        regions = rotateRegionsInside(regions, cAOuter, (aDir * 2 * Math.PI) / 3);
+        cutAll();
+        regions = rotateRegionsInside(regions, cB, Math.PI);
+        cutAll();
+      }
+    }
+    // Inner commutator closure (both ±120° on A so top & bottom sectors are exact mirror twins):
+    // B (±90°) -> A inner (±120°) -> B (∓90°) -> A wide (±120°)
     for (const dir of [1, -1]) {
-      for (let k = 0; k < 3; k++) {
-        regions = rotateRegionsInside(regions, cB, (dir * Math.PI) / 2);
-        cutInner();
-        regions = rotateRegionsInside(regions, cAInner, (2 * Math.PI) / 3);
-        cutInner();
-        regions = rotateRegionsInside(regions, cB, (-dir * Math.PI) / 2);
-        cutAll();
-        regions = rotateRegionsInside(regions, cAOuter, (2 * Math.PI) / 3);
-        cutAll();
+      for (const aDir of [1, -1]) {
+        for (let k = 0; k < 3; k++) {
+          regions = rotateRegionsInside(regions, cB, (dir * Math.PI) / 2);
+          cutInner();
+          regions = rotateRegionsInside(regions, cAInner, (aDir * 2 * Math.PI) / 3);
+          cutInner();
+          regions = rotateRegionsInside(regions, cB, (-dir * Math.PI) / 2);
+          cutAll();
+          regions = rotateRegionsInside(regions, cAOuter, (aDir * 2 * Math.PI) / 3);
+          cutAll();
+        }
       }
     }
   }
@@ -1048,7 +1058,7 @@ export function buildExactGigaHexPieces(spec: PuzzleSpec): Piece[] {
   });
 }
 
-// Cube4you GigaHex Plus: 3 concentric 2-layer 60° circles in equilateral triangle (133 pieces)
+// Cube4you GigaHex Plus: 3 concentric 2-layer 60° circles in equilateral triangle (mirror-symmetric)
 const GIGAHEX_PLUS_SCRIPT = `
 Param: s, 63/sqrt(3)
 Ring: 1,   0,     s, 50, 60
@@ -1057,7 +1067,7 @@ Ring: 3,  31.5, -s/2, 50, 60
 Ring: 4,  31.5, -s/2, 40, 60
 Ring: 5, -31.5, -s/2, 50, 60
 Ring: 6, -31.5, -s/2, 40, 60
-AutoCutParts: (1R,3R,5R),6, (1L,3L,5L),6
+AutoCutParts: (1R,3R,5R),6, (1L,3L,5L),6, (1R,5R,3R),6, (1L,5L,3L),6
 AutoColorParts: 4,4, 5,5, 3,3
 `;
 

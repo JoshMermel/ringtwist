@@ -8,6 +8,7 @@ export type ExprNode =
   | CircleMoveNode
   | NextUnblockedMoveNode
   | RotationMoveNode
+  | MirrorFlipNode
   | MacroCallNode
   | GroupNode
   | CommutatorNode
@@ -45,6 +46,15 @@ export interface RotationMoveNode {
   kind: 'rotation';
   /** Signed symmetry steps (+ CW, - CCW). */
   steps: number;
+  span: Span;
+}
+
+export interface MirrorFlipNode {
+  kind: 'mirrorFlip';
+  /** 'x' = top↔bottom flip around horizontal x-axis; 'y' = left↔right flip around vertical y-axis. */
+  axis: 'x' | 'y';
+  /** Number of 180° flips (odd = flip, even = identity). */
+  count: number;
   span: Span;
 }
 

@@ -73,8 +73,9 @@ export function rotatePoint(p: Point, center: Point, deltaAngle: number): Point 
  * (e.g. -0, 1e-16, or 1.0000000000000002) for canonical hashing.
  */
 export function snapFloat(v: number, quantum = 1e-6): number {
-  const snapped = Math.round(v / quantum) * quantum;
-  return Math.abs(snapped) < quantum * 0.5 ? 0 : snapped;
+  const absSnapped = Math.round(Math.abs(v) / quantum) * quantum;
+  if (absSnapped < quantum * 0.5) return 0;
+  return v < 0 ? -absSnapped : absSnapped;
 }
 
 /**

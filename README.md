@@ -14,7 +14,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 
 - **Analytical 2D Arc-Region Geometry**: Exact circular-arc piece representation (`ArcRegion`), planar DCEL circle slicing, analytical Green's-theorem areas, and zero-drift canonical snapping across 600+ move round-trips.
 - **Twizzle-Style Notation & Non-Doctrinaire Execution**:
-  - Fixed stop turns (`A`, `A2`, `A'`), concentric multi-layer turns using inverted-sphere Twizzle notation (`A` = innermost cap, `a` = wide full circle, `2A` = outer annulus slice), next-unblocked alignment (`A>`, `A<`), and whole-puzzle symmetry rotations (`z`, `z'`) that keep spatial labels `A..Y` fixed on screen.
+  - Fixed stop turns (`A`, `A2`, `A'`), concentric multi-layer turns using inverted-sphere Twizzle notation (`A` = innermost cap, `a` = wide full circle, `2A` = outer annulus slice), next-unblocked alignment (`A>`, `A<`), whole-puzzle symmetry rotations (`z`, `z'`), and mirror flips (`x` top↔bottom, `y` left↔right) that keep spatial labels `A..W` fixed on screen so one macro handles both chiralities via `[x: m]` / `[y: m]`.
   - Commutators `[X, Y]`, conjugates `[X: Y]`, grouping & repeats `(X)3`, algebraic inverses `(...)'`, inline macros `name = expr`, and line comments (`//`, `#`).
   - Stops immediately before a blocked move, underlines the offending token in the editor, and highlights the target circle and every straddling piece on the canvas.
 - **Group-Theory Fast-Forward & Order Analyzer**: Detects shape-preserving permutations (jumping huge repeats in $O(n)$ via cycle powers with exact `BigInt` prime-factor order reduction) and state-hash cycles, plus one-click **Analyze Order** for any algorithm, selection, or macro.
@@ -41,9 +41,9 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | Puzzle | Circles | Pieces | Stops |
 | --- | :---: | :---: | --- |
 | **ThinkFun Moonspinner** | 2 (1 inner + 1 exterior) | 27 | 180° lens / 72° exterior (`turnRegion: 'outside'`) |
-| **Crazy Lekki** | 2 (1× 2-layer + 1) | 37 | 120° (`A`/`2A`/`a`) / 90° (`B`, bandages `2A`) |
+| **Crazy Lekki** | 2 (1× 2-layer + 1) | 43 | 120° (`A`/`2A`/`a`) / 90° (`B`, bandages `2A`) |
 | **GigaHex** | 2 (2-layer) | 105 | 60° (`A`/`2A`/`a`, `B`/`2B`/`b`) |
-| **GigaHex Plus** | 3 (2-layer) | 133 | 60° (7-color RGB/CMY/White Venn) |
+| **GigaHex Plus** | 3 (2-layer) | 139 | 60° (7-color RGB/CMY/White Venn) |
 | **Cube4you OctoCrystal** | 8 | 64 | 45° (8 rainbow arms, 135° jumbling) |
 | **Cube4you 2D – XO** | 2 | 33 | 90° / 180° |
 | **Cube4you UFO 2D (10 Stars)** | 10 | 100 | Uneven `(36°, 108°, ...)` |
@@ -84,6 +84,7 @@ conj = [A: D3]          // Inline macro: A D3 A'
 - `a`, `2A` — On concentric multi-layer circles, lowercase `a` is a **wide** turn (inner + outer layers together) and `2A` turns only the **outer annulus slice**.
 - `A>`, `A<` — Turn CW (`>`) or CCW (`<`) to the **next stop where an overlapping neighbor becomes unblocked**.
 - `z`, `z'` — Rotate the entire puzzle by 1 symmetry step CW/CCW (spatial labels stay fixed).
+- `x`, `y` — Flip the entire puzzle 180° across the horizontal (`x`, top↔bottom) or vertical (`y`, left↔right) mirror axis on mirror-symmetric puzzles (use `[x: m]` / `[y: m]` to apply one macro to both chiralities).
 - `[X, Y]` = `X Y X' Y'` (commutator); `[X: Y]` = `X Y X'` (conjugate).
 
 ---

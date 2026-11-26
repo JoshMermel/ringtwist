@@ -1,6 +1,6 @@
 import { edgeEnd, edgePointAt, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
 import { CircleStatus, MoveLayerSpec, getAllCircleStatuses } from '../puzzle/engine.ts';
-import { CircleDef, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
+import { CircleDef, MirrorAxis, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
 
 function stickerWedgeToSvgPath(s: StickerWedge, decimals = 4): string {
   const fmt = (n: number) => Number(n.toFixed(decimals)).toString();
@@ -41,6 +41,8 @@ export interface TurnAnimationSpec {
   pivot: { x: number; y: number };
   movedPieceIds: number[];
   durationMs: number;
+  /** If set, animates a 180° pancake mirror flip around 'x' (top↔bottom) or 'y' (left↔right). */
+  flipAxis?: MirrorAxis;
 }
 
 export interface SvgRendererCallbacks {
@@ -502,16 +504,33 @@ export class PuzzleSvgRenderer {
     const startTime = performance.now();
     const { x: px, y: py } = anim.pivot;
     const svgPy = -py;
+    let swappedFlipHalf = false;
 
     const tick = (now: number) => {
       const rawT = Math.min(1, (now - startTime) / anim.durationMs);
-      // Cubic ease-out
-      const t = 1 - Math.pow(1 - rawT, 3);
-      const curDeg = anim.angleDeg * t;
-      this.movingLayer.setAttribute(
-        'transform',
-        `rotate(${curDeg.toFixed(3)} ${px.toFixed(4)} ${svgPy.toFixed(4)})`,
-      );
+      if (anim.flipAxis) {
+        // Smooth ease-in-out pancake flip: fold from 1 -> 0, swap to toState at midpoint, unfold 0 -> 1
+        const t = rawT < 0.5 ? 2 * rawT * rawT : 1 - Math.pow(-2 * rawT + 2, 2) / 2;
+        if (t >= 0.5 && !swappedFlipHalf) {
+          swappedFlipHalf = true;
+          this.drawPieces(anim.toState, new Set(), movedSet);
+        }
+        const scale = Math.max(0.001, Math.abs(Math.cos(Math.PI * t)));
+        const sx = anim.flipAxis === 'y' ? scale : 1;
+        const sy = anim.flipAxis === 'x' ? scale : 1;
+        this.movingLayer.setAttribute(
+          'transform',
+          `translate(${px.toFixed(4)} ${svgPy.toFixed(4)}) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(${(-px).toFixed(4)} ${(-svgPy).toFixed(4)})`,
+        );
+      } else {
+        // Cubic ease-out in-plane rotation
+        const t = 1 - Math.pow(1 - rawT, 3);
+        const curDeg = anim.angleDeg * t;
+        this.movingLayer.setAttribute(
+          'transform',
+          `rotate(${curDeg.toFixed(3)} ${px.toFixed(4)} ${svgPy.toFixed(4)})`,
+        );
+      }
 
       if (rawT < 1) {
         this.animFrameId = requestAnimationFrame(tick);
