@@ -43,6 +43,9 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | --- | :---: | :---: | --- |
 | **ThinkFun Moonspinner** | 2 (1 inner + 1 exterior) | 27 | 180° lens / 72° exterior (`turnRegion: 'outside'`) |
 | **Crazy Lekki** | 2 (1× 2-layer + 1) | 43 | 120° (`A`/`2A`/`a`) / 90° (`B`, bandages `2A`) |
+| **Crazy Lotica** | 2 (1× 2-layer + 1) | 24 | 90° (`A`/`2A`/`a`) / 180° (`B`) |
+| **Lotica (Turn’Push)** | 2 | 13 | 90° / 180° (`⟨U, R²⟩` group) |
+| **Trilotica** | 2 | 11 | 120° / 180° |
 | **GigaHex** | 2 (2-layer) | 105 | 60° (`A`/`2A`/`a`, `B`/`2B`/`b`) |
 | **GigaHex Plus** | 3 (2-layer) | 139 | 60° (7-color RGB/CMY/White Venn) |
 | **Cube4you OctoCrystal** | 8 | 64 | 45° (8 rainbow arms, 135° jumbling) |
@@ -50,8 +53,11 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | **Cube4you UFO 2D (10 Stars)** | 10 | 100 | Uneven `(36°, 108°, ...)` |
 | **Roto 36** | 4 (3 outer + 1 central) | 58 | 60° outer / 120° central transfer ring |
 | **Roto 44** | 5 (4 corner + 1 central) | 73 | 90° |
+| **Gripple** | 5 (4 corner + 1 central) | 21 | 90° (16 movable pieces + 5 hubs) |
 | **Bicycle Puzzler** | 2 (unequal) | 51 | 90° large / 45° small |
 | **Rotascope** | 3 | 13 | 60° (heavily bandaged, 502 shape configs) |
+| **Rashkey** | 2 | 33 | 90° (Rashkey 3 colorway) |
+| **Turnstile (Twinspin)** | 2 | 23 | 60° (3-piece overlap lens) |
 | **Bauhinium** | 2 | 28 | 180° / 72° |
 | **Bauhinium Plus** | 3 | 34 | 72° / 180° / 72° |
 | **Pocket Quatrium** | 2 | 35 | 90° |
@@ -72,6 +78,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | **4-Circle Clover** | 4 | 16 | 90° (4 stops) |
 | **6-Circle Hex Flower** | 6 | 66 | 60° (6 stops) |
 | **7-Circle Flower** | 7 (1 center + 6 outer) | 66 | 60° (6 stops) |
+| **3×3 Circle Grid (Whirligig)** | 9 (3×3 lattice) | 33 | 90° (4 stops) |
 
 ---
 

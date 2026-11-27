@@ -1644,6 +1644,364 @@ export const ROTASCOPE_DOC: RingTwistPuzzleDoc = {
   ],
 };
 
+/**
+ * 27. Lotica / Turn'Push (Bagdassarian 1995 / Jose Romero — 90° + 180° intersecting circles, 13 pieces)
+ */
+export const LOTICA_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'lotica',
+  name: 'Lotica (Turn’Push)',
+  category: 'Designer & Exotic',
+  description:
+    'Classic 13-piece Lotica / Turn’Push (Bagdassarian 1995, adapted by José Romero): a 90° red circle (A) and a 180° blue circle (B) at exact r = d spacing (7 triangles + 6 teardrops, isomorphic to Rubik’s Cube ⟨U, R²⟩).',
+  axes: [
+    { id: 'A', cx: -0.5, cy: 0, r: 1, stops: 4, color: '#ef4444' },
+    { id: 'B', cx: 0.5, cy: 0, r: 1, stops: 2, color: '#2563eb' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 6 },
+        { moves: ["A'", 'B'], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#ef4444', B: '#2563eb', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '90°/180° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Classic ⟨U, R²⟩-style commutator swapping teardrops and triangles across the yellow lens',
+    },
+    {
+      name: 'Teardrop 3-cycle (A B A\' B)2',
+      alg: "(A B A' B)2",
+      note: 'Pure 3-cycle of pieces in the 14,400-state Lotica group',
+    },
+  ],
+};
+
+/**
+ * 28. Cube4you Crazy Lotica (Wdoviak & Jose Romero, 2021 — 2-layer 90° + 180° Lotica, 24 pieces)
+ */
+export const CRAZY_LOTICA_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'crazy-lotica',
+  name: 'Crazy Lotica',
+  category: 'Designer & Exotic',
+  description:
+    'Victor Manuel Wdoviak & José Romero’s Cube4you Crazy Lotica (2021): classic 90°/180° Lotica expanded with an internal concentric circle inside A (A inner cap, 2A outer slice, a wide) for 24 pieces and concentric bandaging.',
+  axes: [
+    { id: 'A', cx: -0.5, cy: 0, r: 1, layers: [0.55, 1], stops: 4, color: '#ef4444' },
+    { id: 'B', cx: 0.5, cy: 0, r: 1, stops: 2, color: '#2563eb' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['a', 'B'], repeat: 6 },
+        { moves: ["a'", 'B'], repeat: 6 },
+        { moves: ['A', 'B'], repeat: 6 },
+        { moves: ["A'", 'B'], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#ef4444', B: '#2563eb', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Wide commutator [a, B]',
+      alg: '[a, B]',
+      note: 'Turns the full 2-layer disk a against 180° disk B like standard Lotica',
+    },
+    {
+      name: 'Inner/outer split [2A, B]',
+      alg: '[2A, B]',
+      note: 'Exchanges outer annulus pieces 2A through B while leaving inner cap A fixed',
+    },
+  ],
+};
+
+/**
+ * 29. Trilotica V1 (El_Cubitero, 2022 — 120° + 180° intersecting circles, 11 pieces)
+ */
+export const TRILOTICA_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'trilotica',
+  name: 'Trilotica',
+  category: 'Designer & Exotic',
+  description:
+    'El_Cubitero’s Trilotica V1 (2022): 120° red circle (A) intersecting a 180° blue circle (B) at exact r = d spacing with a 3-piece yellow overlap lens (11 pieces).',
+  axes: [
+    { id: 'A', cx: -0.5, cy: 0, r: 1, stops: 3, color: '#ef4444' },
+    { id: 'B', cx: 0.5, cy: 0, r: 1, stops: 2, color: '#2563eb' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 6 },
+        { moves: ["A'", 'B'], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#ef4444', B: '#2563eb', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '120°/180° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Asymmetric 3-stop / 2-stop commutator across the 3-piece yellow overlap lens',
+    },
+    {
+      name: 'Lens walk (A B)3',
+      alg: '(A B)3',
+      note: 'Alternates 120° and 180° turns to cycle wedges around both disks',
+    },
+  ],
+};
+
+/**
+ * 30. Rashkey (Oleg Raschkov, 1999 — 90° + 90° at d = r, exact 33 pieces in Rashkey 3 colors)
+ */
+export const RASHKEY_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'rashkey',
+  name: 'Rashkey',
+  category: 'Designer & Exotic',
+  description:
+    'Oleg Raschkov’s classic 1999 Rashkey (Rashkey 3 colorway): two 90° overlapping circles at exact d = r spacing forming 33 interlocking squares, diamonds, and triangles (13 red, 7 yellow lens, 13 blue).',
+  symmetryStepDeg: 180,
+  axes: [
+    { id: 'A', cx: -0.5, cy: 0, r: 1, stops: 4, color: '#ef4444' },
+    { id: 'B', cx: 0.5, cy: 0, r: 1, stops: 4, color: '#2563eb' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 6 },
+        { moves: ["A'", "B'"], repeat: 6 },
+        { moves: ['A', "B'"], repeat: 6 },
+        { moves: ["A'", 'B'], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#ef4444', B: '#2563eb', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '90° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Quarter-turn commutator shuffling squares, diamonds, and triangles across the 7-piece lens',
+    },
+    {
+      name: 'Symmetric flip [z: [A, B]]',
+      alg: 'c = [A, B]\n[z: c]',
+      note: 'Applies the commutator rotated 180° to swap A and B',
+    },
+  ],
+};
+
+/**
+ * 31. Turnstile / Puzzler / Twinspin (Douglas A. Engel, 1983 / ThinkFun — 60° shallow-overlap circles, 23 pieces)
+ */
+export const TURNSTILE_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'turnstile',
+  name: 'Turnstile (Twinspin)',
+  category: 'Designer & Exotic',
+  description:
+    'Douglas A. Engel’s 1983 Turnstile (also Puzzler / Twinspin, Binary Arts): two shallow-overlapping 60° disks sharing 3 interlocking corner/edge pieces in the yellow lens around two central hubs (23 pieces).',
+  symmetryStepDeg: 180,
+  axes: [
+    { id: 'A', cx: -0.725, cy: 0, r: 1, stops: 6, color: '#ef4444' },
+    { id: 'B', cx: 0.725, cy: 0, r: 1, stops: 6, color: '#38bdf8' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 8 },
+        { moves: ["A'", "B'"], repeat: 8 },
+        { moves: ['A', "B'"], repeat: 8 },
+        { moves: ["A'", 'B'], repeat: 8 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#ef4444', B: '#38bdf8', AB: '#facc15' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '60° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Exchanges alternating curved corners and edges through the 3-piece Turnstile lens',
+    },
+    {
+      name: '120° Pair [A2, B2]',
+      alg: '[A2, B2]',
+      note: 'Double-step 120° commutator cycling corners without disturbing edge parity',
+    },
+  ],
+};
+
+/**
+ * 32. Gripple (Murray J. Gould, 1988 — 4 non-overlapping 90° corner circles + 1 central 90° circle, 21 pieces)
+ */
+export const GRIPPLE_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'gripple',
+  name: 'Gripple',
+  category: 'Designer & Exotic',
+  description:
+    'Murray J. Gould’s 1988 Gripple in continuous 2D circle form: 4 non-overlapping 90° corner rotors (A–D) coupled by 1 central 90° rotor (E), cycling 16 movable pieces across 4 colored quadrants (21 pieces including 5 center hubs).',
+  symmetryStepDeg: 90,
+  params: {
+    s: 1.05,
+  },
+  axes: [
+    {
+      ring: {
+        ids: 'ABCD',
+        centerRadius: 's * sqrt2',
+        r: 1,
+        startAngleDeg: 135,
+        stops: 4,
+        colors: ['#2563eb', '#facc15', '#16a34a', '#ef4444'],
+      },
+    },
+    { id: 'E', cx: 0, cy: 0, r: 1, stops: 4, color: '#f8fafc' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D', 'E'], repeat: 4 },
+        { moves: ["A'", "B'", "C'", "D'", "E'"], repeat: 4 },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#f8fafc' },
+    {
+      type: 'region',
+      inside: ['A'],
+      repeatSymmetry: {
+        count: 4,
+        colors: ['#2563eb', '#facc15', '#16a34a', '#ef4444'],
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '3-cycle commutator [A, E]',
+      alg: '[A, E]',
+      note: 'Classic Gripple 3-cycle exchanging three quadrant pieces via central rotor E',
+    },
+    {
+      name: '4-fold symmetry [z: [A, E]]',
+      alg: 'c = [A, E]\n[z: c]',
+      note: 'Applies the 3-cycle rotated 90° CW around the square',
+    },
+  ],
+};
+
+/**
+ * 33. 3×3 Circle Grid / Whirligig (Jaap Scherphuis — 9 overlapping 90° circles in a 3×3 square lattice, 33 pieces)
+ */
+export const WHIRLIGIG_3X3_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'whirligig-3x3',
+  name: '3×3 Circle Grid (Whirligig)',
+  category: 'Classic Circles',
+  description:
+    'Nine overlapping 90° circles (A–I) arranged in a 3×3 square lattice at exact d = √2 spacing, forming 33 clean unbandaged regions ideal for multi-circle commutators.',
+  symmetryStepDeg: 90,
+  params: {
+    d: 'sqrt2',
+  },
+  axes: [
+    { id: 'A', cx: '-d', cy: 'd', r: 1, stops: 4, color: '#ef4444' },
+    { id: 'B', cx: 0, cy: 'd', r: 1, stops: 4, color: '#f97316' },
+    { id: 'C', cx: 'd', cy: 'd', r: 1, stops: 4, color: '#facc15' },
+    { id: 'D', cx: '-d', cy: 0, r: 1, stops: 4, color: '#ec4899' },
+    { id: 'E', cx: 0, cy: 0, r: 1, stops: 4, color: '#f8fafc' },
+    { id: 'F', cx: 'd', cy: 0, r: 1, stops: 4, color: '#84cc16' },
+    { id: 'G', cx: '-d', cy: '-d', r: 1, stops: 4, color: '#9333ea' },
+    { id: 'H', cx: 0, cy: '-d', r: 1, stops: 4, color: '#38bdf8' },
+    { id: 'I', cx: 'd', cy: '-d', r: 1, stops: 4, color: '#16a34a' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 6,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'], repeat: 4 },
+        { moves: ["A'", "B'", "C'", "D'", "E'", "F'", "G'", "H'", "I'"], repeat: 4 },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#cbd5e1' },
+    { type: 'region', inside: ['A'], memberCount: 1, color: '#ef4444' },
+    { type: 'region', inside: ['B'], memberCount: 1, color: '#f97316' },
+    { type: 'region', inside: ['C'], memberCount: 1, color: '#facc15' },
+    { type: 'region', inside: ['D'], memberCount: 1, color: '#ec4899' },
+    { type: 'region', inside: ['E'], memberCount: 1, color: '#f8fafc' },
+    { type: 'region', inside: ['F'], memberCount: 1, color: '#84cc16' },
+    { type: 'region', inside: ['G'], memberCount: 1, color: '#9333ea' },
+    { type: 'region', inside: ['H'], memberCount: 1, color: '#38bdf8' },
+    { type: 'region', inside: ['I'], memberCount: 1, color: '#16a34a' },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Center commutator [E, B]',
+      alg: '[E, B]',
+      note: 'Commutes center circle E with top-middle circle B across their shared lens',
+    },
+    {
+      name: 'Perimeter swirl (A B C F I H G D)',
+      alg: 'A B C F I H G D',
+      note: 'Quarter-turns every outer circle clockwise around the 3×3 lattice',
+    },
+  ],
+};
+
 /** Starter templates shown in the Custom Puzzle JSON Studio. */
 export const CUSTOM_PUZZLE_TEMPLATES: { label: string; doc: RingTwistPuzzleDoc }[] = [
   {

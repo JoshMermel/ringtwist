@@ -5,25 +5,32 @@ import { buildPuzzle } from './builder.ts';
 import {
   BICYCLE_PUZZLER,
   CRAZY_LEKKI,
+  CRAZY_LOTICA,
   CUBE4YOU_XO,
   GERANIUM_PLUS,
   GERANIUM_STANDARD,
   GIGAHEX,
   GIGAHEX_PLUS,
+  GRIPPLE,
+  LOTICA,
   MINI_GERANIUM,
   MINI_GERANIUM_PLUS,
   MOONSPINNER,
   OCTOCRYSTAL,
   POCKET_GERANIUM,
   PUZZLE_CATALOG,
+  RASHKEY,
   ROTASCOPE,
   ROTO_36,
   ROTO_44,
   SUPER_GERANIUM,
   SUPER_GERANIUM_PLUS,
+  TRILOTICA,
+  TURNSTILE,
   TWIN_RINGS,
   TWO_CIRCLE_VENN,
   UFO_2D,
+  WHIRLIGIG_3X3,
 } from './catalog.ts';
 import { PHI } from './geraniumBuilder.ts';
 import {
@@ -282,6 +289,12 @@ describe('puzzle catalog & Geranium geometry', () => {
       'roto-36': { pieces: 58, mirror: ['y'] },
       'roto-44': { pieces: 73, mirror: ['x', 'y'] },
       'bicycle-puzzler': { pieces: 51, mirror: ['x'] },
+      lotica: { pieces: 13, mirror: ['x'] },
+      trilotica: { pieces: 11, mirror: ['x'] },
+      rashkey: { pieces: 33, mirror: ['x', 'y'] },
+      turnstile: { pieces: 23, mirror: ['x', 'y'] },
+      gripple: { pieces: 21, mirror: ['x', 'y'] },
+      'whirligig-3x3': { pieces: 33, mirror: ['x', 'y'] },
     };
 
     for (const [id, exp] of Object.entries(expected)) {
@@ -328,6 +341,36 @@ describe('puzzle catalog & Geranium geometry', () => {
     expect(bike.pieces.filter((p) => p.color === '#38bdf8').length).toBe(27);
     expect(bike.pieces.filter((p) => p.color === '#f8fafc').length).toBe(10);
     expect(bike.pieces.filter((p) => p.color === '#f97316').length).toBe(14);
+
+    // Classic additions: exact piece & color counts
+    const lotica = buildPuzzle(LOTICA);
+    expect(lotica.pieces.length).toBe(13);
+    expect(lotica.pieces.filter((p) => p.color === '#facc15').length).toBe(3);
+
+    const crazyLotica = buildPuzzle(CRAZY_LOTICA);
+    expect(crazyLotica.pieces.length).toBe(24);
+    expect(getSupportedMirrorAxes(crazyLotica)).toEqual(['x']);
+
+    const trilotica = buildPuzzle(TRILOTICA);
+    expect(trilotica.pieces.length).toBe(11);
+    expect(trilotica.pieces.filter((p) => p.color === '#facc15').length).toBe(3);
+
+    const rashkey = buildPuzzle(RASHKEY);
+    expect(rashkey.pieces.length).toBe(33);
+    expect(rashkey.pieces.filter((p) => p.color === '#ef4444').length).toBe(13);
+    expect(rashkey.pieces.filter((p) => p.color === '#facc15').length).toBe(7);
+    expect(rashkey.pieces.filter((p) => p.color === '#2563eb').length).toBe(13);
+
+    const turnstile = buildPuzzle(TURNSTILE);
+    expect(turnstile.pieces.length).toBe(23);
+    expect(turnstile.pieces.filter((p) => p.color === '#facc15').length).toBe(3);
+
+    const gripple = buildPuzzle(GRIPPLE);
+    expect(gripple.pieces.length).toBe(21);
+    expect(gripple.pieces.filter((p) => p.color === '#f8fafc').length).toBe(1);
+
+    const grid3x3 = buildPuzzle(WHIRLIGIG_3X3);
+    expect(grid3x3.pieces.length).toBe(33);
 
     // Rotascope: 13 pieces = 1 Heart + 3 Points + 9 congruent Shields, mirror=[y], non-doctrinaire blocking
     const rota = buildPuzzle(ROTASCOPE);

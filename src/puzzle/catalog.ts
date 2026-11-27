@@ -6,26 +6,33 @@ import {
   BICYCLE_PUZZLER_DOC,
   COHAN_CIRCLE_DOC,
   CRAZY_LEKKI_DOC,
+  CRAZY_LOTICA_DOC,
   CUBE4YOU_XO_DOC,
   ELIAC_DOC,
   FOMALHAUT_DOC,
   FOUR_CIRCLE_CLOVER_DOC,
   GIGAHEX_DOC,
   GIGAHEX_PLUS_DOC,
+  GRIPPLE_DOC,
+  LOTICA_DOC,
   MIMOSA_DOC,
   MOONSPINNER_DOC,
   OCTOCRYSTAL_DOC,
   POCKET_QUATRIUM_DOC,
   POCKET_QUATRIUM_PLUS_DOC,
+  RASHKEY_DOC,
   ROTASCOPE_DOC,
   ROTO_36_DOC,
   ROTO_44_DOC,
   SEVEN_CIRCLE_FLOWER_DOC,
   SIX_CIRCLE_HEX_DOC,
   THREE_CIRCLE_CLOVER_DOC,
+  TRILOTICA_DOC,
+  TURNSTILE_DOC,
   TWIN_RINGS_DOC,
   TWO_CIRCLE_VENN_DOC,
   UFO_2D_DOC,
+  WHIRLIGIG_3X3_DOC,
 } from './definitions.ts';
 import { compileRingTwistDoc } from './formatBuilder.ts';
 import {
@@ -500,6 +507,41 @@ export const BICYCLE_PUZZLER: PuzzleSpec = compileRingTwistDoc(BICYCLE_PUZZLER_D
  */
 export const ROTASCOPE: PuzzleSpec = compileRingTwistDoc(ROTASCOPE_DOC);
 
+/**
+ * 35. Lotica / Turn'Push (Bagdassarian 1995 / Jose Romero) — compiled natively from ringtwist/v1 (13 pcs, mirror=[x])
+ */
+export const LOTICA: PuzzleSpec = compileRingTwistDoc(LOTICA_DOC);
+
+/**
+ * 36. Crazy Lotica (Wdoviak & Jose Romero, 2021) — compiled natively from ringtwist/v1 (24 pcs, mirror=[x])
+ */
+export const CRAZY_LOTICA: PuzzleSpec = compileRingTwistDoc(CRAZY_LOTICA_DOC);
+
+/**
+ * 37. Trilotica V1 (El_Cubitero, 2022) — compiled natively from ringtwist/v1 (11 pcs, mirror=[x])
+ */
+export const TRILOTICA: PuzzleSpec = compileRingTwistDoc(TRILOTICA_DOC);
+
+/**
+ * 38. Rashkey (Oleg Raschkov, 1999) — compiled natively from ringtwist/v1 (33 pcs, mirror=[x,y])
+ */
+export const RASHKEY: PuzzleSpec = compileRingTwistDoc(RASHKEY_DOC);
+
+/**
+ * 39. Turnstile / Twinspin (Douglas A. Engel, 1983) — compiled natively from ringtwist/v1 (23 pcs, mirror=[x,y])
+ */
+export const TURNSTILE: PuzzleSpec = compileRingTwistDoc(TURNSTILE_DOC);
+
+/**
+ * 40. Gripple (Murray J. Gould, 1988) — compiled natively from ringtwist/v1 (21 pcs, mirror=[x,y])
+ */
+export const GRIPPLE: PuzzleSpec = compileRingTwistDoc(GRIPPLE_DOC);
+
+/**
+ * 41. 3×3 Circle Grid / Whirligig (Jaap Scherphuis) — compiled natively from ringtwist/v1 (33 pcs, mirror=[x,y])
+ */
+export const WHIRLIGIG_3X3: PuzzleSpec = compileRingTwistDoc(WHIRLIGIG_3X3_DOC);
+
 export const PUZZLE_CATALOG: PuzzleSpec[] = [
   GERANIUM_PLUS,
   GERANIUM_STANDARD,
@@ -510,6 +552,9 @@ export const PUZZLE_CATALOG: PuzzleSpec[] = [
   MINI_GERANIUM,
   MOONSPINNER,
   CRAZY_LEKKI,
+  CRAZY_LOTICA,
+  LOTICA,
+  TRILOTICA,
   GIGAHEX,
   GIGAHEX_PLUS,
   OCTOCRYSTAL,
@@ -517,8 +562,11 @@ export const PUZZLE_CATALOG: PuzzleSpec[] = [
   UFO_2D,
   ROTO_36,
   ROTO_44,
+  GRIPPLE,
   BICYCLE_PUZZLER,
   ROTASCOPE,
+  RASHKEY,
+  TURNSTILE,
   BAUHINIUM,
   BAUHINIUM_PLUS,
   POCKET_QUATRIUM,
@@ -535,6 +583,7 @@ export const PUZZLE_CATALOG: PuzzleSpec[] = [
   FOUR_CIRCLE_CLOVER,
   SIX_CIRCLE_HEX,
   SEVEN_CIRCLE_FLOWER,
+  WHIRLIGIG_3X3,
 ];
 
 export function getPuzzleSpec(id: string): PuzzleSpec {
