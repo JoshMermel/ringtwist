@@ -8,6 +8,7 @@ const CUSTOM_PUZZLES_KEY = 'ringtwist:custom-puzzles:v1';
 const EXPLORE_SESSION_PREFIX = 'ringtwist:explore:v1:';
 const SOLVE_SESSION_PREFIX = 'ringtwist:solve:v1:';
 const UI_MODE_KEY = 'ringtwist:ui-mode:v1';
+const LAST_PUZZLE_KEY = 'ringtwist:last-puzzle:v1';
 
 export type UiMode = 'explorer' | 'solve';
 
@@ -107,6 +108,23 @@ export function saveUiMode(mode: UiMode): void {
   }
 }
 
+export function loadLastPuzzleId(): string | null {
+  try {
+    const raw = localStorage.getItem(LAST_PUZZLE_KEY);
+    return raw && raw.trim().length > 0 ? raw.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastPuzzleId(puzzleId: string): void {
+  try {
+    localStorage.setItem(LAST_PUZZLE_KEY, puzzleId);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function loadExploreSession(puzzleId: string): ExploreSession | null {
   try {
     const raw = localStorage.getItem(EXPLORE_SESSION_PREFIX + puzzleId);
@@ -191,6 +209,8 @@ function fromBase64Url(encoded: string): string {
 export interface SharedPayload {
   puzzleId: string;
   alg: string;
+  /** True only when the URL explicitly carried an `a=` algorithm parameter. */
+  hasSharedAlg?: boolean;
   macros?: MacroLibraryEntry[];
   customDoc?: RingTwistPuzzleDoc;
   scrambleSeed?: string;
@@ -255,6 +275,7 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     return {
       puzzleId,
       alg,
+      ...(algRaw !== null ? { hasSharedAlg: true } : {}),
       macros,
       customDoc,
       ...(seedRaw ? { scrambleSeed: seedRaw } : {}),

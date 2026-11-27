@@ -51,11 +51,13 @@ import {
   encodeShareHash,
   loadCustomPuzzles,
   loadExploreSession,
+  loadLastPuzzleId,
   loadMacros,
   loadSolveSession,
   loadUiMode,
   saveCustomPuzzles,
   saveExploreSession,
+  saveLastPuzzleId,
   saveMacros,
   saveSolveSession,
   saveUiMode,
@@ -200,15 +202,24 @@ class RingTwistApp {
       this.upsertCustomDoc(shared.customDoc, true);
     }
 
-    const initialSpec = this.findPuzzleSpec(shared?.puzzleId ?? 'geranium-plus');
+    const initialSpec = this.findPuzzleSpec(
+      shared?.puzzleId ?? loadLastPuzzleId() ?? 'geranium-plus',
+    );
     this.currentSpec = initialSpec;
+    saveLastPuzzleId(initialSpec.id);
+    if (!shared) {
+      window.history.replaceState(null, '', `#p=${encodeURIComponent(initialSpec.id)}`);
+    }
     this.solvedState = this.getOrBuildPuzzle(initialSpec);
     this.scrambleState = this.solvedState;
     this.macros = shared?.macros ?? loadMacros(initialSpec.id);
 
-    // Determine initial mode: shared link with seed opens Solve Mode; shared without seed opens Explore Mode
-    if (shared) {
-      this.uiMode = shared.scrambleSeed ? 'solve' : 'explorer';
+    // Determine initial mode: shared link with seed opens Solve Mode; shared with alg opens Explore Mode;
+    // bare `#p=<id>` preserves the user's saved mode and sessions.
+    if (shared?.scrambleSeed) {
+      this.uiMode = 'solve';
+    } else if (shared?.hasSharedAlg) {
+      this.uiMode = 'explorer';
     } else {
       this.uiMode = loadUiMode();
     }
@@ -262,14 +273,14 @@ class RingTwistApp {
 
   private loadPuzzleSessions(
     puzzleId: string,
-    shared?: { alg: string; scrambleSeed?: string; scrambleMoves?: number },
+    shared?: { alg: string; hasSharedAlg?: boolean; scrambleSeed?: string; scrambleMoves?: number },
   ): void {
     const savedExplore = loadExploreSession(puzzleId);
     const savedSolve = loadSolveSession(puzzleId);
 
     // Explore state
     this.exploreAlg =
-      shared && !shared.scrambleSeed ? shared.alg : (savedExplore?.alg ?? '');
+      shared && shared.hasSharedAlg && !shared.scrambleSeed ? shared.alg : (savedExplore?.alg ?? '');
 
     // Solve state: hydrate from share hash, or localStorage, or auto-roll a fresh scramble
     if (shared && shared.scrambleSeed) {
@@ -397,9 +408,14 @@ class RingTwistApp {
     this.clearCyclePreview();
 
     this.currentSpec = this.findPuzzleSpec(shared.puzzleId);
+    saveLastPuzzleId(this.currentSpec.id);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = shared.macros ?? loadMacros(this.currentSpec.id);
-    this.uiMode = shared.scrambleSeed ? 'solve' : 'explorer';
+    if (shared.scrambleSeed) {
+      this.uiMode = 'solve';
+    } else if (shared.hasSharedAlg) {
+      this.uiMode = 'explorer';
+    }
     this.loadPuzzleSessions(this.currentSpec.id, shared);
     this.lastMacroListKey = '';
 
@@ -412,7 +428,14 @@ class RingTwistApp {
       this.rebuildCommittedStack();
     }
     this.reevaluate(true, { suppressAutoStart: true });
-    this.showToast(`Loaded shared ${this.currentSpec.name} state`);
+    const hasPayload = Boolean(
+      shared.scrambleSeed || shared.hasSharedAlg || shared.macros || shared.customDoc,
+    );
+    this.showToast(
+      hasPayload
+        ? `Loaded shared ${this.currentSpec.name} state`
+        : `Switched to ${this.currentSpec.name}`,
+    );
   }
 
   private getOrBuildPuzzle(spec: PuzzleSpec): PuzzleState {
@@ -1547,6 +1570,8 @@ class RingTwistApp {
     this.clearCyclePreview();
 
     this.currentSpec = this.findPuzzleSpec(puzzleId);
+    saveLastPuzzleId(this.currentSpec.id);
+    window.history.replaceState(null, '', `#p=${encodeURIComponent(this.currentSpec.id)}`);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = loadMacros(this.currentSpec.id);
     this.loadPuzzleSessions(this.currentSpec.id);
