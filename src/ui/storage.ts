@@ -148,7 +148,7 @@ export function loadSolveSession(puzzleId: string): SolveSession | null {
       seed: parsed.seed,
       scrambleMoves:
         typeof parsed.scrambleMoves === 'number' && Number.isFinite(parsed.scrambleMoves)
-          ? Math.max(4, Math.min(80, Math.round(parsed.scrambleMoves)))
+          ? Math.max(1, Math.min(1000, Math.round(parsed.scrambleMoves)))
           : 20,
       milestones,
       activeAlg: typeof parsed.activeAlg === 'string' ? parsed.activeAlg : '',
@@ -249,7 +249,7 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     }
     const parsedMoves = movesRaw ? parseInt(movesRaw, 10) : NaN;
     const scrambleMoves =
-      Number.isFinite(parsedMoves) && parsedMoves >= 1 && parsedMoves <= 120
+      Number.isFinite(parsedMoves) && parsedMoves >= 1 && parsedMoves <= 1000
         ? parsedMoves
         : undefined;
     return {

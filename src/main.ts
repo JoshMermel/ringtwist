@@ -254,7 +254,7 @@ class RingTwistApp {
 
   private computeScrambleState(solved: PuzzleState, seed: string, moves: number): PuzzleState {
     const clean = seed.trim() || rollRandomSeed();
-    const clamped = Math.max(4, Math.min(80, Math.round(moves) || 20));
+    const clamped = Math.max(1, Math.min(1000, Math.round(moves) || 20));
     const seq = generateScramble(solved, clamped, clean);
     const ev = evaluateProgram(solved, seq);
     return ev.finalState;
@@ -496,13 +496,11 @@ class RingTwistApp {
           <button type="button" class="book-btn" id="puzzle-picker-btn" title="Choose a puzzle">
             <span class="book-btn-dot"></span>
             <span class="book-btn-name" id="puzzle-picker-name"></span>
-            <span class="book-btn-meta" id="puzzle-picker-meta"></span>
           </button>
           <div class="mode-toggle" role="group" aria-label="Workspace mode">
             <button type="button" class="mode-btn" id="btn-mode-explorer" data-mode="explorer" title="Explore Mode: start solved, write move sequences, analyze orders">Explore</button>
             <button type="button" class="mode-btn" id="btn-mode-solve" data-mode="solve" title="Solve Mode: start scrambled from a seed, commit moves onto a milestone stack">Solve</button>
           </div>
-          <button class="btn" id="btn-reset" title="Clear current moves">Reset</button>
           <button class="btn" id="btn-share" title="Copy shareable link">Share</button>
           <button class="btn btn-primary" id="btn-help" title="Notation and controls guide">? Help</button>
         </div>
@@ -690,28 +688,6 @@ class RingTwistApp {
 
     this.modeExplorerBtn.addEventListener('click', () => this.switchUiMode('explorer'));
     this.modeSolveBtn.addEventListener('click', () => this.switchUiMode('solve'));
-
-    root.querySelector('#btn-reset')!.addEventListener('click', () => {
-      this.stopPlayback();
-      this.hideAnalysisBanner();
-      if (this.uiMode === 'solve') {
-        const cur = this.editor.getValue();
-        if (cur.trim().length > 0) {
-          this.pushSolveUndoSnapshot();
-          this.editor.setValue('');
-          this.solveActiveAlg = '';
-          this.reevaluate(true, { suppressAutoStart: true });
-          this.showToast('Cleared current moves (committed milestones preserved)');
-        } else {
-          this.showToast('Active moves already empty — edit Seed or click 🎲 in Solve Stack to re-scramble');
-        }
-      } else {
-        this.editor.setValue('');
-        this.exploreAlg = '';
-        this.reevaluate(true, { suppressAutoStart: true });
-        this.showToast('Reset Explore sequence');
-      }
-    });
 
     root.querySelector('#btn-share')!.addEventListener('click', () => {
       this.shareCurrentState();
@@ -992,12 +968,6 @@ class RingTwistApp {
     if (titleEl) {
       titleEl.textContent = isSolve ? 'Current Moves' : 'Algorithm & Script';
     }
-    const resetBtn = document.querySelector<HTMLButtonElement>('#btn-reset');
-    if (resetBtn) {
-      resetBtn.title = isSolve
-        ? 'Clear current move textbox (committed milestones stay safe)'
-        : 'Clear sequence and reset to solved';
-    }
   }
 
   private switchUiMode(mode: UiMode): void {
@@ -1136,7 +1106,7 @@ class RingTwistApp {
 
   private applySolveScramble(seed: string, moves: number): void {
     const cleanSeed = seed.trim() || rollRandomSeed();
-    const clampedMoves = Math.max(4, Math.min(80, Math.round(moves) || 20));
+    const clampedMoves = Math.max(1, Math.min(1000, Math.round(moves) || 20));
     this.stopPlayback();
     this.hideAnalysisBanner();
     this.clearCyclePreview();
@@ -1262,7 +1232,7 @@ class RingTwistApp {
       </div>
       <form class="stack-seed-form" id="stack-seed-form">
         <input type="text" class="stack-seed-input" id="stack-seed-input" value="${escapeHtml(this.solveSeed)}" autocomplete="off" spellcheck="false" placeholder="seed" title="Editable scramble seed" />
-        <input type="number" class="stack-moves-input" id="stack-moves-input" min="4" max="80" value="${this.solveScrambleMoves}" title="Scramble move count" aria-label="Scramble moves" />
+        <input type="number" class="stack-moves-input" id="stack-moves-input" min="1" max="1000" value="${this.solveScrambleMoves}" title="Scramble move count (1–1000)" aria-label="Scramble moves" />
         <button type="button" class="btn btn-sm" id="btn-stack-rand" title="Roll a new random scramble seed">🎲</button>
         <button type="submit" class="btn btn-primary btn-sm" id="btn-stack-apply" title="Re-scramble using this seed">Apply</button>
       </form>
@@ -1418,12 +1388,10 @@ class RingTwistApp {
 
   private syncPuzzleButton(): void {
     const nameEl = this.puzzleBtnEl.querySelector('#puzzle-picker-name')!;
-    const metaEl = this.puzzleBtnEl.querySelector('#puzzle-picker-meta')!;
     nameEl.textContent = this.currentSpec.name;
-    metaEl.textContent = `${this.currentSpec.circles.length}c · ${this.solvedState.pieces.length}p`;
     this.puzzleBtnEl.setAttribute(
       'aria-label',
-      `Puzzle: ${this.currentSpec.name} (${this.solvedState.pieces.length} pieces). Choose a puzzle`,
+      `Puzzle: ${this.currentSpec.name}. Choose a puzzle`,
     );
 
     const hasSym = this.currentSpec.symmetryStepDeg > 0;

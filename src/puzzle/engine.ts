@@ -834,23 +834,56 @@ export function generateScramble(
     return specs;
   };
 
+  const isNeighborPlayable = (st: PuzzleState, nb: CircleDef): boolean => {
+    if (!isCircleBlocked(st, nb)) return true;
+    if (nb.layerRadii && nb.layerRadii.length > 1) {
+      return !isCircleBlocked(st, nb, { layer: 1 });
+    }
+    return false;
+  };
+
   let cur = initialState;
   let lastCircle = '';
   let lastSteps = 0;
+  const turnCounts = new Map<string, number>();
+  for (const c of initialState.spec.circles) turnCounts.set(c.id, 0);
   const tokens: string[] = [];
+
+  type CandidateMove = { cid: string; layerOpt: MoveLayerSpec; steps: number; next: PuzzleState };
 
   for (let i = 0; i < moveCount; i++) {
     const statuses = getAllCircleStatuses(cur);
     const allCircles = cur.spec.circles;
 
-    // Collect legal (circle, layerOpt, steps) turns that keep at least one other circle unblocked
-    const goodMoves: { cid: string; layerOpt: MoveLayerSpec; steps: number; next: PuzzleState }[] = [];
-    const fallbackMoves: { cid: string; layerOpt: MoveLayerSpec; steps: number; next: PuzzleState }[] = [];
+    // Order circles with inverse-frequency weighting (skipping lastCircle first) so all regions
+    // of large/multi-ring puzzles get mixed evenly and we only evaluate moves until a circle
+    // yields an overlapping-neighbor-preserving turn (Tier 1).
+    const sortByWeightedRand = (list: CircleDef[]): CircleDef[] =>
+      list
+        .map((c) => {
+          const cnt = turnCounts.get(c.id) ?? 0;
+          const weight = 1 / ((1 + cnt) * (1 + cnt));
+          const key = Math.pow(Math.max(rand(), 1e-12), 1 / weight);
+          return { c, key };
+        })
+        .sort((a, b) => b.key - a.key)
+        .map((entry) => entry.c);
 
-    const orderedCircles = allCircles.filter((c) => c.id !== lastCircle);
-    const candidateCircles = orderedCircles.length > 0 ? orderedCircles : allCircles;
+    const otherCircles = allCircles.filter((c) => c.id !== lastCircle);
+    const lastCircleList = allCircles.filter((c) => c.id === lastCircle);
+    const orderedCircles = [
+      ...sortByWeightedRand(otherCircles),
+      ...lastCircleList,
+    ];
 
-    for (const c of candidateCircles) {
+    let chosen: CandidateMove | null = null;
+    const otherFreeMoves: CandidateMove[] = [];
+    const fallbackMoves: CandidateMove[] = [];
+
+    for (const c of orderedCircles) {
+      const hasMultiLayer = Boolean(c.layerRadii && c.layerRadii.length > 1);
+      if (!hasMultiLayer && statuses[c.id].blocked) continue;
+
       const n = c.stopsDeg.length;
       const maxHalf = Math.floor(n / 2);
       const curIdx = cur.circleStopIndex[c.id] ?? 0;
@@ -858,6 +891,8 @@ export function generateScramble(
         .get(c.id)!
         .some((oid) => !statuses[oid].blocked);
       const neighbors = overlapMap.get(c.id)!;
+
+      const overlapGood: CandidateMove[] = [];
 
       for (const layerOpt of layerSpecsFor(c)) {
         const layerStatus =
@@ -875,28 +910,41 @@ export function generateScramble(
             const res = turnCircleByAngle(cur, c.id, deltaDeg, nextStopIdx, insideIds, layerOpt);
             if (!res.ok) continue;
 
-            const otherFree =
-              nonOverlappingOtherFree ||
-              neighbors.some((nb) => !isCircleBlocked(res.nextState, nb));
+            const cand: CandidateMove = {
+              cid: c.id,
+              layerOpt,
+              steps: signedSteps,
+              next: res.nextState,
+            };
 
-            if (otherFree) {
-              goodMoves.push({ cid: c.id, layerOpt, steps: signedSteps, next: res.nextState });
+            if (neighbors.some((nb) => isNeighborPlayable(res.nextState, nb))) {
+              overlapGood.push(cand);
+            } else if (nonOverlappingOtherFree) {
+              otherFreeMoves.push(cand);
             } else {
-              fallbackMoves.push({ cid: c.id, layerOpt, steps: signedSteps, next: res.nextState });
+              fallbackMoves.push(cand);
             }
           }
         }
       }
+
+      if (overlapGood.length > 0) {
+        chosen = overlapGood[Math.floor(rand() * overlapGood.length)];
+        break;
+      }
     }
 
-    const pool = goodMoves.length > 0 ? goodMoves : fallbackMoves;
-    if (pool.length === 0) break;
+    if (!chosen) {
+      const pool = otherFreeMoves.length > 0 ? otherFreeMoves : fallbackMoves;
+      if (pool.length === 0) break;
+      chosen = pool[Math.floor(rand() * pool.length)];
+    }
 
-    const pick = pool[Math.floor(rand() * pool.length)];
-    cur = pick.next;
-    lastCircle = pick.cid;
-    lastSteps = pick.steps;
-    tokens.push(formatMoveToken(pick.cid, pick.steps, pick.layerOpt));
+    cur = chosen.next;
+    lastCircle = chosen.cid;
+    lastSteps = chosen.steps;
+    turnCounts.set(chosen.cid, (turnCounts.get(chosen.cid) ?? 0) + 1);
+    tokens.push(formatMoveToken(chosen.cid, chosen.steps, chosen.layerOpt));
   }
 
   return tokens.join(' ');
