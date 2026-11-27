@@ -528,6 +528,7 @@ function circlesMatchMirrored(
 ): boolean {
   if (Math.abs(a.r - b.r) > 1e-3) return false;
   if ((a.turnRegion ?? 'inside') !== (b.turnRegion ?? 'inside')) return false;
+  if (Boolean(a.discovered) !== Boolean(b.discovered)) return false;
   const la = a.layerRadii ?? [];
   const lb = b.layerRadii ?? [];
   if (la.length !== lb.length) return false;

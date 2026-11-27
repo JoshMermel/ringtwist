@@ -200,11 +200,13 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
         const metaEl = document.createElement('span');
         metaEl.className = 'bp-card-meta';
         const stopDesc = describeStops(spec);
-        const parts = [
-          `${spec.circles.length} circles`,
-          `${pieceCount} pieces`,
-          stopDesc,
-        ].filter(Boolean);
+        const primaryCount = spec.circles.filter((c) => !c.discovered).length;
+        const discoveredCount = spec.circles.length - primaryCount;
+        const circleDesc =
+          discoveredCount > 0
+            ? `${primaryCount} circles + ${discoveredCount} discovered`
+            : `${primaryCount} circles`;
+        const parts = [circleDesc, `${pieceCount} pieces`, stopDesc].filter(Boolean);
         metaEl.textContent = parts.join(' · ');
 
         info.append(nameRow, blurbEl, metaEl);

@@ -238,6 +238,12 @@ button {
   color: #7dd3fc;
 }
 
+.pill-discovered {
+  background: rgba(251, 191, 36, 0.16);
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #fde68a;
+}
+
 .circle-chips {
   display: flex;
   align-items: center;
@@ -265,6 +271,12 @@ button {
 .circle-chip.free {
   border-color: rgba(34, 197, 94, 0.55);
   color: #bbf7d0;
+}
+
+.circle-chip.discovered {
+  border-color: rgba(251, 191, 36, 0.75);
+  background: rgba(251, 191, 36, 0.14);
+  color: #fde68a;
 }
 
 .circle-chip.blocked {
@@ -399,6 +411,18 @@ button {
 
 .circle-rim.free {
   stroke: rgba(255, 255, 255, 0.16);
+}
+
+.circle-rim.discovered-free {
+  stroke: #fbbf24;
+  stroke-width: 0.044;
+  stroke-dasharray: 0.11 0.065;
+  filter: drop-shadow(0 0 0.04px rgba(251, 191, 36, 0.8));
+}
+
+.circle-label-bg.discovered {
+  fill: rgba(24, 18, 8, 0.94);
+  stroke-width: 0.032;
 }
 
 .circle-rim.blocked {

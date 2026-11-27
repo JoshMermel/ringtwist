@@ -270,7 +270,7 @@ export const OCTOCRYSTAL_DOC: RingTwistPuzzleDoc = {
   name: 'Cube4you OctoCrystal',
   category: 'Designer & Exotic',
   description:
-    'Cube4you OctoCrystal: 8 overlapping 45° circles with 8 swirling rainbow arms, 64 pieces, and 135° jumbling moves.',
+    'Cube4you OctoCrystal: 8 overlapping 45° circles (A–H) with 8 swirling rainbow arms, 64 pieces, 135° jumbling moves, and 8 emergent internal discovered grips (I–P) that light up whenever interior arcs align.',
   symmetryStepDeg: 45,
   axes: [
     {
@@ -280,6 +280,26 @@ export const OCTOCRYSTAL_DOC: RingTwistPuzzleDoc = {
         r: 1,
         startAngleDeg: 135,
         stops: 8,
+        colors: [
+          '#ef4444',
+          '#f472b6',
+          '#9333ea',
+          '#1d4ed8',
+          '#06b6d4',
+          '#4ade80',
+          '#facc15',
+          '#f97316',
+        ],
+      },
+    },
+    {
+      ring: {
+        ids: 'IJKLMNOP',
+        centerRadius: 'sqrt2 - 1',
+        r: 1,
+        startAngleDeg: 135,
+        stops: 8,
+        discovered: true,
         colors: [
           '#ef4444',
           '#f472b6',
@@ -322,6 +342,11 @@ export const OCTOCRYSTAL_DOC: RingTwistPuzzleDoc = {
     },
   ],
   sampleAlgorithms: [
+    {
+      name: 'Discovered grip demo (A2 D\' G P3)',
+      alg: "A2 D' G P3",
+      note: 'Three outer moves align interior cuts to unlock hidden internal grip P, then turn P 135° CW',
+    },
     {
       name: '135° Jumbling exchange (A3 C3)',
       alg: 'A3 C3',

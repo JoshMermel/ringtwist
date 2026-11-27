@@ -21,6 +21,8 @@ export interface ExplicitAxisInput {
   region?: 'inside' | 'outside';
   /** Optional explicit label badge position [x, y] in math coordinates. */
   labelPos?: [NumExpr, NumExpr];
+  /** Emergent "discovered grip" axis: hidden while blocked, lights up when arcs align. */
+  discovered?: boolean;
 }
 
 export interface RingAxisInput {
@@ -40,6 +42,8 @@ export interface RingAxisInput {
     stops: StopsInput;
     /** Colors cycling across the ring. */
     colors: string[];
+    /** Emergent "discovered grip" axes: hidden while blocked, light up when arcs align. */
+    discovered?: boolean;
   };
 }
 
@@ -484,6 +488,7 @@ export function resolveAxes(axes: AxisInput[], env: Record<string, number>): Cir
           stopsDeg,
           color: rg.colors[i % rg.colors.length] ?? '#38bdf8',
           ...(layerRadii && layerRadii.length > 1 ? { layerRadii } : {}),
+          ...(rg.discovered ? { discovered: true } : {}),
         });
       }
     } else {
@@ -501,6 +506,7 @@ export function resolveAxes(axes: AxisInput[], env: Record<string, number>): Cir
         color: entry.color,
         ...(layerRadii && layerRadii.length > 1 ? { layerRadii } : {}),
         ...(entry.region === 'outside' ? { turnRegion: 'outside' } : {}),
+        ...(entry.discovered ? { discovered: true } : {}),
         ...(entry.labelPos
           ? {
               labelPos: {

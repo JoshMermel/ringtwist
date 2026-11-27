@@ -36,6 +36,12 @@ export interface CircleDef extends Circle {
   turnRegion?: 'inside' | 'outside';
   /** Optional explicit label badge position in math coordinates. */
   labelPos?: Point;
+  /**
+   * When true, this axis is an emergent "discovered grip" that starts blocked
+   * in the solved state and stays hidden (excluded from initial silhouette cuts,
+   * rims, labels, and chips) until turns align arcs so it becomes unblocked.
+   */
+  discovered?: boolean;
 }
 
 export interface OrbitSliceStep {

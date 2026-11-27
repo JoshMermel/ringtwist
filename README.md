@@ -48,7 +48,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | **Trilotica** | 2 | 11 | 120° / 180° |
 | **GigaHex** | 2 (2-layer) | 105 | 60° (`A`/`2A`/`a`, `B`/`2B`/`b`) |
 | **GigaHex Plus** | 3 (2-layer) | 139 | 60° (7-color RGB/CMY/White Venn) |
-| **Cube4you OctoCrystal** | 8 | 64 | 45° (8 rainbow arms, 135° jumbling) |
+| **Cube4you OctoCrystal** | 8 (+8 discovered) | 64 | 45° (8 rainbow arms, 135° jumbling, emergent grips `I–P`) |
 | **Cube4you 2D – XO (Galen Ivanov’s Eight)** | 2 | 33 | 90° / 180° |
 | **Cube4you UFO 2D (10 Stars)** | 10 | 100 | Uneven `(36°, 108°, ...)` |
 | **Roto 36** | 4 (3 outer + 1 central) | 58 | 60° outer / 120° central transfer ring |

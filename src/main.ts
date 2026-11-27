@@ -1783,11 +1783,20 @@ class RingTwistApp {
         `<span class="pill pill-blocked">⛔ Blocked at ${escapeHtml(this.evalResult.blocked.moveLabel)}</span>`,
       );
     }
+    const unlockedDiscovered = this.currentSpec.circles
+      .filter((c) => c.discovered && !statuses[c.id]?.blocked)
+      .map((c) => c.id);
+    if (unlockedDiscovered.length > 0) {
+      pills.push(
+        `<span class="pill pill-discovered" title="Emergent internal circle(s) aligned and ready to turn">✦ Discovered: ${escapeHtml(unlockedDiscovered.join(', '))}</span>`,
+      );
+    }
     this.statusPillsEl.innerHTML = pills.join('');
 
     // Circle free/blocked chips
     this.circleChipsEl.innerHTML = '';
     for (const c of this.currentSpec.circles) {
+      if (c.discovered && statuses[c.id]?.blocked) continue;
       const chipSpecs: { label: string; layerOpt?: MoveLayerSpec; desc: string }[] =
         c.layerRadii && c.layerRadii.length > 1
           ? [
@@ -1799,14 +1808,16 @@ class RingTwistApp {
                 desc: `Wide full circle ${c.id.toLowerCase()}`,
               },
             ]
-          : [{ label: c.id, desc: `Circle ${c.id}` }];
+          : [{ label: c.id, desc: c.discovered ? `Discovered grip ${c.id}` : `Circle ${c.id}` }];
 
       for (const cs of chipSpecs) {
         const st = cs.layerOpt ? getCircleStatus(state, c.id, cs.layerOpt) : statuses[c.id];
         const chip = document.createElement('button');
-        chip.className = `circle-chip ${st.blocked ? 'blocked' : 'free'}`;
-        chip.textContent = `${cs.label} ${st.blocked ? '✕' : '✓'}`;
-        chip.style.borderLeft = `3px solid ${c.color}`;
+        chip.className = `circle-chip ${st.blocked ? 'blocked' : 'free'}${c.discovered ? ' discovered' : ''}`;
+        chip.textContent = c.discovered
+          ? `✦ ${cs.label} ✓`
+          : `${cs.label} ${st.blocked ? '✕' : '✓'}`;
+        chip.style.borderLeft = `3px solid ${c.discovered ? '#fbbf24' : c.color}`;
         chip.title = st.blocked
           ? `${cs.desc} blocked by ${st.blockingPieceIds.length} piece(s)`
           : `${cs.desc} free — click for CW, shift-click for CCW`;

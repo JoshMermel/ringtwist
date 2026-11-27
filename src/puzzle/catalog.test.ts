@@ -52,7 +52,7 @@ describe('puzzle catalog & Geranium geometry', () => {
       const state = buildPuzzle(spec);
       expect(state.pieces.length).toBeGreaterThan(2);
 
-      // Exact area conservation against union of playable circles (or 5-lobe flower for Moonspinner)
+      // Exact area conservation against union of primary playable circles (or 5-lobe flower for Moonspinner)
       const areaCircles =
         spec.id === 'moonspinner'
           ? [
@@ -62,7 +62,7 @@ describe('puzzle catalog & Geranium geometry', () => {
                 return { cx: Math.cos(ang) / PHI, cy: Math.sin(ang) / PHI, r: 1 };
               }),
             ]
-          : spec.circles;
+          : spec.circles.filter((c) => !c.discovered);
       const unionArea = sliceCircles(areaCircles).reduce(
         (s, r) => s + regionSignedArea(r.edges),
         0,
@@ -70,9 +70,14 @@ describe('puzzle catalog & Geranium geometry', () => {
       const pieceArea = state.pieces.reduce((s, p) => s + p.area, 0);
       expect(pieceArea, `${spec.id} area conservation`).toBeCloseTo(unionArea, 3);
 
-      // Every playable circle (and every concentric layer/slice) must start unblocked
+      // Every primary circle (and every concentric layer/slice) must start unblocked;
+      // discovered grips start blocked until moves align arcs to unlock them.
       const statuses = getAllCircleStatuses(state);
       for (const c of spec.circles) {
+        if (c.discovered) {
+          expect(statuses[c.id].blocked, `${spec.id} discovered grip ${c.id} starts hidden/blocked`).toBe(true);
+          continue;
+        }
         expect(statuses[c.id].blocked, `${spec.id} circle ${c.id} should be free`).toBe(false);
         if (c.layerRadii && c.layerRadii.length > 1) {
           for (const lo of [{ layer: 1 }, { layer: 2 }, { wide: true }]) {
@@ -108,6 +113,7 @@ describe('puzzle catalog & Geranium geometry', () => {
         expect(isPuzzleSolved(f1.nextState, state), `${spec.id} flipped ${axis} is solved`).toBe(true);
         const f1Statuses = getAllCircleStatuses(f1.nextState);
         for (const c of spec.circles) {
+          if (c.discovered) continue;
           expect(f1Statuses[c.id].blocked, `${spec.id} flipped ${axis} circle ${c.id}`).toBe(false);
         }
         const f2 = flipWholePuzzle(f1.nextState, axis);
@@ -266,6 +272,31 @@ describe('puzzle catalog & Geranium geometry', () => {
     if (octoA3.ok) {
       expect(getCircleStatus(octoA3.nextState, 'C').blocked).toBe(false);
       expect(getCircleStatus(octoA3.nextState, 'D').blocked).toBe(false);
+    }
+    // Discovered internal grips I–P start blocked in solved state, and A2 D' G unlocks P (18 pieces inside)
+    for (const id of 'IJKLMNOP') {
+      expect(getCircleStatus(octo, id).blocked).toBe(true);
+    }
+    const r1 = turnCircleBySteps(octo, 'A', 2);
+    expect(r1.ok).toBe(true);
+    if (r1.ok) {
+      const r2 = turnCircleBySteps(r1.nextState, 'D', -1);
+      expect(r2.ok).toBe(true);
+      if (r2.ok) {
+        const r3 = turnCircleBySteps(r2.nextState, 'G', 1);
+        expect(r3.ok).toBe(true);
+        if (r3.ok) {
+          const pStatus = getCircleStatus(r3.nextState, 'P');
+          expect(pStatus.blocked).toBe(false);
+          const pArea = pStatus.insidePieceIds.reduce(
+            (sum, id) => sum + (r3.nextState.pieces.find((p) => p.id === id)?.area ?? 0),
+            0,
+          );
+          expect(pArea).toBeCloseTo(Math.PI, 3);
+          const r4 = turnCircleBySteps(r3.nextState, 'P', 3);
+          expect(r4.ok).toBe(true);
+        }
+      }
     }
 
     const xo = buildPuzzle(CUBE4YOU_XO);

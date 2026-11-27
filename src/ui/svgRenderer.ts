@@ -128,6 +128,11 @@ function computeCircleLabelPosition(
   if (c.labelPos) {
     return { lx: c.labelPos.x, ly: -c.labelPos.y };
   }
+  // Discovered internal grips sit inside the primary circles; place their badge right at
+  // their own center so they clearly mark the newly aligned disk without colliding with outer labels.
+  if (c.discovered) {
+    return { lx: c.cx, ly: -c.cy };
+  }
   const labelDist = c.r + 0.22;
   const candidates: [number, number][] = [];
 
@@ -142,12 +147,12 @@ function computeCircleLabelPosition(
     candidates.push([dx, dy], [0, 1], [0, -1], [-dx, -dy]);
   }
 
-  // Pick the first candidate that doesn't land inside any other circle
+  // Pick the first candidate that doesn't land inside any other primary circle
   for (const [ux, uy] of candidates) {
     const px = c.cx + ux * labelDist;
     const py = c.cy + uy * labelDist;
     const insideOther = spec.circles.some(
-      (o) => o.id !== c.id && Math.hypot(px - o.cx, py - o.cy) < o.r + 0.12,
+      (o) => !o.discovered && o.id !== c.id && Math.hypot(px - o.cx, py - o.cy) < o.r + 0.12,
     );
     if (!insideOther) {
       return { lx: px, ly: -py };
@@ -193,6 +198,7 @@ export function renderStaticPuzzleSvg(
 
   const rimsG = svgEl('g');
   for (const c of state.spec.circles) {
+    if (c.discovered) continue;
     const radii = c.layerRadii && c.layerRadii.length > 1 ? c.layerRadii : [c.r];
     for (let ri = 0; ri < radii.length; ri++) {
       const r = radii[ri];
@@ -216,6 +222,7 @@ export function renderStaticPuzzleSvg(
     const symCenter = state.spec.symmetryCenter ?? { x: 0, y: 0 };
     const labelsG = svgEl('g');
     for (const c of state.spec.circles) {
+      if (c.discovered) continue;
       const { lx, ly } = computeCircleLabelPosition(c, state.spec, symCenter);
       labelsG.appendChild(
         svgEl('circle', {
@@ -322,6 +329,8 @@ export class PuzzleSvgRenderer {
       let bestDist = Infinity;
       for (const c of this.currentSpec.circles) {
         if (c.turnRegion === 'outside') continue;
+        // Hidden (blocked) discovered grips should never intercept pointer hover/clicks
+        if (c.discovered && this.currentStatuses[c.id]?.blocked) continue;
         const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
         if (d <= c.r && d < bestDist) {
           bestDist = d;
@@ -817,11 +826,16 @@ export class PuzzleSvgRenderer {
     for (const c of spec.circles) {
       const st = statuses[c.id];
       const isTargetBlocked = c.id === blockedCircleId;
+      // Discovered grips stay completely hidden while blocked (unless explicitly targeted by a blocked move)
+      if (c.discovered && st?.blocked && !isTargetBlocked) continue;
+
       const rimClass = isTargetBlocked
         ? 'circle-rim target-blocked'
-        : st?.blocked
-          ? 'circle-rim blocked'
-          : 'circle-rim free';
+        : c.discovered
+          ? 'circle-rim discovered-free'
+          : st?.blocked
+            ? 'circle-rim blocked'
+            : 'circle-rim free';
 
       const radii = c.layerRadii && c.layerRadii.length > 1 ? c.layerRadii : [c.r];
       for (let ri = 0; ri < radii.length; ri++) {
@@ -849,7 +863,9 @@ export class PuzzleSvgRenderer {
 
       const title = svgEl('title');
       if (st?.blocked) {
-        title.textContent = `Circle ${c.id} — BLOCKED by ${st.blockingPieceIds.length} piece(s)`;
+        title.textContent = `${c.discovered ? 'Discovered grip' : 'Circle'} ${c.id} — BLOCKED by ${st.blockingPieceIds.length} piece(s)`;
+      } else if (c.discovered) {
+        title.textContent = `Discovered grip ${c.id} — Unlocked! (click: CW, shift/right-click: CCW)`;
       } else if (c.turnRegion === 'outside') {
         title.textContent = `Circle ${c.id} (exterior turn) — Free (click outer frame or badge: CW, shift/right-click: CCW)`;
       } else if (c.layerRadii && c.layerRadii.length > 1) {
@@ -863,8 +879,14 @@ export class PuzzleSvgRenderer {
         cx: lx,
         cy: ly,
         r: 0.175,
-        class: 'circle-label-bg',
-        stroke: isTargetBlocked ? '#f43f5e' : st?.blocked ? '#475569' : c.color,
+        class: c.discovered ? 'circle-label-bg discovered' : 'circle-label-bg',
+        stroke: isTargetBlocked
+          ? '#f43f5e'
+          : c.discovered
+            ? '#fbbf24'
+            : st?.blocked
+              ? '#475569'
+              : c.color,
         opacity: st?.blocked && !isTargetBlocked ? 0.65 : 1,
       });
       const txt = svgEl('text', {

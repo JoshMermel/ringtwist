@@ -406,9 +406,10 @@ export function buildPiecesFromRingTwistDoc(
   env: Record<string, number>,
 ): Piece[] {
   const circles = spec.circles;
+  const primaryCircles = circles.filter((c) => !c.discovered);
   const axisMap = new Map(circles.map((c) => [c.id, c]));
   const symCenter: Point = spec.symmetryCenter ?? { x: 0, y: 0 };
-  const allCutters = getAllCuttingCircles(circles);
+  const allCutters = getAllCuttingCircles(primaryCircles);
 
   // 1. Initial silhouette regions
   let regions: ArcRegion[];
@@ -434,9 +435,9 @@ export function buildPiecesFromRingTwistDoc(
       }
     }
   } else {
-    regions = sliceCircles(circles).map((r) => ({ edges: r.edges }));
+    regions = sliceCircles(primaryCircles).map((r) => ({ edges: r.edges }));
     // Slice by any concentric inner layer rims
-    for (const c of circles) {
+    for (const c of primaryCircles) {
       if (c.layerRadii && c.layerRadii.length > 1) {
         for (let i = c.layerRadii.length - 2; i >= 0; i--) {
           regions = splitAllByCircle(regions, { cx: c.cx, cy: c.cy, r: c.layerRadii[i] });
@@ -551,9 +552,9 @@ export function buildPiecesFromRingTwistDoc(
 
       case 'orbitSlice': {
         const passes = op.passes ?? 1;
-        const targetIds = op.axes ?? circles.map((c) => c.id);
+        const targetIds = op.axes ?? primaryCircles.map((c) => c.id);
         const angles = op.anglesDeg.map((a) => evalNumExpr(a, env));
-        const maxMem = op.maxMemberCircles ?? circles.length;
+        const maxMem = op.maxMemberCircles ?? primaryCircles.length;
         for (let pass = 0; pass < passes; pass++) {
           if (op.nonChaining) {
             const virtualCuts: { home: CircleDef; cutter: Circle }[] = [];
