@@ -3,6 +3,7 @@ import {
   ARECIBO_DOC,
   BAUHINIUM_DOC,
   BAUHINIUM_PLUS_DOC,
+  BICYCLE_PUZZLER_DOC,
   COHAN_CIRCLE_DOC,
   CRAZY_LEKKI_DOC,
   CUBE4YOU_XO_DOC,
@@ -16,6 +17,9 @@ import {
   OCTOCRYSTAL_DOC,
   POCKET_QUATRIUM_DOC,
   POCKET_QUATRIUM_PLUS_DOC,
+  ROTASCOPE_DOC,
+  ROTO_36_DOC,
+  ROTO_44_DOC,
   SEVEN_CIRCLE_FLOWER_DOC,
   SIX_CIRCLE_HEX_DOC,
   THREE_CIRCLE_CLOVER_DOC,
@@ -476,6 +480,26 @@ export const CUBE4YOU_XO: PuzzleSpec = compileRingTwistDoc(CUBE4YOU_XO_DOC);
  */
 export const UFO_2D: PuzzleSpec = compileRingTwistDoc(UFO_2D_DOC);
 
+/**
+ * 31. Roto 36 (Galen Ivanov, 2015) — compiled natively from ringtwist/v1 declarative doc (58 pcs, mirror=[y])
+ */
+export const ROTO_36: PuzzleSpec = compileRingTwistDoc(ROTO_36_DOC);
+
+/**
+ * 32. Roto 44 (Galen Ivanov, 2015) — compiled natively from ringtwist/v1 declarative doc (73 pcs, mirror=[x,y])
+ */
+export const ROTO_44: PuzzleSpec = compileRingTwistDoc(ROTO_44_DOC);
+
+/**
+ * 33. Bicycle Puzzler (Evgeniy Grigoriev, 2024) — compiled natively from ringtwist/v1 declarative doc (51 pcs, mirror=[x])
+ */
+export const BICYCLE_PUZZLER: PuzzleSpec = compileRingTwistDoc(BICYCLE_PUZZLER_DOC);
+
+/**
+ * 34. Rotascope (Raoul Raba / Pentangle, 1977) — compiled natively from ringtwist/v1 declarative doc (13 pcs, mirror=[y])
+ */
+export const ROTASCOPE: PuzzleSpec = compileRingTwistDoc(ROTASCOPE_DOC);
+
 export const PUZZLE_CATALOG: PuzzleSpec[] = [
   GERANIUM_PLUS,
   GERANIUM_STANDARD,
@@ -491,6 +515,10 @@ export const PUZZLE_CATALOG: PuzzleSpec[] = [
   OCTOCRYSTAL,
   CUBE4YOU_XO,
   UFO_2D,
+  ROTO_36,
+  ROTO_44,
+  BICYCLE_PUZZLER,
+  ROTASCOPE,
   BAUHINIUM,
   BAUHINIUM_PLUS,
   POCKET_QUATRIUM,

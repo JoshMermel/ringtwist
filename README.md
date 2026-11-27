@@ -46,8 +46,12 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 | **GigaHex** | 2 (2-layer) | 105 | 60° (`A`/`2A`/`a`, `B`/`2B`/`b`) |
 | **GigaHex Plus** | 3 (2-layer) | 139 | 60° (7-color RGB/CMY/White Venn) |
 | **Cube4you OctoCrystal** | 8 | 64 | 45° (8 rainbow arms, 135° jumbling) |
-| **Cube4you 2D – XO** | 2 | 33 | 90° / 180° |
+| **Cube4you 2D – XO (Galen Ivanov’s Eight)** | 2 | 33 | 90° / 180° |
 | **Cube4you UFO 2D (10 Stars)** | 10 | 100 | Uneven `(36°, 108°, ...)` |
+| **Roto 36** | 4 (3 outer + 1 central) | 58 | 60° outer / 120° central transfer ring |
+| **Roto 44** | 5 (4 corner + 1 central) | 73 | 90° |
+| **Bicycle Puzzler** | 2 (unequal) | 51 | 90° large / 45° small |
+| **Rotascope** | 3 | 13 | 60° (heavily bandaged, 502 shape configs) |
 | **Bauhinium** | 2 | 28 | 180° / 72° |
 | **Bauhinium Plus** | 3 | 34 | 72° / 180° / 72° |
 | **Pocket Quatrium** | 2 | 35 | 90° |

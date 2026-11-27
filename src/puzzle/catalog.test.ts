@@ -3,6 +3,7 @@ import { regionSignedArea } from '../geom/arcRegion.ts';
 import { sliceCircles } from '../geom/slicer.ts';
 import { buildPuzzle } from './builder.ts';
 import {
+  BICYCLE_PUZZLER,
   CRAZY_LEKKI,
   CUBE4YOU_XO,
   GERANIUM_PLUS,
@@ -15,6 +16,9 @@ import {
   OCTOCRYSTAL,
   POCKET_GERANIUM,
   PUZZLE_CATALOG,
+  ROTASCOPE,
+  ROTO_36,
+  ROTO_44,
   SUPER_GERANIUM,
   SUPER_GERANIUM_PLUS,
   TWIN_RINGS,
@@ -275,6 +279,9 @@ describe('puzzle catalog & Geranium geometry', () => {
       mimosa: { pieces: 73, mirror: ['x'] },
       eliac: { pieces: 59, mirror: ['x'] },
       'three-circle-clover': { pieces: 37, mirror: ['y'] },
+      'roto-36': { pieces: 58, mirror: ['y'] },
+      'roto-44': { pieces: 73, mirror: ['x', 'y'] },
+      'bicycle-puzzler': { pieces: 51, mirror: ['x'] },
     };
 
     for (const [id, exp] of Object.entries(expected)) {
@@ -296,6 +303,57 @@ describe('puzzle catalog & Geranium geometry', () => {
             ).toBe(false);
           }
         }
+      }
+    }
+  });
+
+  it('verifies Roto 36, Roto 44, Bicycle Puzzler color counts and authentic 13-piece Rotascope blocking', () => {
+    const r36 = buildPuzzle(ROTO_36);
+    expect(r36.pieces.length).toBe(58);
+    expect(r36.pieces.filter((p) => p.color === '#f8fafc').length).toBe(1);
+    expect(r36.pieces.filter((p) => p.color === '#ef4444').length).toBe(19);
+    expect(r36.pieces.filter((p) => p.color === '#16a34a').length).toBe(19);
+    expect(r36.pieces.filter((p) => p.color === '#2563eb').length).toBe(19);
+
+    const r44 = buildPuzzle(ROTO_44);
+    expect(r44.pieces.length).toBe(73);
+    expect(r44.pieces.filter((p) => p.color === '#f8fafc').length).toBe(1);
+    expect(r44.pieces.filter((p) => p.color === '#b91c1c').length).toBe(15);
+    expect(r44.pieces.filter((p) => p.color === '#2563eb').length).toBe(15);
+    expect(r44.pieces.filter((p) => p.color === '#16a34a').length).toBe(15);
+    expect(r44.pieces.filter((p) => p.color === '#facc15').length).toBe(15);
+
+    const bike = buildPuzzle(BICYCLE_PUZZLER);
+    expect(bike.pieces.length).toBe(51);
+    expect(bike.pieces.filter((p) => p.color === '#38bdf8').length).toBe(27);
+    expect(bike.pieces.filter((p) => p.color === '#f8fafc').length).toBe(10);
+    expect(bike.pieces.filter((p) => p.color === '#f97316').length).toBe(14);
+
+    // Rotascope: 13 pieces = 1 Heart + 3 Points + 9 congruent Shields, mirror=[y], non-doctrinaire blocking
+    const rota = buildPuzzle(ROTASCOPE);
+    expect(rota.pieces.length).toBe(13);
+    expect(getSupportedMirrorAxes(rota)).toEqual(['y']);
+    expect(rota.pieces.filter((p) => Math.abs(p.area - 0.7048) < 0.002).length).toBe(1);
+    expect(rota.pieces.filter((p) => Math.abs(p.area - 0.3424) < 0.002).length).toBe(3);
+    expect(rota.pieces.filter((p) => Math.abs(p.area - 0.5236) < 0.002).length).toBe(9);
+
+    // B (60° CW) moves the Heart into A∩B, blocking C while leaving A & B free
+    const afterB = turnCircleBySteps(rota, 'B', 1);
+    expect(afterB.ok).toBe(true);
+    if (!afterB.ok) return;
+    expect(getCircleStatus(afterB.nextState, 'C').blocked).toBe(true);
+    expect(getCircleStatus(afterB.nextState, 'A').blocked).toBe(false);
+    // Turning A (60° CW) brings the Heart back to center, unlocking C again!
+    const afterBA = turnCircleBySteps(afterB.nextState, 'A', 1);
+    expect(afterBA.ok).toBe(true);
+    if (afterBA.ok) {
+      expect(getCircleStatus(afterBA.nextState, 'C').blocked).toBe(false);
+      // Continue with C then B (sample algorithm "B A C B")
+      const afterBAC = turnCircleBySteps(afterBA.nextState, 'C', 1);
+      expect(afterBAC.ok).toBe(true);
+      if (afterBAC.ok) {
+        const afterBACB = turnCircleBySteps(afterBAC.nextState, 'B', 1);
+        expect(afterBACB.ok).toBe(true);
       }
     }
   });

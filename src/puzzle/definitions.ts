@@ -341,7 +341,7 @@ export const CUBE4YOU_XO_DOC: RingTwistPuzzleDoc = {
   name: 'Cube4you 2D – XO',
   category: 'Designer & Exotic',
   description:
-    'Cube4you 2D Puzzle – XO: a big 90° red circle (A) intersecting a smaller 180° light-blue circle (B) at exact r = d = 1/√2 tangency (33 pieces).',
+    'Galen Ivanov’s Eight (2017) in its 2024 Cube4you 2D – XO edition: a big 90° red circle (A) intersecting a smaller 180° light-blue circle (B) at exact r = d = 1/√2 tangency (33 pieces).',
   params: {
     d: '1 / sqrt2',
     ox: '(-1 + 2 * d) / 2',
@@ -1382,6 +1382,264 @@ export const UFO_2D_DOC: RingTwistPuzzleDoc = {
       name: 'Decagonal walk (A3 D3 G3)',
       alg: 'A3 D3 G3',
       note: '180° star flips spaced evenly around the 10-circle UFO ring',
+    },
+  ],
+};
+
+/**
+ * 23. Roto 36 (Galen Ivanov, 2015 — 3 × 60° outer circles + 1 × 120° white central transfer circle, 58 pieces)
+ */
+export const ROTO_36_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'roto-36',
+  name: 'Roto 36',
+  category: 'Designer & Exotic',
+  description:
+    'Galen Ivanov’s Roto 36 (2015): 3 non-overlapping 60° colored circles (A red, B green, C blue) coupled by a large white 120° central transfer circle (D) whose rim spans an exact 180° chord across each outer disk (58 pieces).',
+  symmetryStepDeg: 120,
+  params: {
+    d: 1.3,
+    rD: 'sqrt(d * d + 1)',
+  },
+  axes: [
+    {
+      ring: {
+        ids: 'ABC',
+        centerRadius: 'd',
+        r: 1,
+        startAngleDeg: 90,
+        stops: 6,
+        colors: ['#ef4444', '#16a34a', '#2563eb'],
+      },
+    },
+    { id: 'D', cx: 0, cy: 0, r: 'rD', stops: 3, color: '#f8fafc' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D'], repeat: 6 },
+        { moves: ["A'", "B'", "C'", "D'"], repeat: 6 },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#f8fafc' },
+    {
+      type: 'region',
+      inside: ['A'],
+      repeatSymmetry: {
+        count: 3,
+        colors: ['#ef4444', '#16a34a', '#2563eb'],
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Transfer commutator [D, A]',
+      alg: '[D, A]',
+      note: 'Commutes the 120° central transfer ring D against 60° outer disk A',
+    },
+    {
+      name: '3-fold symmetry [z: [D, A]]',
+      alg: 'm = [D, A]\n[z: m]',
+      note: 'Applies the transfer commutator rotated 120° CW around the triangle',
+    },
+  ],
+};
+
+/**
+ * 24. Roto 44 (Galen Ivanov, 2015 — 4 corner 90° circles + 1 central 90° circle, 73 pieces)
+ */
+export const ROTO_44_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'roto-44',
+  name: 'Roto 44',
+  category: 'Designer & Exotic',
+  description:
+    'Galen Ivanov’s Roto 44 (2015): 4 corner 90° circles (A–D) in a square slightly overlapping their neighbors, coupled by a 5th central 90° circle (E) deeply cutting all four quadrants (73 pieces).',
+  symmetryStepDeg: 90,
+  params: {
+    s: 0.82,
+  },
+  axes: [
+    {
+      ring: {
+        ids: 'ABCD',
+        centerRadius: 's * sqrt2',
+        r: 1,
+        startAngleDeg: 135,
+        stops: 4,
+        colors: ['#b91c1c', '#2563eb', '#16a34a', '#facc15'],
+      },
+    },
+    { id: 'E', cx: 0, cy: 0, r: 1, stops: 4, color: '#f8fafc' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 8,
+      blocks: [
+        { moves: ['A', 'B', 'C', 'D', 'E'], repeat: 4 },
+        { moves: ["A'", "B'", "C'", "D'", "E'"], repeat: 4 },
+        { moves: ['A', "E'", 'B', 'E', 'C', "E'", 'D', 'E'], repeat: 4 },
+      ],
+    },
+  ],
+  coloring: [
+    { type: 'fill', color: '#f8fafc' },
+    {
+      type: 'region',
+      inside: ['A'],
+      memberCount: 1,
+      ofAxes: 'ABCD',
+      repeatSymmetry: {
+        count: 4,
+        colors: ['#b91c1c', '#2563eb', '#16a34a', '#facc15'],
+      },
+    },
+    {
+      type: 'region',
+      inside: ['A', 'B'],
+      ofAxes: 'ABCD',
+      repeatSymmetry: {
+        count: 4,
+        colors: ['#7c3aed', '#06b6d4', '#84cc16', '#f97316'],
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Center-corner commutator [E, A]',
+      alg: '[E, A]',
+      note: 'Quarter-turn commutator between center circle E and top-left circle A',
+    },
+    {
+      name: '4-fold symmetry [z: [E, A]]',
+      alg: 'm = [E, A]\n[z: m]',
+      note: 'Applies the center-corner commutator rotated 90° CW around the square',
+    },
+  ],
+};
+
+/**
+ * 25. Bicycle Puzzler (Evgeniy Grigoriev, 2024 — 90° large Sky Blue + 45° small Orange + White lens, 51 pieces)
+ */
+export const BICYCLE_PUZZLER_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'bicycle-puzzler',
+  name: 'Bicycle Puzzler',
+  category: 'Designer & Exotic',
+  description:
+    'Evgeniy Grigoriev’s Bicycle Puzzler (2024): a large 90° sky-blue circle (A) whose rim passes directly through the center of a smaller 45° orange circle (B) at exact radius r = 2·sin(22.5°), with a white overlap lens (51 pieces).',
+  params: {
+    rB: '2 * sin(rad(22.5))',
+    ox: 'rB / 2',
+  },
+  axes: [
+    { id: 'A', cx: '-ox', cy: 0, r: 1, stops: 4, color: '#38bdf8' },
+    { id: 'B', cx: '1 - ox', cy: 0, r: 'rB', stops: 8, color: '#f97316' },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'closure',
+      maxIters: 10,
+      blocks: [
+        { moves: ['A', 'B'], repeat: 12 },
+        { moves: ["A'", "B'"], repeat: 12 },
+        { moves: ['A', "B'"], repeat: 12 },
+        { moves: ["A'", 'B'], repeat: 12 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: { A: '#38bdf8', B: '#f97316', AB: '#f8fafc' },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: '90°/45° Commutator [A, B]',
+      alg: '[A, B]',
+      note: 'Commutes quarter-turns on the large sky-blue wheel with 45° steps on the small orange wheel',
+    },
+    {
+      name: 'Hub petal commutator [A, B2]',
+      alg: '[A, B2]',
+      note: '90°/90° commutator shuttling white and orange petals across the small wheel hub',
+    },
+  ],
+};
+
+/**
+ * 26. Rotascope (Raoul Raba / Pentangle, 1977 — classic 13-piece bandaged 3-circle 60° puzzle, 502 shape configs)
+ */
+export const ROTASCOPE_DOC: RingTwistPuzzleDoc = {
+  format: 'ringtwist/v1',
+  id: 'rotascope',
+  name: 'Rotascope',
+  category: 'Designer & Exotic',
+  description:
+    'Raoul Raba’s classic Pentangle Rotascope (1977): 3 intersecting 60° circles bandaged into 13 curvilinear triangles — 1 central white heart, 3 trapped outer points, and 9 identical shields — yielding 502 shape configurations and authentic non-doctrinaire blocking.',
+  symmetryStepDeg: 120,
+  axes: [
+    {
+      ring: {
+        ids: 'ABC',
+        centerRadius: '1 / sqrt3',
+        r: 1,
+        startAngleDeg: 90,
+        stops: 6,
+        colors: ['#ef4444', '#2563eb', '#16a34a'],
+      },
+    },
+  ],
+  cuts: [
+    { op: 'sliceByAxes' },
+    {
+      op: 'cutCircles',
+      only: { inside: ['A'], outside: ['B', 'C'] },
+      repeatSymmetry: 3,
+      circles: [
+        { cx: 1, cy: '1 / sqrt3', r: 1 },
+        { cx: -1, cy: '1 / sqrt3', r: 1 },
+      ],
+    },
+  ],
+  coloring: [
+    {
+      type: 'venn',
+      colors: {
+        A: '#ef4444',
+        B: '#2563eb',
+        C: '#16a34a',
+        AB: '#a855f7',
+        BC: '#06b6d4',
+        AC: '#facc15',
+        ABC: '#f8fafc',
+      },
+    },
+  ],
+  sampleAlgorithms: [
+    {
+      name: 'Heart relay (B A)',
+      alg: 'B A',
+      note: 'B moves the white heart out of C (blocking C); A brings the heart back to center',
+    },
+    {
+      name: '3-circle cycle (B A C B)',
+      alg: 'B A C B',
+      note: 'Relays the heart around all three circles to permute shields while keeping points trapped',
+    },
+    {
+      name: 'Blocking demo (B C)',
+      alg: 'B C',
+      note: 'Turning B 60° CW moves the heart out of C, immediately blocking C',
     },
   ],
 };
