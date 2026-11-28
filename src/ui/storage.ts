@@ -36,11 +36,22 @@ export function sanitizeMacroEntries(raw: unknown): MacroLibraryEntry[] {
     const rec = m as Record<string, unknown>;
     if (typeof rec.name !== 'string' || typeof rec.body !== 'string') continue;
     const focusTypes = sanitizeFocusTypes(rec.focusTypes);
+    const note = typeof rec.note === 'string' && rec.note.trim() ? rec.note.trim() : undefined;
+    const section =
+      typeof rec.section === 'string' && rec.section.trim() ? rec.section.trim() : undefined;
+    const sectionNote =
+      typeof rec.sectionNote === 'string' && rec.sectionNote.trim()
+        ? rec.sectionNote.trim()
+        : undefined;
+    const hidden = rec.hidden === true ? true : undefined;
     out.push({
       name: rec.name,
       body: rec.body,
-      ...(typeof rec.note === 'string' ? { note: rec.note } : {}),
+      ...(note ? { note } : {}),
       ...(focusTypes ? { focusTypes } : {}),
+      ...(hidden ? { hidden } : {}),
+      ...(section ? { section } : {}),
+      ...(sectionNote ? { sectionNote } : {}),
     });
   }
   return out;

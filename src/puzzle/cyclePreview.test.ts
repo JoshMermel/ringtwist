@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { reflectRegion, rotateRegion } from '../geom/arcRegion.ts';
+import { evaluateProgram } from '../lang/evaluator.ts';
 import {
   parseInlineMacroFocus,
+  parseInlineMacroHidden,
+  parseMacroLibraryText,
+  serializeMacroLibraryToText,
   setInlineMacroFocusInSource,
 } from '../lang/focusDirectives.ts';
 import { decodeShareHash, encodeShareHash } from '../ui/storage.ts';
@@ -224,6 +228,85 @@ describe('macro piece-cycle preview', () => {
     const edited5 = setInlineMacroFocusInSource(edited4, 'tri3', []);
     expect(edited5).toContain('tri3 = (p8)2');
     expect(edited5).not.toContain('tri3 = (p8)2 //');
+
+    // Section-level and per-line // @hide and // @show directives
+    const hideScript = [
+      '// === Core Generators ===',
+      '// @hide',
+      'g4 = [A3, C3\']',
+      'p8 = [A: D4\'] D5 [B\': D4\'] D3',
+      'peek = g4 // @show — explicitly kept visible',
+      '// @show',
+      '// @focus big_pent',
+      'big3 = g4',
+      'tmp = g4 // @hide — one-off helper',
+    ].join('\n');
+    expect(Array.from(parseInlineMacroHidden(hideScript)).sort()).toEqual(['g4', 'p8', 'tmp']);
+    expect(parseInlineMacroFocus(hideScript)).toEqual({
+      big3: ['big_pent'],
+      tmp: ['big_pent'],
+    });
+
+    // Plain-text Macro Library sheet parser + serializer lossless round-trip (with section & macro notes)
+    const sheet = [
+      '// === Core Generators ===',
+      '// @hide',
+      "g4 = [A3, C3']",
+      '// @show',
+      '// === Phase 3: Big Pentagons ===',
+      '// Solve all 6 big pentagons without disturbing Kites or Small Pentagons.',
+      '// @focus big_pent',
+      'big3 = g4  // 4t: fast BigPent(3)',
+      '// Swaps 3 big pentagons cleanly',
+      "big3_pure = [[A3', D3], [z': [A3: C4' [E4: C3] C]]]  // 22t: pure BigPent(3)",
+    ].join('\n');
+    const parsedSheet = parseMacroLibraryText(sheet, {
+      reservedNames: new Set(['A', 'B', 'C', 'D', 'E', 'x', 'y', 'z']),
+      validCircleIds: ['A', 'B', 'C', 'D', 'E'],
+    });
+    expect(parsedSheet.errors).toEqual([]);
+    expect(parsedSheet.entries).toEqual([
+      { name: 'g4', body: "[A3, C3']", hidden: true, section: 'Core Generators' },
+      {
+        name: 'big3',
+        body: 'g4',
+        note: '4t: fast BigPent(3)',
+        focusTypes: ['big_pent'],
+        section: 'Phase 3: Big Pentagons',
+        sectionNote: 'Solve all 6 big pentagons without disturbing Kites or Small Pentagons.',
+      },
+      {
+        name: 'big3_pure',
+        body: "[[A3', D3], [z': [A3: C4' [E4: C3] C]]]",
+        note: 'Swaps 3 big pentagons cleanly\n22t: pure BigPent(3)',
+        focusTypes: ['big_pent'],
+        section: 'Phase 3: Big Pentagons',
+      },
+    ]);
+
+    const serialized = serializeMacroLibraryToText(parsedSheet.entries);
+    const reparsed = parseMacroLibraryText(serialized, {
+      reservedNames: new Set(['A', 'B', 'C', 'D', 'E', 'x', 'y', 'z']),
+      validCircleIds: ['A', 'B', 'C', 'D', 'E'],
+    });
+    expect(reparsed.errors).toEqual([]);
+    expect(reparsed.entries).toEqual(parsedSheet.entries);
+
+    // Legacy JSON array import still works cleanly
+    const jsonParsed = parseMacroLibraryText(
+      '[{"name":"conj","body":"[A: D3]","focusTypes":["big_pent"]}]',
+    );
+    expect(jsonParsed.errors).toEqual([]);
+    expect(jsonParsed.entries).toEqual([
+      { name: 'conj', body: '[A: D3]', focusTypes: ['big_pent'] },
+    ]);
+
+    // disallowMacroDefs rejects inline `=` in Algorithm box cleanly
+    const disallowed = evaluateProgram(gp, 'g4 = [A3, C3\']\ng4', [], {
+      disallowMacroDefs: true,
+    });
+    expect(disallowed.parseErrors.length).toBe(1);
+    expect(disallowed.parseErrors[0].message).toContain('belongs in the Macro Library');
   });
 });
 

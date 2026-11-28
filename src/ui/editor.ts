@@ -43,7 +43,7 @@ export class AlgorithmEditor {
     this.textarea.autocomplete = 'off';
     this.textarea.autocapitalize = 'off';
     this.textarea.placeholder =
-      '// Type moves, e.g. [A: D3], A>, z, or define macros:\nconj = [A: D3]\n[z: conj]';
+      '// Type moves or call macros from the Macro Library:\n// e.g. [A: D3], A>, [z: conj], [y: big3_pure]';
 
     wrap.append(this.backdrop, this.textarea);
     container.appendChild(wrap);
@@ -149,9 +149,9 @@ export class AlgorithmEditor {
         while (i < n && src[i] !== '\n') {
           syntax[i++] = 'tok-comment';
         }
-        // Subtly highlight `@focus` / `@milestone` directives inside comments
+        // Subtly highlight `@focus` / `@hide` / `@show` / `@milestone` directives inside comments
         const commentLine = src.slice(lineStart, i);
-        const dirRe = /@(?:focus|milestone|active)\b/gi;
+        const dirRe = /@(?:focus|hide|show|milestone|active)\b/gi;
         let m: RegExpExecArray | null;
         while ((m = dirRe.exec(commentLine)) !== null) {
           for (let k = lineStart + m.index; k < lineStart + m.index + m[0].length; k++) {

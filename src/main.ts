@@ -9,8 +9,8 @@ import {
   evaluateProgram,
 } from './lang/evaluator.ts';
 import {
-  parseInlineMacroFocus,
-  setInlineMacroFocusInSource,
+  parseMacroLibraryText,
+  serializeMacroLibraryToText,
 } from './lang/focusDirectives.ts';
 import { buildPuzzle } from './puzzle/builder.ts';
 import { PUZZLE_CATALOG, getPuzzleSpec } from './puzzle/catalog.ts';
@@ -63,7 +63,6 @@ import {
   loadMacros,
   loadSolveSession,
   loadUiMode,
-  sanitizeMacroEntries,
   saveCustomPuzzles,
   saveExploreSession,
   saveLastPuzzleId,
@@ -158,7 +157,8 @@ class RingTwistApp {
   private solvedPeekVisible = false;
   private solvedPeekExpanded = false;
   private macroHoverEnabled = true;
-  private inlineFocusTypes: Record<string, string[]> = {};
+  private macroLibraryView: 'list' | 'text' = 'list';
+  private showHiddenMacros = false;
   private editingFocusMacroName: string | null = null;
   private cyclePreviewCache = new Map<string, CyclePreviewResult>();
   private lastMacroListKey = '';
@@ -204,6 +204,10 @@ class RingTwistApp {
   private stepCounterEl!: HTMLElement;
   private playBtnEl!: HTMLButtonElement;
   private samplesRowEl!: HTMLElement;
+  private macroListPanelEl!: HTMLElement;
+  private macroTextPanelEl!: HTMLElement;
+  private macroTextAreaEl!: HTMLTextAreaElement;
+  private macroTextErrorEl!: HTMLElement;
   private macroListEl!: HTMLElement;
   private macroNameInput!: HTMLInputElement;
   private macroBodyInput!: HTMLInputElement;
@@ -249,6 +253,7 @@ class RingTwistApp {
 
     this.evalResult = evaluateProgram(this.getActiveEvalBaseState(), '', this.macros, {
       solvedReference: this.solvedState,
+      disallowMacroDefs: true,
     });
 
     this.mountDOM(root);
@@ -431,7 +436,8 @@ class RingTwistApp {
     saveLastPuzzleId(this.currentSpec.id);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = shared.macros ?? loadMacros(this.currentSpec.id);
-    this.inlineFocusTypes = {};
+    this.showHiddenMacros = false;
+    this.setMacroLibraryView('list');
     if (shared.scrambleSeed) {
       this.uiMode = 'solve';
       saveUiMode('solve');
@@ -493,6 +499,7 @@ class RingTwistApp {
     for (const m of this.solveMilestones) {
       const ev = evaluateProgram(curState, m.alg, this.macros, {
         solvedReference: this.solvedState,
+        disallowMacroDefs: true,
       });
       const error =
         ev.parseErrors[0]?.message ??
@@ -631,7 +638,7 @@ class RingTwistApp {
 
           <section class="card editor-card">
             <div class="section-header">
-              <h2 class="section-title" id="editor-section-title">Algorithm &amp; Script</h2>
+              <h2 class="section-title" id="editor-section-title">Algorithm</h2>
               <div class="editor-actions">
                 <label class="click-mode-label explorer-only" title="Moving your text cursor previews the puzzle at that step">
                   <input type="checkbox" id="chk-cursor-sync" checked />
@@ -662,18 +669,41 @@ class RingTwistApp {
                   <button type="button" class="preview-mode-btn" data-hover="on">On</button>
                   <button type="button" class="preview-mode-btn" data-hover="off">Off</button>
                 </div>
-                <button class="btn btn-sm" id="btn-export-macros">Export</button>
-                <button class="btn btn-sm" id="btn-import-macros">Import</button>
+                <div class="preview-mode-toggle" id="macro-view-toggle" role="group" aria-label="Macro library view" title="Switch between interactive macro List and plain-text macro sheet for bulk editing or sharing">
+                  <button type="button" class="preview-mode-btn active" data-view="list">List</button>
+                  <button type="button" class="preview-mode-btn" data-view="text">Text</button>
+                </div>
+                <button class="btn btn-sm" id="btn-copy-macros" title="Copy Macro Library as a shareable plain-text sheet">Copy</button>
               </div>
             </div>
 
-            <form class="macro-form" id="macro-form">
-              <input type="text" id="macro-name" placeholder="name (tri)" required pattern="[a-zA-Z_][a-zA-Z0-9_]*" />
-              <input type="text" id="macro-body" placeholder="moves (e.g. [A3: E3])" required />
-              <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            </form>
+            <div class="macro-list-panel" id="macro-list-panel">
+              <form class="macro-form" id="macro-form">
+                <input type="text" id="macro-name" placeholder="name (tri)" required pattern="[a-zA-Z_][a-zA-Z0-9_]*" />
+                <input type="text" id="macro-body" placeholder="moves (e.g. [A3: E3])" required />
+                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+              </form>
 
-            <div class="macro-list" id="macro-list"></div>
+              <div class="macro-list" id="macro-list"></div>
+            </div>
+
+            <div class="macro-text-panel" id="macro-text-panel" hidden>
+              <textarea
+                class="macro-text-area"
+                id="macro-text-area"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="// Paste or edit macros here (supports // === Section ===, // @hide, // @show, // @focus):&#10;// @focus big_pent&#10;big3 = [A3, C3']  // 4t: BigPent(3)"
+              ></textarea>
+              <div class="macro-text-error" id="macro-text-error" hidden></div>
+              <div class="macro-text-actions">
+                <span class="macro-text-hint"><code>// === Section ===</code> · <code>// @hide</code> · <code>// @focus</code> · JSON</span>
+                <div class="macro-text-btns">
+                  <button type="button" class="btn btn-sm" id="btn-macro-text-cancel">Cancel</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-macro-text-apply">Apply</button>
+                </div>
+              </div>
+            </div>
           </section>
         </aside>
       </main>
@@ -716,6 +746,10 @@ class RingTwistApp {
     this.stepCounterEl = root.querySelector('#step-counter')!;
     this.playBtnEl = root.querySelector('#btn-play')!;
     this.samplesRowEl = root.querySelector('#samples-row')!;
+    this.macroListPanelEl = root.querySelector('#macro-list-panel')!;
+    this.macroTextPanelEl = root.querySelector('#macro-text-panel')!;
+    this.macroTextAreaEl = root.querySelector('#macro-text-area')!;
+    this.macroTextErrorEl = root.querySelector('#macro-text-error')!;
     this.macroListEl = root.querySelector('#macro-list')!;
     this.macroNameInput = root.querySelector('#macro-name')!;
     this.macroBodyInput = root.querySelector('#macro-body')!;
@@ -889,6 +923,7 @@ class RingTwistApp {
         this.showToast('Select or type moves first');
         return;
       }
+      this.setMacroLibraryView('list');
       this.macroBodyInput.value = body.replace(/\s+/g, ' ');
       this.macroNameInput.focus();
       this.showToast('Filled macro body — enter a name and click Save');
@@ -901,16 +936,7 @@ class RingTwistApp {
       const body = this.macroBodyInput.value.trim();
       if (!name || !body) return;
 
-      const reserved = new Set([
-        ...this.currentSpec.circles.map((c) => c.id),
-        ...this.currentSpec.circles
-          .filter((c) => c.layerRadii && c.layerRadii.length > 1)
-          .map((c) => c.id.toLowerCase()),
-        'x',
-        'y',
-        'z',
-      ]);
-      if (reserved.has(name)) {
+      if (this.getReservedMacroNames().has(name)) {
         this.showToast(`"${name}" is a reserved move name`);
         return;
       }
@@ -919,12 +945,7 @@ class RingTwistApp {
       if (existingIdx >= 0) {
         this.macros[existingIdx] = { ...this.macros[existingIdx], body };
       } else {
-        const inheritedFocus = this.inlineFocusTypes[name];
-        this.macros.push({
-          name,
-          body,
-          ...(inheritedFocus?.length ? { focusTypes: inheritedFocus } : {}),
-        });
+        this.macros.push({ name, body });
       }
       saveMacros(this.currentSpec.id, this.macros);
       this.cyclePreviewCache.clear();
@@ -957,56 +978,41 @@ class RingTwistApp {
       });
     });
 
-    // Export / Import macros JSON
-    root.querySelector('#btn-export-macros')!.addEventListener('click', () => {
-      const json = JSON.stringify(this.macros, null, 2);
-      navigator.clipboard?.writeText(json).then(
-        () => this.showToast('Copied macro library JSON to clipboard'),
-        () => window.prompt('Copy macro library JSON:', json),
+    // Macro Library view toggle (List / Text) & plain-text copy/apply
+    root.querySelectorAll<HTMLButtonElement>('#macro-view-toggle .preview-mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const view = btn.dataset.view === 'text' ? 'text' : 'list';
+        this.setMacroLibraryView(view);
+      });
+    });
+
+    root.querySelector('#btn-copy-macros')!.addEventListener('click', () => {
+      const text =
+        this.macroLibraryView === 'text'
+          ? this.macroTextAreaEl.value
+          : serializeMacroLibraryToText(this.macros);
+      if (!text.trim()) {
+        this.showToast('Macro Library is empty');
+        return;
+      }
+      navigator.clipboard?.writeText(text).then(
+        () => this.showToast('Copied Macro Library text to clipboard'),
+        () => window.prompt('Copy Macro Library text:', text),
       );
     });
 
-    root.querySelector('#btn-import-macros')!.addEventListener('click', () => {
-      const raw = window.prompt('Paste macro library JSON array ([{"name":"...","body":"...","focusTypes":["..."]}]):');
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
-        const reserved = new Set([
-          ...this.currentSpec.circles.map((c) => c.id),
-          ...this.currentSpec.circles
-            .filter((c) => c.layerRadii && c.layerRadii.length > 1)
-            .map((c) => c.id.toLowerCase()),
-          'x',
-          'y',
-          'z',
-        ]);
-        const valid = sanitizeMacroEntries(parsed)
-          .map((m) => ({
-            ...m,
-            name: m.name.trim(),
-            body: m.body.trim(),
-          }))
-          .filter(
-            (m) =>
-              /^[A-Za-z_][A-Za-z0-9_]*$/.test(m.name) &&
-              m.body.length > 0 &&
-              !reserved.has(m.name),
-          );
-        if (valid.length === 0) throw new Error('No valid non-reserved macros found');
-        for (const entry of valid) {
-          const idx = this.macros.findIndex((m) => m.name === entry.name);
-          if (idx >= 0) this.macros[idx] = entry;
-          else this.macros.push(entry);
-        }
-        saveMacros(this.currentSpec.id, this.macros);
-        this.cyclePreviewCache.clear();
-        if (this.uiMode === 'solve') this.rebuildCommittedStack();
-        this.renderMacroList();
-        this.reevaluate(false, { suppressAutoStart: true });
-        this.showToast(`Imported ${valid.length} macro(s)`);
-      } catch (err) {
-        this.showToast(`Import failed: ${(err as Error).message}`);
+    root.querySelector('#btn-macro-text-cancel')!.addEventListener('click', () => {
+      this.setMacroLibraryView('list');
+    });
+
+    root.querySelector('#btn-macro-text-apply')!.addEventListener('click', () => {
+      this.applyMacroTextSheet();
+    });
+
+    this.macroTextAreaEl.addEventListener('keydown', (ev) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+        ev.preventDefault();
+        this.applyMacroTextSheet();
       }
     });
   }
@@ -1049,7 +1055,7 @@ class RingTwistApp {
 
     const titleEl = document.querySelector('#editor-section-title');
     if (titleEl) {
-      titleEl.textContent = isSolve ? 'Current Moves' : 'Algorithm & Script';
+      titleEl.textContent = isSolve ? 'Current Moves' : 'Algorithm';
     }
   }
 
@@ -1427,15 +1433,120 @@ class RingTwistApp {
     }
   }
 
-  // ---- Macro Hover Piece-Cycle Preview ----
+  // ---- Macro Library Helpers (List / Text Views & Hover Preview) ----
+
+  private getReservedMacroNames(): Set<string> {
+    return new Set([
+      ...this.currentSpec.circles.map((c) => c.id),
+      ...this.currentSpec.circles
+        .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+        .map((c) => c.id.toLowerCase()),
+      'x',
+      'y',
+      'z',
+    ]);
+  }
+
+  private getMacroParseContext(): {
+    reservedNames: Set<string>;
+    validCircleIds: string[];
+    multiLayerCircleIds: string[];
+  } {
+    return {
+      reservedNames: this.getReservedMacroNames(),
+      validCircleIds: this.currentSpec.circles.map((c) => c.id),
+      multiLayerCircleIds: this.currentSpec.circles
+        .filter((c) => c.layerRadii && c.layerRadii.length > 1)
+        .map((c) => c.id),
+    };
+  }
+
+  private setMacroLibraryView(view: 'list' | 'text'): void {
+    this.macroLibraryView = view;
+    if (view === 'text') {
+      this.exitFocusPickMode();
+      this.clearCyclePreview();
+      if (this.macroTextAreaEl) {
+        this.macroTextAreaEl.value = serializeMacroLibraryToText(this.macros);
+      }
+      if (this.macroTextErrorEl) {
+        this.macroTextErrorEl.hidden = true;
+        this.macroTextErrorEl.textContent = '';
+      }
+    }
+    if (this.macroListPanelEl) this.macroListPanelEl.hidden = view !== 'list';
+    if (this.macroTextPanelEl) this.macroTextPanelEl.hidden = view !== 'text';
+    document
+      .querySelectorAll<HTMLButtonElement>('#macro-view-toggle .preview-mode-btn')
+      .forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+      });
+    if (view === 'text') {
+      this.macroTextAreaEl?.focus();
+    }
+  }
+
+  private applyMacroTextSheet(): void {
+    const raw = this.macroTextAreaEl.value;
+    const parsed = parseMacroLibraryText(raw, this.getMacroParseContext());
+    if (parsed.errors.length > 0) {
+      this.macroTextErrorEl.hidden = false;
+      this.macroTextErrorEl.textContent = parsed.errors.slice(0, 3).join(' · ');
+      return;
+    }
+    this.macroTextErrorEl.hidden = true;
+    this.macroTextErrorEl.textContent = '';
+    this.macros = parsed.entries;
+    saveMacros(this.currentSpec.id, this.macros);
+    this.cyclePreviewCache.clear();
+    if (this.uiMode === 'solve') this.rebuildCommittedStack();
+    this.setMacroLibraryView('list');
+    this.lastMacroListKey = '';
+    this.renderMacroList();
+    this.reevaluate(false, { suppressAutoStart: true });
+    this.showToast(
+      `Updated Macro Library (${this.macros.length} ${this.macros.length === 1 ? 'macro' : 'macros'})`,
+    );
+  }
+
+  private moveEditorMacrosToLibrary(): void {
+    const src = this.editor.getValue();
+    const parsed = parseMacroLibraryText(src, {
+      ...this.getMacroParseContext(),
+      allowNonMacroLines: true,
+    });
+    if (parsed.errors.length > 0) {
+      this.showToast(`Could not move macros: ${parsed.errors[0]}`);
+      return;
+    }
+    if (parsed.entries.length === 0) return;
+
+    // Merge extracted macros into the library (replacing existing entries with the same name)
+    for (const entry of parsed.entries) {
+      const idx = this.macros.findIndex((m) => m.name === entry.name);
+      if (idx >= 0) this.macros[idx] = entry;
+      else this.macros.push(entry);
+    }
+    saveMacros(this.currentSpec.id, this.macros);
+    this.cyclePreviewCache.clear();
+
+    this.editor.setValue(parsed.remainingText);
+    if (this.uiMode === 'solve') {
+      this.solveActiveAlg = parsed.remainingText;
+      this.rebuildCommittedStack();
+    } else {
+      this.exploreAlg = parsed.remainingText;
+    }
+    this.lastMacroListKey = '';
+    this.renderMacroList();
+    this.reevaluate(true, { suppressAutoStart: true });
+    this.showToast(
+      `Moved ${parsed.entries.length} ${parsed.entries.length === 1 ? 'macro' : 'macros'} to Macro Library`,
+    );
+  }
 
   private getMergedMacros(): MacroLibraryEntry[] {
-    const mergedMap = new Map<string, MacroLibraryEntry>();
-    for (const m of this.macros) mergedMap.set(m.name, m);
-    for (const [name, body] of Object.entries(this.evalResult.inlineMacros)) {
-      mergedMap.set(name, { name, body });
-    }
-    return Array.from(mergedMap.values());
+    return this.macros;
   }
 
   private previewMacroCycles(
@@ -1479,12 +1590,10 @@ class RingTwistApp {
     }
   }
 
-  // ---- Interactive Per-Macro Piece-Type Focus Picker (Saved & Inline Macros) ----
+  // ---- Interactive Per-Macro Piece-Type Focus Picker ----
 
   private getMacroFocusTypes(macroName: string): string[] | undefined {
-    const saved = this.macros.find((m) => m.name === macroName);
-    if (saved) return saved.focusTypes;
-    return this.inlineFocusTypes[macroName];
+    return this.macros.find((m) => m.name === macroName)?.focusTypes;
   }
 
   private enterFocusPickMode(macroName: string): void {
@@ -1492,7 +1601,7 @@ class RingTwistApp {
       this.exitFocusPickMode();
       return;
     }
-    const entry = this.getMergedMacros().find((m) => m.name === macroName);
+    const entry = this.macros.find((m) => m.name === macroName);
     if (!entry) return;
     this.stopPlayback();
     if (!this.isAtIntegerPos()) {
@@ -1518,41 +1627,16 @@ class RingTwistApp {
 
   private updateMacroFocusTypes(macroName: string, nextFocusTypes: string[]): void {
     const idx = this.macros.findIndex((m) => m.name === macroName);
-    if (idx >= 0) {
-      const entry = this.macros[idx];
-      if (nextFocusTypes.length > 0) {
-        this.macros[idx] = { ...entry, focusTypes: nextFocusTypes };
-      } else {
-        const { focusTypes: _removed, ...rest } = entry;
-        this.macros[idx] = rest;
-      }
-      saveMacros(this.currentSpec.id, this.macros);
-      this.cyclePreviewCache.clear();
-      this.renderFocusPickOverlay();
-      this.lastMacroListKey = '';
-      this.renderMacroList();
-      return;
-    }
-
-    // Inline macro: write/update `// @focus ...` directly on the macro's definition line in the editor
-    const curSrc = this.editor.getValue();
-    const nextSrc = setInlineMacroFocusInSource(curSrc, macroName, nextFocusTypes);
-    if (nextSrc !== curSrc) {
-      const ta = this.editor.textarea;
-      const scrollTop = ta.scrollTop;
-      const selStart = Math.min(ta.selectionStart ?? nextSrc.length, nextSrc.length);
-      const selEnd = Math.min(ta.selectionEnd ?? nextSrc.length, nextSrc.length);
-      this.editor.setValue(nextSrc);
-      ta.selectionStart = selStart;
-      ta.selectionEnd = selEnd;
-      ta.scrollTop = scrollTop;
-      this.syncCleanPuzzleHash();
-      this.cyclePreviewCache.clear();
-      this.reevaluate(false, { suppressAutoStart: true });
+    if (idx < 0) return;
+    const entry = this.macros[idx];
+    if (nextFocusTypes.length > 0) {
+      this.macros[idx] = { ...entry, focusTypes: nextFocusTypes };
     } else {
-      this.inlineFocusTypes = parseInlineMacroFocus(curSrc);
-      this.cyclePreviewCache.clear();
+      const { focusTypes: _removed, ...rest } = entry;
+      this.macros[idx] = rest;
     }
+    saveMacros(this.currentSpec.id, this.macros);
+    this.cyclePreviewCache.clear();
     this.renderFocusPickOverlay();
     this.lastMacroListKey = '';
     this.renderMacroList();
@@ -1758,11 +1842,9 @@ class RingTwistApp {
   }
 
   private renderMacroList(): void {
-    const inlineEntries = Object.entries(this.evalResult.inlineMacros);
     const key = JSON.stringify([
       this.macros,
-      inlineEntries,
-      this.inlineFocusTypes,
+      this.showHiddenMacros,
       this.editingFocusMacroName,
     ]);
     if (key === this.lastMacroListKey) return;
@@ -1770,42 +1852,49 @@ class RingTwistApp {
 
     this.macroListEl.innerHTML = '';
 
-    if (this.macros.length === 0 && inlineEntries.length === 0) {
+    if (this.macros.length === 0) {
       this.macroListEl.innerHTML =
-        '<div class="empty-state">No macros yet. Save useful commutators or conjugates here, or define them inline with <code>name = ...</code>.</div>';
+        '<div class="empty-state">No macros yet. Save useful commutators above, or switch to <b>Text</b> to paste a macro sheet.</div>';
       return;
     }
 
-    const addRow = (entry: MacroLibraryEntry, isInline: boolean) => {
-      const focusTypes = isInline ? this.inlineFocusTypes[entry.name] : entry.focusTypes;
+    const visibleMacros = this.macros.filter((m) => !m.hidden);
+    const hiddenMacros = this.macros.filter((m) => m.hidden);
+
+    const addRow = (entry: MacroLibraryEntry, isHiddenHelper = false) => {
+      const focusTypes = entry.focusTypes;
       const focusCount = focusTypes?.length ?? 0;
       const isEditingFocus = this.editingFocusMacroName === entry.name;
       const row = document.createElement('div');
-      row.className = `${isInline ? 'macro-item inline' : 'macro-item'}${isEditingFocus ? ' editing-focus' : ''}`;
+      row.className = `macro-item${isHiddenHelper ? ' hidden-helper' : ''}${isEditingFocus ? ' editing-focus' : ''}`;
       row.innerHTML = `
-        <div class="macro-meta">
-          <div class="macro-name-row">
-            <span class="macro-name">${escapeHtml(entry.name)}</span>
-            ${isInline ? '<span class="macro-badge">inline</span>' : ''}
+        <div class="macro-item-top">
+          <div class="macro-meta">
+            <div class="macro-name-row">
+              <span class="macro-name">${escapeHtml(entry.name)}</span>
+              ${isHiddenHelper ? '<span class="macro-badge">helper</span>' : ''}
+            </div>
+            <div class="macro-body" title="${escapeHtml(entry.body)}">${escapeHtml(entry.body)}</div>
           </div>
-          <div class="macro-body" title="${escapeHtml(entry.body)}">${escapeHtml(entry.body)}</div>
+          <div class="macro-btns">
+            <button class="btn btn-sm" data-act="insert" title="Insert ${escapeHtml(entry.name)} at cursor">Insert</button>
+            <button class="btn btn-sm" data-act="inv" title="Insert inverse ${escapeHtml(entry.name)}' at cursor">Inv '</button>
+            <button class="btn btn-sm" data-act="order" title="Analyze order from current puzzle state">Order</button>
+            <button class="btn btn-sm macro-focus-btn${focusCount > 0 ? ' has-focus' : ''}${isEditingFocus ? ' active' : ''}" data-act="focus" title="${
+              focusCount > 0
+                ? `Focusing ${focusCount} piece ${focusCount === 1 ? 'type' : 'types'} on hover — click to edit (Alt-hover peeks all)`
+                : 'Pick specific piece types to highlight on hover'
+            }">🎯${focusCount > 0 ? ` ${focusCount}` : ''}</button>
+            <button class="btn btn-sm btn-danger" data-act="del" title="Delete macro">×</button>
+          </div>
         </div>
-        <div class="macro-btns">
-          <button class="btn btn-sm" data-act="insert" title="Insert ${escapeHtml(entry.name)} at cursor">Insert</button>
-          <button class="btn btn-sm" data-act="inv" title="Insert inverse ${escapeHtml(entry.name)}' at cursor">Inv '</button>
-          <button class="btn btn-sm" data-act="order" title="Analyze order from current puzzle state">Order</button>
-          <button class="btn btn-sm macro-focus-btn${focusCount > 0 ? ' has-focus' : ''}${isEditingFocus ? ' active' : ''}" data-act="focus" title="${
-            focusCount > 0
-              ? `Focusing ${focusCount} piece ${focusCount === 1 ? 'type' : 'types'} on hover — click to edit (Alt-hover peeks all)`
-              : 'Pick specific piece types to highlight on hover'
-          }">🎯${focusCount > 0 ? ` ${focusCount}` : ''}</button>
-          ${isInline ? '' : '<button class="btn btn-sm btn-danger" data-act="del" title="Delete macro">×</button>'}
-        </div>
+        ${entry.note ? `<div class="macro-note">${escapeHtml(entry.note)}</div>` : ''}
       `;
 
       const insertBtn = row.querySelector<HTMLButtonElement>('[data-act="insert"]')!;
       const invBtn = row.querySelector<HTMLButtonElement>('[data-act="inv"]')!;
       const metaEl = row.querySelector<HTMLElement>('.macro-meta')!;
+      const noteEl = row.querySelector<HTMLElement>('.macro-note');
 
       const bindPreview = (el: HTMLElement, alg: string, lbl: string) => {
         el.addEventListener('mouseenter', (ev) =>
@@ -1816,6 +1905,7 @@ class RingTwistApp {
         el.addEventListener('blur', () => this.clearCyclePreview());
       };
       bindPreview(metaEl, entry.body, entry.name);
+      if (noteEl) bindPreview(noteEl, entry.body, entry.name);
       bindPreview(insertBtn, entry.body, entry.name);
       bindPreview(invBtn, `(${entry.body})'`, `${entry.name}'`);
 
@@ -1852,10 +1942,41 @@ class RingTwistApp {
       this.macroListEl.appendChild(row);
     };
 
-    for (const m of this.macros) addRow(m, false);
-    for (const [name, body] of inlineEntries) {
-      if (!this.macros.some((m) => m.name === name)) {
-        addRow({ name, body }, true);
+    let lastSection: string | undefined;
+    for (const m of visibleMacros) {
+      if (m.section && m.section !== lastSection) {
+        const heading = document.createElement('div');
+        heading.className = 'macro-section-heading';
+        heading.textContent = m.section;
+        this.macroListEl.appendChild(heading);
+        if (m.sectionNote) {
+          const secNote = document.createElement('div');
+          secNote.className = 'macro-section-note';
+          secNote.textContent = m.sectionNote;
+          this.macroListEl.appendChild(secNote);
+        }
+        lastSection = m.section;
+      }
+      addRow(m, false);
+    }
+
+    if (hiddenMacros.length > 0) {
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'macro-hidden-toggle';
+      toggleBtn.id = 'btn-toggle-hidden-macros';
+      const n = hiddenMacros.length;
+      toggleBtn.textContent = this.showHiddenMacros
+        ? `▾ Hide ${n} hidden ${n === 1 ? 'helper' : 'helpers'} (@hide)`
+        : `▸ Show ${n} hidden ${n === 1 ? 'helper' : 'helpers'} (@hide)`;
+      toggleBtn.addEventListener('click', () => {
+        this.showHiddenMacros = !this.showHiddenMacros;
+        this.renderMacroList();
+      });
+      this.macroListEl.appendChild(toggleBtn);
+
+      if (this.showHiddenMacros) {
+        for (const m of hiddenMacros) addRow(m, true);
       }
     }
   }
@@ -1874,7 +1995,8 @@ class RingTwistApp {
     this.syncCleanPuzzleHash();
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = loadMacros(this.currentSpec.id);
-    this.inlineFocusTypes = {};
+    this.showHiddenMacros = false;
+    this.setMacroLibraryView('list');
     this.loadPuzzleSessions(this.currentSpec.id);
     this.lastMacroListKey = '';
 
@@ -1926,10 +2048,10 @@ class RingTwistApp {
     const src = this.editor.getValue();
     if (this.uiMode === 'solve') this.solveActiveAlg = src;
     else this.exploreAlg = src;
-    this.inlineFocusTypes = parseInlineMacroFocus(src);
 
     this.evalResult = evaluateProgram(this.getActiveEvalBaseState(), src, this.macros, {
       solvedReference: this.solvedState,
+      disallowMacroDefs: true,
     });
     this.rebuildAllSteps();
     this.renderMacroList();
@@ -2175,8 +2297,17 @@ class RingTwistApp {
     if (this.evalResult.parseErrors.length > 0) {
       const err = this.evalResult.parseErrors[0];
       errorSpans.push(...this.evalResult.parseErrors.map((e) => e.span));
+      const isMacroDefErr = err.message.includes('belongs in the Macro Library');
       this.diagBannerEl.className = 'diagnostic-banner error visible';
-      this.diagBannerEl.innerHTML = `<span><b>Syntax error:</b> ${escapeHtml(err.message)}</span>`;
+      this.diagBannerEl.innerHTML = isMacroDefErr
+        ? `<span><b>Macros belong in the Macro Library:</b> ${escapeHtml(err.message)}</span>
+           <button type="button" class="btn btn-primary btn-sm" id="btn-move-macros-to-lib">Move macros to Library →</button>`
+        : `<span><b>Syntax error:</b> ${escapeHtml(err.message)}</span>`;
+      if (isMacroDefErr) {
+        this.diagBannerEl
+          .querySelector('#btn-move-macros-to-lib')
+          ?.addEventListener('click', () => this.moveEditorMacrosToLibrary());
+      }
     } else if (this.evalResult.runtimeError) {
       errorSpans.push(this.evalResult.runtimeError.span);
       this.diagBannerEl.className = 'diagnostic-banner error visible';
@@ -2522,14 +2653,13 @@ class RingTwistApp {
     const nextText = this.editor.getValue();
     if (this.uiMode === 'solve') this.solveActiveAlg = nextText;
     else this.exploreAlg = nextText;
-    this.inlineFocusTypes = parseInlineMacroFocus(nextText);
     this.syncCleanPuzzleHash();
 
     this.evalResult = evaluateProgram(
       this.getActiveEvalBaseState(),
       nextText,
       this.macros,
-      { solvedReference: this.solvedState },
+      { solvedReference: this.solvedState, disallowMacroDefs: true },
     );
     this.rebuildAllSteps();
     this.renderMacroList();

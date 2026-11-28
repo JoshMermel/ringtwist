@@ -19,8 +19,14 @@ export interface MacroLibraryEntry {
   name: string;
   body: string;
   note?: string;
-  /** Optional congruent piece shape-type IDs selecting which piece types to highlight on hover. */
+  /** Optional piece-type IDs (e.g. ["big_pent", "kite"]) to highlight on hover. */
   focusTypes?: string[];
+  /** When true (from `// @hide`), tucked behind the hidden helpers toggle in List view. */
+  hidden?: boolean;
+  /** Optional section heading (e.g. "Phase 1: Kites (15)") for grouping in List view. */
+  section?: string;
+  /** Optional description displayed beneath the section heading (from comments under `// === Section ===`). */
+  sectionNote?: string;
 }
 
 export interface ExecutedStep {
@@ -71,6 +77,8 @@ export interface EvaluateOptions {
   maxExpandedSteps?: number;
   /** Solved reference state (defaults to initialState). */
   solvedReference?: PuzzleState;
+  /** When true, reject `name = expr` macro definitions (macros belong in Macro Library). */
+  disallowMacroDefs?: boolean;
 }
 
 type MacroEnv = Map<string, { expr: ExprNode; source: string }>;
@@ -620,6 +628,29 @@ function runCompiledProgram(
       }
     }
   };
+
+  if (options.disallowMacroDefs) {
+    const macroDefErrors: ParseError[] = [];
+    for (const stmt of compiled.ast.statements) {
+      if (stmt.kind === 'macroDef') {
+        macroDefErrors.push({
+          message: `Macro "${stmt.name} = ..." belongs in the Macro Library (open Macro Library → Text to paste macro sheets)`,
+          span: stmt.span,
+        });
+      }
+    }
+    if (macroDefErrors.length > 0) {
+      return {
+        initialState,
+        steps: [],
+        finalState: initialState,
+        solved: isPuzzleSolved(initialState, solvedRef),
+        parseErrors: macroDefErrors,
+        inlineMacros: {},
+        usedFastForward: false,
+      };
+    }
+  }
 
   for (const stmt of compiled.ast.statements) {
     if (stmt.kind === 'macroDef') {

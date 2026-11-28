@@ -104,9 +104,9 @@ export const GERANIUM_PLUS: PuzzleSpec = {
       note: "A (36° CW) unlocks D; D3 (108°) exchanges pieces; A' restores alignment",
     },
     {
-      name: 'Symmetry Macro [z: conj]',
-      alg: 'conj = [A: D3]\n[z: conj]',
-      note: 'Defines a macro and applies it rotated 72° CW via whole-puzzle rotation z',
+      name: 'Symmetry Conjugate [z: [A: D3]]',
+      alg: '[z: [A: D3]]',
+      note: 'Applies [A: D3] rotated 72° CW via whole-puzzle rotation z (or call [z: conj] from Macro Library)',
     },
     {
       name: 'Next-unblocked walk',
@@ -202,8 +202,8 @@ export const SUPER_GERANIUM_PLUS: PuzzleSpec = {
       note: 'Turns outer circle F 108° CW, exchanges with inner circle A, then restores F',
     },
     {
-      name: 'Star symmetry macro',
-      alg: 'm = [F2: A3]\n[z: m]',
+      name: 'Star symmetry conjugate',
+      alg: '[z: [F2: A3]]',
       note: 'Applies an outer-inner conjugate rotated 72° CW around the 5-fold star',
     },
   ],

@@ -258,7 +258,7 @@ export const GIGAHEX_PLUS_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: '120° Symmetry conjugate',
-      alg: 'm = [a, B]\n[z: m]',
+      alg: '[z: [a, B]]',
       note: 'Applies the wide/inner commutator rotated 120° around the triangle',
     },
   ],
@@ -502,7 +502,7 @@ export const BAUHINIUM_PLUS_DOC: RingTwistPuzzleDoc = {
   sampleAlgorithms: [
     {
       name: 'Symmetric flip [z: [B: A]]',
-      alg: 'm = [B: A]\n[z: m]',
+      alg: '[z: [B: A]]',
       note: 'Flips central disk B, turns A 72°, restores B, then mirrors onto C via z',
     },
     {
@@ -555,7 +555,7 @@ export const COHAN_CIRCLE_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: '180° Symmetry [z: [A, B]]',
-      alg: 'c = [A, B]\n[z: c]',
+      alg: '[z: [A, B]]',
       note: 'Mirrors the commutator via 180° whole-puzzle rotation z',
     },
   ],
@@ -811,7 +811,7 @@ export const THREE_CIRCLE_CLOVER_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: '3-fold symmetry [z: [A, B]]',
-      alg: 'c = [A, B]\n[z: c]',
+      alg: '[z: [A, B]]',
       note: 'Applies the commutator rotated 120° CW around the clover',
     },
   ],
@@ -983,7 +983,7 @@ export const SIX_CIRCLE_HEX_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: 'Symmetry conjugate',
-      alg: 'm = [A, B]\n[z2: m]',
+      alg: '[z2: [A, B]]',
       note: 'Applies m rotated 120° CW around the hex flower',
     },
   ],
@@ -1475,7 +1475,7 @@ export const ROTO_36_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: '3-fold symmetry [z: [D, A]]',
-      alg: 'm = [D, A]\n[z: m]',
+      alg: '[z: [D, A]]',
       note: 'Applies the transfer commutator rotated 120° CW around the triangle',
     },
   ],
@@ -1550,7 +1550,7 @@ export const ROTO_44_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: '4-fold symmetry [z: [E, A]]',
-      alg: 'm = [E, A]\n[z: m]',
+      alg: '[z: [E, A]]',
       note: 'Applies the center-corner commutator rotated 90° CW around the square',
     },
   ],
@@ -1854,7 +1854,7 @@ export const RASHKEY_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: 'Symmetric flip [z: [A, B]]',
-      alg: 'c = [A, B]\n[z: c]',
+      alg: '[z: [A, B]]',
       note: 'Applies the commutator rotated 180° to swap A and B',
     },
   ],
@@ -1965,7 +1965,7 @@ export const GRIPPLE_DOC: RingTwistPuzzleDoc = {
     },
     {
       name: '4-fold symmetry [z: [A, E]]',
-      alg: 'c = [A, E]\n[z: c]',
+      alg: '[z: [A, E]]',
       note: 'Applies the 3-cycle rotated 90° CW around the square',
     },
   ],
