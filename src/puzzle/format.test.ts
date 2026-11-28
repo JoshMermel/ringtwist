@@ -182,23 +182,20 @@ describe('RingTwist v1 export & URL share round-trip', () => {
     expect(cols).toEqual(new Set(['#ef4444', '#38bdf8', '#facc15']));
   });
 
-  it('round-trips custom ringtwist/v1 docs through URL share hashes', () => {
-    const customDoc: RingTwistPuzzleDoc = {
-      ...CUSTOM_PUZZLE_TEMPLATES[0].doc,
-      id: 'my-shared-venn',
-      name: 'My Shared Venn',
-    };
+  it('round-trips puzzle state, scramble, alg, and macros through URL share hashes', () => {
     const hash = encodeShareHash({
-      puzzleId: customDoc.id,
+      puzzleId: 'geranium-plus',
+      scrambleSeed: 'demo-seed',
+      scrambleMoves: 80,
       alg: 'A B A\' B\'',
-      macros: [{ name: 'comm', body: '[A, B]' }],
-      customDoc,
+      macros: [{ name: 'comm', body: '[A, B]', focusTypes: ['big3'] }],
     });
     const decoded = decodeShareHash(hash);
     expect(decoded).not.toBeNull();
-    expect(decoded?.puzzleId).toBe('my-shared-venn');
+    expect(decoded?.puzzleId).toBe('geranium-plus');
+    expect(decoded?.scrambleSeed).toBe('demo-seed');
+    expect(decoded?.scrambleMoves).toBe(80);
     expect(decoded?.alg).toBe('A B A\' B\'');
-    expect(decoded?.macros).toEqual([{ name: 'comm', body: '[A, B]' }]);
-    expect(decoded?.customDoc).toEqual(customDoc);
+    expect(decoded?.macros).toEqual([{ name: 'comm', body: '[A, B]', focusTypes: ['big3'] }]);
   });
 });

@@ -3,18 +3,14 @@ import { renderStaticPuzzleSvg } from './svgRenderer.ts';
 
 export interface PuzzlePickerOptions {
   getPuzzles: () => PuzzleSpec[];
-  isCustomPuzzle: (id: string) => boolean;
   getOrBuildPuzzle: (spec: PuzzleSpec) => PuzzleState;
   getCurrentPuzzleId: () => string;
   onSelect: (puzzleId: string) => void;
-  onOpenStudio: (forkSpec?: PuzzleSpec) => void;
-  onDeleteCustom: (puzzleId: string) => void;
 }
 
 export interface PuzzlePickerController {
   open: () => void;
   close: () => void;
-  invalidateThumb: (puzzleId: string) => void;
 }
 
 function describeStops(spec: PuzzleSpec): string {
@@ -39,13 +35,10 @@ const CATEGORY_BLURBS: Record<string, string> = {
     'Community and boutique 2D twisty puzzles from James Li, Dmitry Andreev (Pluton), El Cubitero, Galen Ivanov, Hooshang Cohan, Cube4you, and ThinkFun.',
   'Classic Circles':
     'Unbandaged and concentric 2-, 3-, 4-, 6-, and 7-circle puzzles great for exploring commutators, conjugates, and symmetries.',
-  Custom:
-    'Your custom RingTwist v1 JSON puzzles (saved locally in this browser and shareable via URL).',
 };
 
 /**
- * Masyu-inspired visual puzzle picker modal with live cached SVG thumbnails,
- * category tabs, JSON Studio fork/import buttons, and keyboard support.
+ * Visual puzzle picker modal with live cached SVG thumbnails and category tabs.
  */
 export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePickerController {
   const backdrop = document.createElement('div');
@@ -60,12 +53,9 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
       <div class="modal-header">
         <div>
           <h2 id="bp-modal-title">Choose a Puzzle</h2>
-          <div class="bp-subtitle">Select any 2D twisty circle puzzle — or inspect/design one in RingTwist JSON</div>
+          <div class="bp-subtitle">Select any 2D twisty circle puzzle</div>
         </div>
-        <div class="bp-header-actions">
-          <button type="button" class="btn btn-primary btn-sm" id="bp-new-custom" title="Design or import a custom ringtwist/v1 JSON puzzle">+ Custom JSON</button>
-          <button class="btn btn-sm" id="bp-close" aria-label="Close puzzle picker">✕ Close</button>
-        </div>
+        <button class="btn btn-sm" id="bp-close" aria-label="Close puzzle picker">✕ Close</button>
       </div>
       <div class="bp-filter-bar" id="bp-filter-bar"></div>
       <div class="modal-body bp-body" id="bp-body"></div>
@@ -77,7 +67,6 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
   const filterBar = backdrop.querySelector<HTMLElement>('#bp-filter-bar')!;
   const body = backdrop.querySelector<HTMLElement>('#bp-body')!;
   const closeBtn = backdrop.querySelector<HTMLButtonElement>('#bp-close')!;
-  const newCustomBtn = backdrop.querySelector<HTMLButtonElement>('#bp-new-custom')!;
 
   const thumbHtmlCache = new Map<string, { svgHtml: string; pieceCount: number }>();
   let activeCategory = 'All';
@@ -161,11 +150,7 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
 
       for (const spec of specs) {
         const isCurrent = spec.id === currentId;
-        const isCustom = options.isCustomPuzzle(spec.id);
         const { svgHtml, pieceCount } = getThumbInfo(spec);
-
-        const cardWrap = document.createElement('div');
-        cardWrap.className = `bp-card-wrap${isCurrent ? ' bp-current' : ''}`;
 
         const card = document.createElement('button');
         card.type = 'button';
@@ -219,52 +204,13 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
           }
         });
 
-        const actions = document.createElement('div');
-        actions.className = 'bp-card-actions';
-
-        const jsonBtn = document.createElement('button');
-        jsonBtn.type = 'button';
-        jsonBtn.className = 'bp-icon-btn';
-        jsonBtn.textContent = '{ }';
-        jsonBtn.title = isCustom
-          ? `Edit ${spec.name} JSON`
-          : `Inspect or fork ${spec.name} as RingTwist JSON`;
-        jsonBtn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          close();
-          options.onOpenStudio(spec);
-        });
-        actions.appendChild(jsonBtn);
-
-        if (isCustom) {
-          const delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'bp-icon-btn bp-icon-btn-danger';
-          delBtn.textContent = '×';
-          delBtn.title = `Delete custom puzzle "${spec.name}"`;
-          delBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            thumbHtmlCache.delete(spec.id);
-            options.onDeleteCustom(spec.id);
-            renderFilters();
-            renderGrid();
-          });
-          actions.appendChild(delBtn);
-        }
-
-        cardWrap.append(card, actions);
-        grid.appendChild(cardWrap);
+        grid.appendChild(card);
       }
 
       sec.appendChild(grid);
       body.appendChild(sec);
     }
   };
-
-  newCustomBtn.addEventListener('click', () => {
-    close();
-    options.onOpenStudio();
-  });
 
   const open = () => {
     renderFilters();
@@ -291,11 +237,5 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
     }
   });
 
-  return {
-    open,
-    close,
-    invalidateThumb: (id: string) => {
-      thumbHtmlCache.delete(id);
-    },
-  };
+  return { open, close };
 }

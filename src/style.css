@@ -213,6 +213,34 @@ button {
   flex-wrap: wrap;
 }
 
+.status-strip[hidden] {
+  display: none;
+}
+
+.pill-scramble {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fde68a;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pill-clear-btn {
+  border: none;
+  background: transparent;
+  color: #fde68a;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0.78;
+}
+
+.pill-clear-btn:hover {
+  opacity: 1;
+}
+
 .status-pills {
   display: flex;
   align-items: center;
@@ -360,6 +388,10 @@ button {
 
 .stage-overlay-tl {
   left: 10px;
+}
+
+.stage-overlay-tl button[hidden] {
+  display: none;
 }
 
 .stage-overlay-tr {
@@ -694,14 +726,18 @@ button {
   overflow: hidden;
 }
 
-.macro-form {
+.save-macro-bar {
   display: grid;
-  grid-template-columns: minmax(0, 120px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 115px) minmax(0, 1fr) auto auto;
   gap: 6px;
   flex-shrink: 0;
 }
 
-.macro-form input {
+.save-macro-bar[hidden] {
+  display: none;
+}
+
+.save-macro-bar input {
   background: #090e1c;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
@@ -712,7 +748,7 @@ button {
   width: 100%;
 }
 
-.macro-form input:focus {
+.save-macro-bar input:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -1167,7 +1203,6 @@ code {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  padding-right: 54px;
 }
 
 .bp-card-name {
@@ -1273,8 +1308,20 @@ code {
 
 .sp-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
   padding-top: 2px;
+}
+
+.sp-actions button[hidden] {
+  display: none;
+}
+
+#btn-scramble-toggle.active {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #fde68a;
 }
 
 /* ---- Solved Reference Peek Card ---- */
@@ -1361,336 +1408,6 @@ code {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-/* ---- Mode Toggle (Explorer / Solve) ---- */
-.mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border-radius: 8px;
-  background: #090e1c;
-  border: 1px solid var(--border-strong);
-}
-
-.mode-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.mode-btn:hover {
-  color: var(--text);
-}
-
-.mode-btn.active {
-  background: rgba(56, 189, 248, 0.22);
-  color: #bae6fd;
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
-}
-
-/* ---- Solve Mode Workspace Layout ---- */
-.workspace.mode-solve {
-  grid-template-columns: minmax(400px, 1.45fr) minmax(360px, 500px);
-}
-
-.workspace.mode-solve .explorer-only {
-  display: none !important;
-}
-
-.workspace.mode-solve .side-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.workspace.mode-solve .editor-card {
-  flex: 0 0 auto;
-  min-height: 0;
-}
-
-.workspace.mode-solve .code-editor-wrap {
-  height: clamp(92px, 14vh, 170px);
-}
-
-.workspace.mode-solve .macros-card {
-  flex: 1 1 0;
-  min-height: 0;
-}
-
-.workspace.mode-solve .macros-card .macro-list {
-  flex: 1 1 0;
-  min-height: 0;
-  max-height: none;
-}
-
-@media (max-width: 960px) {
-  .workspace.mode-solve .macros-card .macro-list {
-    max-height: 360px;
-  }
-}
-
-/* ---- Solve HUD Bar ---- */
-.solve-hud-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(9, 14, 28, 0.72);
-  border: 1px solid var(--border);
-}
-
-.solve-hud-bar[hidden] {
-  display: none;
-}
-
-.solve-hud-left,
-.solve-hud-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.solve-stat {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.solve-stat strong {
-  color: var(--text);
-}
-
-.solve-timer-btn {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.solve-timer-btn.running {
-  border-color: rgba(56, 189, 248, 0.6);
-  background: rgba(56, 189, 248, 0.14);
-  color: #bae6fd;
-}
-
-.pill-scramble {
-  background: rgba(245, 158, 11, 0.16);
-  border-color: rgba(245, 158, 11, 0.5);
-  color: #fde68a;
-}
-
-/* ---- Solve Stack Card (Scramble Root + Committed Milestones) ---- */
-.solve-stack-card {
-  padding: 10px 12px;
-  gap: 8px;
-  flex: 0 1 auto;
-  min-height: 0;
-}
-
-.solve-stack-card[hidden] {
-  display: none;
-}
-
-.stack-count-badge {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 7px;
-  margin-left: 6px;
-}
-
-.solve-stack-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: clamp(130px, 24vh, 260px);
-  overflow-y: auto;
-  padding-right: 2px;
-}
-
-.stack-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-}
-
-.stack-item:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-3);
-}
-
-.stack-item.inspecting {
-  border-color: var(--accent);
-  background: rgba(56, 189, 248, 0.12);
-}
-
-.stack-item.has-error {
-  border-color: rgba(244, 63, 94, 0.65);
-}
-
-.stack-item-root {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.32);
-}
-
-.stack-item-root:hover {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.52);
-}
-
-.stack-item-root.inspecting {
-  border-color: var(--warning);
-  background: rgba(245, 158, 11, 0.16);
-}
-
-.stack-item-main {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.stack-item-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.stack-badge {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(56, 189, 248, 0.18);
-  color: #7dd3fc;
-  flex-shrink: 0;
-}
-
-.stack-badge-root {
-  background: rgba(245, 158, 11, 0.22);
-  color: #fde68a;
-  letter-spacing: 0.04em;
-}
-
-.stack-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stack-step-meta {
-  margin-left: auto;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.stack-alg-preview {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stack-seed-form {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.stack-seed-input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 7px;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: #090e1c;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.stack-moves-input {
-  width: 60px;
-  padding: 4px 5px;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: #090e1c;
-  font-family: var(--mono);
-  font-size: 12px;
-  text-align: center;
-}
-
-.stack-seed-input:focus,
-.stack-moves-input:focus,
-.commit-milestone-bar input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.stack-top-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-/* ---- Commit Milestone Bar (under Active Moves textbox) ---- */
-.commit-milestone-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.commit-milestone-bar[hidden] {
-  display: none;
-}
-
-.commit-milestone-bar input {
-  flex: 1;
-  min-width: 0;
-  background: #090e1c;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  padding: 5px 8px;
-  font-size: 12px;
 }
 
 /* ---- Macro Hover Cycle Preview ---- */
@@ -2041,211 +1758,6 @@ code {
 
 .cycle-preview-pill[hidden] {
   display: none;
-}
-
-/* ---- Solve Completion Banner ---- */
-.completion-banner {
-  position: absolute;
-  top: 48px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: rgba(12, 26, 22, 0.94);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(34, 197, 94, 0.65);
-  color: #dcfce7;
-  font-size: 13px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-  z-index: 20;
-  max-width: calc(100% - 24px);
-}
-
-.completion-banner[hidden] {
-  display: none;
-}
-
-.completion-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sp-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-  padding-top: 2px;
-}
-
-@media (max-width: 960px) {
-  .workspace.mode-solve {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* ---- Puzzle JSON Studio Modal (ringtwist/v1) ---- */
-.studio-modal {
-  max-width: 980px;
-  height: min(86vh, 720px);
-}
-
-.studio-badge {
-  display: inline-block;
-  margin-left: 6px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(56, 189, 248, 0.16);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  color: #7dd3fc;
-  vertical-align: middle;
-}
-
-.studio-templates {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(11, 16, 32, 0.35);
-}
-
-.studio-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: 14px;
-  padding: 14px 18px;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.studio-editor-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
-
-.studio-textarea {
-  flex: 1;
-  min-height: 240px;
-  width: 100%;
-  resize: none;
-  background: #090e1c;
-  color: #e2e8f0;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.45;
-  tab-size: 2;
-}
-
-.studio-textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.studio-status {
-  font-size: 12px;
-  padding: 7px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-muted);
-  line-height: 1.35;
-}
-
-.studio-status.ok {
-  border-color: rgba(52, 211, 153, 0.45);
-  background: rgba(16, 185, 129, 0.12);
-  color: #6ee7b7;
-}
-
-.studio-status.warn {
-  border-color: rgba(251, 191, 36, 0.5);
-  background: rgba(245, 158, 11, 0.14);
-  color: #fde68a;
-}
-
-.studio-status.error {
-  border-color: rgba(244, 63, 94, 0.55);
-  background: rgba(244, 63, 94, 0.14);
-  color: #fda4af;
-}
-
-.studio-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.studio-preview-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
-
-.studio-preview-stage {
-  flex: 1;
-  min-height: 240px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: radial-gradient(circle at center, #141e38 0%, #0b1020 80%);
-  overflow: hidden;
-}
-
-.studio-svg {
-  width: 100%;
-  height: 100%;
-  max-width: 360px;
-  max-height: 360px;
-  display: block;
-}
-
-.studio-preview-meta {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-@media (max-width: 820px) {
-  .studio-modal {
-    height: auto;
-    max-height: 92vh;
-  }
-
-  .studio-grid {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-  }
-
-  .studio-textarea {
-    min-height: 200px;
-  }
-
-  .studio-preview-stage {
-    min-height: 220px;
-  }
 }
 
 @media (max-width: 640px) {

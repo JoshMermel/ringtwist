@@ -1,17 +1,10 @@
 import { MacroLibraryEntry } from '../lang/evaluator.ts';
-import { RingTwistPuzzleDoc, validateRingTwistDoc } from '../puzzle/format.ts';
-import { SolveMilestone } from '../puzzle/solveStack.ts';
 
 const STORAGE_PREFIX = 'ringtwist:macros:v1:';
 const LEGACY_STORAGE_PREFIX = 'circle-sim:macros:v1:';
-const CUSTOM_PUZZLES_KEY = 'ringtwist:custom-puzzles:v1';
-const EXPLORE_SESSION_PREFIX = 'ringtwist:explore:v1:';
-const SOLVE_SESSION_PREFIX = 'ringtwist:solve:v1:';
-const UI_MODE_KEY = 'ringtwist:ui-mode:v1';
+const SESSION_PREFIX = 'ringtwist:session:v1:';
+const LEGACY_EXPLORE_PREFIX = 'ringtwist:explore:v1:';
 const LAST_PUZZLE_KEY = 'ringtwist:last-puzzle:v1';
-const MACRO_HOVER_ENABLED_KEY = 'ringtwist:macro-hover:v1';
-
-export type UiMode = 'explorer' | 'solve';
 
 /** Sanitize an optional list of congruent piece shape-type IDs for per-macro hover focus. */
 export function sanitizeFocusTypes(raw: unknown): string[] | undefined {
@@ -57,17 +50,10 @@ export function sanitizeMacroEntries(raw: unknown): MacroLibraryEntry[] {
   return out;
 }
 
-export interface ExploreSession {
+export interface PuzzleSession {
   alg: string;
-}
-
-export interface SolveSession {
-  seed: string;
-  scrambleMoves: number;
-  milestones: SolveMilestone[];
-  activeAlg: string;
-  elapsedMs: number;
-  solved: boolean;
+  scrambleSeed?: string;
+  scrambleMoves?: number;
 }
 
 const DEFAULT_MACROS: Record<string, MacroLibraryEntry[]> = {
@@ -107,49 +93,6 @@ export function saveMacros(puzzleId: string, macros: MacroLibraryEntry[]): void 
   }
 }
 
-export function loadCustomPuzzles(): RingTwistPuzzleDoc[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_PUZZLES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const valid: RingTwistPuzzleDoc[] = [];
-    for (const item of parsed) {
-      const check = validateRingTwistDoc(item);
-      if (check.ok) valid.push(check.doc);
-    }
-    return valid;
-  } catch {
-    return [];
-  }
-}
-
-export function saveCustomPuzzles(docs: RingTwistPuzzleDoc[]): void {
-  try {
-    localStorage.setItem(CUSTOM_PUZZLES_KEY, JSON.stringify(docs));
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-export function loadUiMode(): UiMode {
-  try {
-    const raw = localStorage.getItem(UI_MODE_KEY);
-    if (raw === 'solve' || raw === 'explorer') return raw;
-  } catch {
-    // Ignore storage errors
-  }
-  return 'explorer';
-}
-
-export function saveUiMode(mode: UiMode): void {
-  try {
-    localStorage.setItem(UI_MODE_KEY, mode);
-  } catch {
-    // Ignore storage errors
-  }
-}
-
 export function loadLastPuzzleId(): string | null {
   try {
     const raw = localStorage.getItem(LAST_PUZZLE_KEY);
@@ -167,83 +110,34 @@ export function saveLastPuzzleId(puzzleId: string): void {
   }
 }
 
-export function loadMacroHoverEnabled(): boolean {
+export function loadSession(puzzleId: string): PuzzleSession | null {
   try {
-    const raw = localStorage.getItem(MACRO_HOVER_ENABLED_KEY);
-    if (raw === '0' || raw === 'false') return false;
-  } catch {
-    // Ignore storage errors
-  }
-  return true;
-}
-
-export function saveMacroHoverEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(MACRO_HOVER_ENABLED_KEY, enabled ? '1' : '0');
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-export function loadExploreSession(puzzleId: string): ExploreSession | null {
-  try {
-    const raw = localStorage.getItem(EXPLORE_SESSION_PREFIX + puzzleId);
+    const raw =
+      localStorage.getItem(SESSION_PREFIX + puzzleId) ??
+      localStorage.getItem(LEGACY_EXPLORE_PREFIX + puzzleId);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || typeof parsed.alg !== 'string') return null;
-    return { alg: parsed.alg };
-  } catch {
-    return null;
-  }
-}
-
-export function saveExploreSession(puzzleId: string, session: ExploreSession): void {
-  try {
-    localStorage.setItem(EXPLORE_SESSION_PREFIX + puzzleId, JSON.stringify(session));
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-export function loadSolveSession(puzzleId: string): SolveSession | null {
-  try {
-    const raw = localStorage.getItem(SOLVE_SESSION_PREFIX + puzzleId);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || typeof parsed.seed !== 'string') return null;
-    const milestones: SolveMilestone[] = Array.isArray(parsed.milestones)
-      ? parsed.milestones
-          .filter(
-            (m: unknown): m is SolveMilestone =>
-              !!m &&
-              typeof m === 'object' &&
-              typeof (m as SolveMilestone).label === 'string' &&
-              typeof (m as SolveMilestone).alg === 'string',
-          )
-          .map((m: SolveMilestone) => ({ label: m.label, alg: m.alg }))
-      : [];
+    const seed =
+      typeof parsed.scrambleSeed === 'string' && parsed.scrambleSeed.trim().length > 0
+        ? parsed.scrambleSeed.trim()
+        : undefined;
+    const moves =
+      typeof parsed.scrambleMoves === 'number' && Number.isFinite(parsed.scrambleMoves)
+        ? Math.max(1, Math.min(1000, Math.round(parsed.scrambleMoves)))
+        : undefined;
     return {
-      seed: parsed.seed,
-      scrambleMoves:
-        typeof parsed.scrambleMoves === 'number' && Number.isFinite(parsed.scrambleMoves)
-          ? Math.max(1, Math.min(1000, Math.round(parsed.scrambleMoves)))
-          : 20,
-      milestones,
-      activeAlg: typeof parsed.activeAlg === 'string' ? parsed.activeAlg : '',
-      elapsedMs:
-        typeof parsed.elapsedMs === 'number' && Number.isFinite(parsed.elapsedMs)
-          ? Math.max(0, parsed.elapsedMs)
-          : 0,
-      solved: Boolean(parsed.solved),
+      alg: parsed.alg,
+      ...(seed ? { scrambleSeed: seed, scrambleMoves: moves ?? 20 } : {}),
     };
   } catch {
     return null;
   }
 }
 
-export function saveSolveSession(puzzleId: string, session: SolveSession): void {
+export function saveSession(puzzleId: string, session: PuzzleSession): void {
   try {
-    localStorage.setItem(SOLVE_SESSION_PREFIX + puzzleId, JSON.stringify(session));
+    localStorage.setItem(SESSION_PREFIX + puzzleId, JSON.stringify(session));
   } catch {
     // Ignore storage errors
   }
@@ -272,7 +166,6 @@ export interface SharedPayload {
   /** True only when the URL explicitly carried an `a=` algorithm parameter. */
   hasSharedAlg?: boolean;
   macros?: MacroLibraryEntry[];
-  customDoc?: RingTwistPuzzleDoc;
   scrambleSeed?: string;
   scrambleMoves?: number;
 }
@@ -285,9 +178,6 @@ export function encodeShareHash(payload: SharedPayload): string {
     if (payload.scrambleMoves && Number.isFinite(payload.scrambleMoves)) {
       params.set('n', String(Math.round(payload.scrambleMoves)));
     }
-  }
-  if (payload.customDoc) {
-    params.set('d', toBase64Url(JSON.stringify(payload.customDoc)));
   }
   if (payload.alg.trim().length > 0) {
     params.set('a', toBase64Url(payload.alg));
@@ -307,7 +197,6 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     if (!puzzleId) return null;
     const algRaw = params.get('a');
     const macrosRaw = params.get('m');
-    const docRaw = params.get('d');
     const seedRaw = params.get('s')?.trim();
     const movesRaw = params.get('n');
     const alg = algRaw ? fromBase64Url(algRaw) : '';
@@ -317,12 +206,6 @@ export function decodeShareHash(hash: string): SharedPayload | null {
       if (Array.isArray(parsed)) {
         macros = sanitizeMacroEntries(parsed);
       }
-    }
-    let customDoc: RingTwistPuzzleDoc | undefined;
-    if (docRaw) {
-      const parsedDoc = JSON.parse(fromBase64Url(docRaw));
-      const check = validateRingTwistDoc(parsedDoc);
-      if (check.ok) customDoc = check.doc;
     }
     const parsedMoves = movesRaw ? parseInt(movesRaw, 10) : NaN;
     const scrambleMoves =
@@ -334,7 +217,6 @@ export function decodeShareHash(hash: string): SharedPayload | null {
       alg,
       ...(algRaw !== null ? { hasSharedAlg: true } : {}),
       macros,
-      customDoc,
       ...(seedRaw ? { scrambleSeed: seedRaw } : {}),
       ...(seedRaw && scrambleMoves !== undefined ? { scrambleMoves } : {}),
     };

@@ -1,6 +1,6 @@
 # RingTwist Puzzle Format (`ringtwist/v1`)
 
-RingTwist includes a declarative, **index-free**, pure-JSON format (`"format": "ringtwist/v1"`) for defining 2D twisty circle puzzles. You can use it both for built-in puzzles in [`src/puzzle/definitions.ts`](../src/puzzle/definitions.ts) and directly in the browser via **Choose a Puzzle → `+ Custom JSON`** (or by clicking **`{ }`** on any puzzle card to inspect or fork it).
+RingTwist includes a declarative, **index-free**, pure-JSON format (`"format": "ringtwist/v1"`) for defining built-in 2D twisty circle puzzles in [`src/puzzle/definitions.ts`](../src/puzzle/definitions.ts).
 
 Unlike legacy line-script formats that address pieces by fragile creation indices (`HideParts: 17`, `SetColorParts: 4 9 12`), `ringtwist/v1` describes **geometry, cuts, bandaging, and coloring semantically** — so tweaking a radius or adding a layer never scrambles part numbers.
 
