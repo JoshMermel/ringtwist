@@ -15,6 +15,12 @@ export interface Circle {
 
 /** Normalize angle to [0, 2*PI). */
 export function normAngle(a: number): number {
+  if (a >= 0 && a < TWO_PI - 1e-12) return a;
+  if (a >= TWO_PI && a < 2 * TWO_PI - 1e-12) return a - TWO_PI;
+  if (a < 0 && a >= -TWO_PI) {
+    const r = a + TWO_PI;
+    return r >= TWO_PI - 1e-12 ? 0 : r;
+  }
   let r = a % TWO_PI;
   if (r < 0) r += TWO_PI;
   if (r >= TWO_PI - 1e-12) r = 0;
@@ -29,7 +35,9 @@ export function normAngleSigned(a: number): number {
 }
 
 export function dist(a: Point, b: Point): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 export function distSq(a: Point, b: Point): number {
@@ -39,14 +47,17 @@ export function distSq(a: Point, b: Point): number {
 }
 
 export function pointsEqual(a: Point, b: Point, eps = EPS): boolean {
-  return Math.hypot(a.x - b.x, a.y - b.y) <= eps;
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy <= eps * eps;
 }
 
 export function circlesEqual(a: Circle, b: Circle, eps = EPS): boolean {
-  return (
-    Math.hypot(a.cx - b.cx, a.cy - b.cy) <= eps &&
-    Math.abs(a.r - b.r) <= eps
-  );
+  const dr = a.r - b.r;
+  if (dr > eps || dr < -eps) return false;
+  const dx = a.cx - b.cx;
+  const dy = a.cy - b.cy;
+  return dx * dx + dy * dy <= eps * eps;
 }
 
 export function pointOnCircle(c: Circle, angle: number): Point {
@@ -85,29 +96,32 @@ export function snapFloat(v: number, quantum = 1e-6): number {
 export function intersectCircles(a: Circle, b: Circle, eps = EPS): Point[] {
   const dx = b.cx - a.cx;
   const dy = b.cy - a.cy;
-  const d = Math.hypot(dx, dy);
-
-  if (d <= eps) {
+  const dSq = dx * dx + dy * dy;
+  if (dSq <= eps * eps) {
     // Concentric (or identical)
     return [];
   }
-  if (d > a.r + b.r + eps || d < Math.abs(a.r - b.r) - eps) {
-    return [];
-  }
+  const sumR = a.r + b.r + eps;
+  if (dSq > sumR * sumR) return [];
+  const diffR = Math.abs(a.r - b.r) - eps;
+  if (diffR > 0 && dSq < diffR * diffR) return [];
 
-  const x = (a.r * a.r - b.r * b.r + d * d) / (2 * d);
-  const hSq = a.r * a.r - x * x;
+  const d = Math.sqrt(dSq);
+  const aR2 = a.r * a.r;
+  const x = (aR2 - b.r * b.r + dSq) / (2 * d);
+  const hSq = aR2 - x * x;
 
-  const px = a.cx + (x * dx) / d;
-  const py = a.cy + (x * dy) / d;
+  const invD = 1 / d;
+  const px = a.cx + x * dx * invD;
+  const py = a.cy + x * dy * invD;
 
   if (hSq <= eps * eps) {
     return [{ x: px, y: py }];
   }
 
   const h = Math.sqrt(Math.max(0, hSq));
-  const rx = (-dy * h) / d;
-  const ry = (dx * h) / d;
+  const rx = -dy * h * invD;
+  const ry = dx * h * invD;
 
   return [
     { x: px + rx, y: py + ry },

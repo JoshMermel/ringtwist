@@ -9,10 +9,6 @@
   --text-muted: #94a3b8;
   --accent: #38bdf8;
   --accent-strong: #0ea5e9;
-  --success: #22c55e;
-  --danger: #f43f5e;
-  --warning: #f59e0b;
-  --purple: #c084fc;
   --mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
   --sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --radius: 10px;
@@ -166,11 +162,6 @@ button {
   min-width: 34px;
 }
 
-.btn-danger:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: #fda4af;
-}
-
 /* Main workspace */
 .workspace {
   display: grid;
@@ -284,48 +275,6 @@ button {
   color: #fde68a;
 }
 
-.circle-chips {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.circle-chip {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: transform 0.1s, opacity 0.1s;
-}
-
-.circle-chip:hover {
-  transform: translateY(-1px);
-}
-
-.circle-chip.free {
-  border-color: rgba(34, 197, 94, 0.55);
-  color: #bbf7d0;
-}
-
-.circle-chip.discovered {
-  border-color: rgba(251, 191, 36, 0.75);
-  background: rgba(251, 191, 36, 0.14);
-  color: #fde68a;
-}
-
-.circle-chip.blocked {
-  opacity: 0.45;
-  border-style: dashed;
-  border-color: rgba(244, 63, 94, 0.5);
-  color: #fda4af;
-}
-
 /* Alert banner for blocked move / errors */
 .diagnostic-banner {
   display: none;
@@ -396,31 +345,7 @@ button {
 
 .stage-overlay-tr {
   right: 10px;
-}
-
-.click-mode-label {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  background: rgba(18, 26, 47, 0.85);
-  border: 1px solid var(--border);
-  padding: 4px 8px;
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.stage-hint {
-  position: absolute;
-  bottom: 8px;
-  left: 10px;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: rgba(11, 16, 32, 0.72);
-  padding: 3px 8px;
-  border-radius: 6px;
-  pointer-events: none;
 }
 
 /* SVG elements */
@@ -478,16 +403,6 @@ button {
   stroke: #f43f5e;
   stroke-width: 0.05;
   stroke-dasharray: 0.12 0.08;
-}
-
-.circle-hit {
-  fill: transparent;
-  cursor: pointer;
-}
-
-.circle-hit:hover + .circle-rim.free {
-  stroke: rgba(255, 255, 255, 0.65);
-  stroke-width: 0.04;
 }
 
 .circle-label-group {
@@ -797,11 +712,6 @@ button {
   width: 100%;
 }
 
-.macro-item.inline {
-  border-style: dashed;
-  border-color: rgba(56, 189, 248, 0.4);
-}
-
 .macro-meta {
   display: flex;
   flex-direction: column;
@@ -1019,13 +929,6 @@ code {
   max-width: 780px;
 }
 
-.bp-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
 .bp-subtitle {
   font-size: 12px;
   color: var(--text-muted);
@@ -1103,11 +1006,6 @@ code {
   gap: 10px;
 }
 
-.bp-card-wrap {
-  position: relative;
-  display: flex;
-}
-
 .bp-card {
   width: 100%;
   display: flex;
@@ -1133,42 +1031,6 @@ code {
   background: rgba(56, 189, 248, 0.12);
   border-color: var(--accent);
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35);
-}
-
-.bp-card-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  z-index: 2;
-}
-
-.bp-icon-btn {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: rgba(11, 16, 32, 0.85);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
-}
-
-.bp-icon-btn:hover {
-  color: #bae6fd;
-  border-color: var(--accent);
-  background: var(--surface-3);
-}
-
-.bp-icon-btn-danger:hover {
-  color: #fecdd3;
-  border-color: #f43f5e;
-  background: rgba(244, 63, 94, 0.2);
 }
 
 .bp-thumb {
@@ -1325,12 +1187,6 @@ code {
 }
 
 /* ---- Solved Reference Peek Card ---- */
-.stage-overlay-tr {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .solved-peek-btn.active {
   background: rgba(56, 189, 248, 0.2);
   border-color: var(--accent);
@@ -1339,7 +1195,7 @@ code {
 
 .solved-ref-card {
   position: absolute;
-  bottom: 34px;
+  bottom: 12px;
   right: 12px;
   width: 184px;
   background: rgba(12, 19, 36, 0.94);
@@ -1354,6 +1210,7 @@ code {
 
 .solved-ref-card.expanded {
   width: 310px;
+  max-width: calc(100% - 24px);
 }
 
 .solved-ref-card[hidden] {
@@ -1419,13 +1276,6 @@ code {
   border-radius: 7px;
   padding: 2px;
   gap: 2px;
-}
-
-.preview-mode-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 0 5px;
-  user-select: none;
 }
 
 .preview-mode-btn {
@@ -1736,7 +1586,7 @@ code {
 
 .cycle-preview-pill {
   position: absolute;
-  bottom: 34px;
+  bottom: 12px;
   left: 12px;
   padding: 4px 10px;
   border-radius: 999px;
@@ -1797,16 +1647,6 @@ code {
     right: 8px;
   }
 
-  .click-mode-label {
-    padding: 3px 6px;
-    font-size: 11px;
-    gap: 4px;
-  }
-
-  .stage-hint {
-    font-size: 10.5px;
-  }
-
   .scrubber {
     min-width: 90px;
   }
@@ -1816,16 +1656,22 @@ code {
     text-align: left;
   }
 
-  .macro-form {
-    grid-template-columns: minmax(0, 92px) minmax(0, 1fr) auto;
+  .save-macro-bar {
+    grid-template-columns: minmax(0, 92px) minmax(0, 1fr) auto auto;
   }
 
   .scramble-popover {
+    left: 0;
+    right: auto;
     max-width: calc(100vw - 24px);
   }
 
   .solved-ref-card {
     width: 152px;
+  }
+
+  .solved-ref-card.expanded {
+    width: min(280px, calc(100% - 24px));
   }
 
   .bp-cards {

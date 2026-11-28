@@ -11,6 +11,7 @@ export interface PuzzlePickerOptions {
 export interface PuzzlePickerController {
   open: () => void;
   close: () => void;
+  isOpen: () => boolean;
 }
 
 function describeStops(spec: PuzzleSpec): string {
@@ -28,6 +29,22 @@ function describeStops(spec: PuzzleSpec): string {
   return 'uneven stops';
 }
 
+function formatCircleMeta(spec: PuzzleSpec, pieceCount?: number): string {
+  const stopDesc = describeStops(spec);
+  const primaryCount = spec.circles.filter((c) => !c.discovered).length;
+  const discoveredCount = spec.circles.length - primaryCount;
+  const circleDesc =
+    discoveredCount > 0
+      ? `${primaryCount} circles + ${discoveredCount} discovered`
+      : `${primaryCount} circles`;
+  const parts = [
+    circleDesc,
+    pieceCount !== undefined ? `${pieceCount} pieces` : '',
+    stopDesc,
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
 const CATEGORY_BLURBS: Record<string, string> = {
   'Geranium Family':
     'Authentic VeryPuzzle Geranium puzzles with golden-ratio circle spacing, blocking cuts, and unbandaged Plus variants.',
@@ -37,8 +54,18 @@ const CATEGORY_BLURBS: Record<string, string> = {
     'Unbandaged and concentric 2-, 3-, 4-, 6-, and 7-circle puzzles great for exploring commutators, conjugates, and symmetries.',
 };
 
+interface CardRecord {
+  spec: PuzzleSpec;
+  card: HTMLButtonElement;
+  thumbWrap: HTMLElement;
+  nameRow: HTMLElement;
+  metaEl: HTMLElement;
+  hydrated: boolean;
+}
+
 /**
- * Visual puzzle picker modal with live cached SVG thumbnails and category tabs.
+ * Visual puzzle picker modal with lazy viewport-driven SVG thumbnails and cached DOM cards.
+ * Opens instantaneously without blocking the main thread to build all 41 puzzles upfront.
  */
 export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePickerController {
   const backdrop = document.createElement('div');
@@ -68,22 +95,75 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
   const body = backdrop.querySelector<HTMLElement>('#bp-body')!;
   const closeBtn = backdrop.querySelector<HTMLButtonElement>('#bp-close')!;
 
-  const thumbHtmlCache = new Map<string, { svgHtml: string; pieceCount: number }>();
   let activeCategory = 'All';
+  let mounted = false;
+  const sectionsByCategory = new Map<string, HTMLElement>();
+  const cardsById = new Map<string, CardRecord>();
+  const pendingQueue: CardRecord[] = [];
+  const queuedIds = new Set<string>();
+  let hydrateRafId: number | null = null;
 
-  const getThumbInfo = (spec: PuzzleSpec): { svgHtml: string; pieceCount: number } => {
-    const cached = thumbHtmlCache.get(spec.id);
-    if (cached) return cached;
-    const state = options.getOrBuildPuzzle(spec);
+  const hydrateCard = (rec: CardRecord) => {
+    if (rec.hydrated) return;
+    rec.hydrated = true;
+    const state = options.getOrBuildPuzzle(rec.spec);
     const svg = renderStaticPuzzleSvg(state, {
       showLabels: false,
       compact: true,
       className: 'bp-thumb-svg',
     });
-    const info = { svgHtml: svg.outerHTML, pieceCount: state.pieces.length };
-    thumbHtmlCache.set(spec.id, info);
-    return info;
+    rec.thumbWrap.innerHTML = '';
+    rec.thumbWrap.appendChild(svg);
+    rec.metaEl.textContent = formatCircleMeta(rec.spec, state.pieces.length);
   };
+
+  const pumpHydration = () => {
+    hydrateRafId = null;
+    if (!backdrop.classList.contains('open')) return;
+    // Build at least 1 card per frame and cap work at ~8ms so modal scrolling stays 60fps
+    const frameStart = performance.now();
+    let processed = 0;
+    while (pendingQueue.length > 0 && (processed === 0 || performance.now() - frameStart < 8)) {
+      const rec = pendingQueue.shift()!;
+      queuedIds.delete(rec.spec.id);
+      if (rec.hydrated) continue;
+      hydrateCard(rec);
+      processed++;
+      if (processed >= 3) break;
+    }
+    if (pendingQueue.length > 0) {
+      hydrateRafId = requestAnimationFrame(pumpHydration);
+    }
+  };
+
+  const enqueueCard = (rec: CardRecord, highPriority = false) => {
+    if (rec.hydrated || queuedIds.has(rec.spec.id)) return;
+    queuedIds.add(rec.spec.id);
+    if (highPriority) pendingQueue.unshift(rec);
+    else pendingQueue.push(rec);
+    if (hydrateRafId === null && backdrop.classList.contains('open')) {
+      hydrateRafId = requestAnimationFrame(pumpHydration);
+    }
+  };
+
+  const observer =
+    typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              const id = (entry.target as HTMLElement).dataset.puzzleId;
+              if (!id) continue;
+              const rec = cardsById.get(id);
+              if (rec) {
+                observer?.unobserve(entry.target);
+                enqueueCard(rec, true);
+              }
+            }
+          },
+          { root: body, rootMargin: '180px 0px' },
+        )
+      : null;
 
   const getCategories = (puzzles: PuzzleSpec[]): string[] => [
     'All',
@@ -98,9 +178,7 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
     filterBar.innerHTML = '';
     for (const cat of categories) {
       const count =
-        cat === 'All'
-          ? puzzles.length
-          : puzzles.filter((p) => p.category === cat).length;
+        cat === 'All' ? puzzles.length : puzzles.filter((p) => p.category === cat).length;
       const pill = document.createElement('button');
       pill.type = 'button';
       pill.className = `bp-filter-pill ${activeCategory === cat ? 'active' : ''}`;
@@ -108,23 +186,54 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
       pill.addEventListener('click', () => {
         activeCategory = cat;
         renderFilters();
-        renderGrid();
+        applyCategoryFilter();
       });
       filterBar.appendChild(pill);
     }
   };
 
-  const renderGrid = () => {
-    body.innerHTML = '';
-    const puzzles = options.getPuzzles();
-    const categories = getCategories(puzzles);
-    const currentId = options.getCurrentPuzzleId();
-    const visibleCategories =
-      activeCategory === 'All'
-        ? categories.filter((c) => c !== 'All')
-        : [activeCategory];
+  const applyCategoryFilter = () => {
+    for (const [cat, sec] of sectionsByCategory) {
+      const visible = activeCategory === 'All' || activeCategory === cat;
+      sec.hidden = !visible;
+      if (visible && !observer) {
+        sec.querySelectorAll<HTMLElement>('.bp-card').forEach((el) => {
+          const rec = el.dataset.puzzleId ? cardsById.get(el.dataset.puzzleId) : undefined;
+          if (rec) enqueueCard(rec);
+        });
+      }
+    }
+  };
 
-    for (const cat of visibleCategories) {
+  const syncCurrentHighlight = () => {
+    const currentId = options.getCurrentPuzzleId();
+    for (const rec of cardsById.values()) {
+      const isCurrent = rec.spec.id === currentId;
+      rec.card.classList.toggle('bp-current', isCurrent);
+      if (isCurrent) {
+        rec.card.setAttribute('aria-current', 'true');
+        if (!rec.nameRow.querySelector('.bp-current-badge')) {
+          const badge = document.createElement('span');
+          badge.className = 'bp-current-badge';
+          badge.textContent = 'Active';
+          rec.nameRow.appendChild(badge);
+        }
+        // Current puzzle is already built in app cache — hydrate it immediately
+        hydrateCard(rec);
+      } else {
+        rec.card.removeAttribute('aria-current');
+        rec.nameRow.querySelector('.bp-current-badge')?.remove();
+      }
+    }
+  };
+
+  const mountCardsOnce = () => {
+    if (mounted) return;
+    mounted = true;
+    const puzzles = options.getPuzzles();
+    const categories = getCategories(puzzles).filter((c) => c !== 'All');
+
+    for (const cat of categories) {
       const specs = puzzles.filter((p) => p.category === cat);
       if (specs.length === 0) continue;
 
@@ -149,18 +258,13 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
       grid.className = 'bp-cards';
 
       for (const spec of specs) {
-        const isCurrent = spec.id === currentId;
-        const { svgHtml, pieceCount } = getThumbInfo(spec);
-
         const card = document.createElement('button');
         card.type = 'button';
-        card.className = `bp-card${isCurrent ? ' bp-current' : ''}`;
+        card.className = 'bp-card';
         card.dataset.puzzleId = spec.id;
-        if (isCurrent) card.setAttribute('aria-current', 'true');
 
         const thumbWrap = document.createElement('div');
         thumbWrap.className = 'bp-thumb';
-        thumbWrap.innerHTML = svgHtml;
 
         const info = document.createElement('div');
         info.className = 'bp-card-info';
@@ -171,12 +275,6 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
         nameEl.className = 'bp-card-name';
         nameEl.textContent = spec.name;
         nameRow.appendChild(nameEl);
-        if (isCurrent) {
-          const badge = document.createElement('span');
-          badge.className = 'bp-current-badge';
-          badge.textContent = 'Active';
-          nameRow.appendChild(badge);
-        }
 
         const blurbEl = document.createElement('span');
         blurbEl.className = 'bp-card-blurb';
@@ -184,15 +282,7 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
 
         const metaEl = document.createElement('span');
         metaEl.className = 'bp-card-meta';
-        const stopDesc = describeStops(spec);
-        const primaryCount = spec.circles.filter((c) => !c.discovered).length;
-        const discoveredCount = spec.circles.length - primaryCount;
-        const circleDesc =
-          discoveredCount > 0
-            ? `${primaryCount} circles + ${discoveredCount} discovered`
-            : `${primaryCount} circles`;
-        const parts = [circleDesc, `${pieceCount} pieces`, stopDesc].filter(Boolean);
-        metaEl.textContent = parts.join(' · ');
+        metaEl.textContent = formatCircleMeta(spec);
 
         info.append(nameRow, blurbEl, metaEl);
         card.append(thumbWrap, info);
@@ -205,17 +295,31 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
         });
 
         grid.appendChild(card);
+
+        const rec: CardRecord = { spec, card, thumbWrap, nameRow, metaEl, hydrated: false };
+        cardsById.set(spec.id, rec);
+        if (observer) {
+          observer.observe(card);
+        } else {
+          enqueueCard(rec);
+        }
       }
 
       sec.appendChild(grid);
+      sectionsByCategory.set(cat, sec);
       body.appendChild(sec);
     }
   };
 
   const open = () => {
+    mountCardsOnce();
     renderFilters();
-    renderGrid();
+    applyCategoryFilter();
+    syncCurrentHighlight();
     backdrop.classList.add('open');
+    if (pendingQueue.length > 0 && hydrateRafId === null) {
+      hydrateRafId = requestAnimationFrame(pumpHydration);
+    }
     requestAnimationFrame(() => {
       const cur = body.querySelector<HTMLElement>('.bp-card.bp-current');
       cur?.scrollIntoView({ block: 'nearest' });
@@ -225,17 +329,23 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
 
   const close = () => {
     backdrop.classList.remove('open');
+    if (hydrateRafId !== null) {
+      cancelAnimationFrame(hydrateRafId);
+      hydrateRafId = null;
+    }
   };
+  const isOpen = () => backdrop.classList.contains('open');
 
   closeBtn.addEventListener('click', close);
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) close();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && backdrop.classList.contains('open')) {
+    if (e.key === 'Escape' && isOpen()) {
+      e.preventDefault();
       close();
     }
   });
 
-  return { open, close };
+  return { open, close, isOpen };
 }

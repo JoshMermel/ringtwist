@@ -1,12 +1,10 @@
 import {
-  ANG_EPS,
   Circle,
   EPS,
   Point,
   TWO_PI,
   angleOffsetOnArc,
   circlesEqual,
-  intersectCircles,
   normAngle,
   pointOnCircle,
   snapFloat,
@@ -33,11 +31,41 @@ export interface ArcRegion {
   edges: ArcEdge[];
   /** Optional cached bounding circle enclosing the region (rotation-invariant radius). */
   _bounds?: Circle;
+  /**
+   * Optional lazily cached packed edge geometry `[vx, vy, mx, my, cosHalf, ...]` (5 numbers/edge):
+   * start vertex `(vx, vy)`, unit midpoint direction `(mx, my)`, and `cos(|sweep| / 2)`.
+   * Enables exact zero-trig unimodal `classifyRegionAgainstCircle` and O(1) rotation propagation.
+   */
+  _eg?: number[];
   /** Optional lazily cached SVG path string (for default decimals = 4). */
   _svgPath?: string;
   /** Optional lazily cached canonical silhouette key and the quantum it was computed at. */
   _silhouetteKey?: string;
   _silhouetteQuantum?: number;
+  /** Optional lazily cached rotation- & reflection-invariant congruence signature (`pieceShapeType`). */
+  _shapeType?: string;
+}
+
+/** Lazily compute and cache packed per-edge geometry `[vx, vy, mx, my, cosHalf, ...]`. */
+function getEdgeGeom(region: ArcRegion): number[] {
+  if (region._eg) return region._eg;
+  const edges = region.edges;
+  const n = edges.length;
+  const eg: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const e = edges[i];
+    const halfSweep = e.sweep * 0.5;
+    const midAngle = e.startAngle + halfSweep;
+    eg.push(
+      e.cx + e.r * Math.cos(e.startAngle),
+      e.cy + e.r * Math.sin(e.startAngle),
+      Math.cos(midAngle),
+      Math.sin(midAngle),
+      Math.cos(halfSweep < 0 ? -halfSweep : halfSweep),
+    );
+  }
+  region._eg = eg;
+  return eg;
 }
 
 /** Return (and lazily cache) a tight enclosing circle for `region`. */
@@ -46,7 +74,9 @@ export function getRegionBoundingCircle(region: ArcRegion): Circle {
   const b = regionBounds(region);
   const cx = (b.minX + b.maxX) * 0.5;
   const cy = (b.minY + b.maxY) * 0.5;
-  const r = Math.hypot(b.maxX - b.minX, b.maxY - b.minY) * 0.5;
+  const dx = b.maxX - b.minX;
+  const dy = b.maxY - b.minY;
+  const r = Math.sqrt(dx * dx + dy * dy) * 0.5;
   const circle: Circle = { cx, cy, r };
   region._bounds = circle;
   return circle;
@@ -112,29 +142,54 @@ export function rotateRegion(
 ): ArcRegion {
   const cos = Math.cos(deltaAngle);
   const sin = Math.sin(deltaAngle);
-  const edges = region.edges.map((e) => {
+  const srcEdges = region.edges;
+  const n = srcEdges.length;
+  const edges: ArcEdge[] = [];
+  for (let i = 0; i < n; i++) {
+    const e = srcEdges[i];
     const dx = e.cx - cx;
     const dy = e.cy - cy;
-    return {
+    edges.push({
       cx: cx + dx * cos - dy * sin,
       cy: cy + dx * sin + dy * cos,
       r: e.r,
       startAngle: normAngle(e.startAngle + deltaAngle),
       sweep: e.sweep,
-    };
-  });
-  let _bounds: Circle | undefined;
+    });
+  }
+  const out: ArcRegion = { edges };
   if (region._bounds) {
     const b = region._bounds;
     const dx = b.cx - cx;
     const dy = b.cy - cy;
-    _bounds = {
+    out._bounds = {
       cx: cx + dx * cos - dy * sin,
       cy: cy + dx * sin + dy * cos,
       r: b.r,
     };
   }
-  return { edges, _bounds };
+  if (region._eg) {
+    const srcEg = region._eg;
+    const eg: number[] = [];
+    for (let i = 0; i < srcEg.length; i += 5) {
+      const vdx = srcEg[i] - cx;
+      const vdy = srcEg[i + 1] - cy;
+      const mx = srcEg[i + 2];
+      const my = srcEg[i + 3];
+      eg.push(
+        cx + vdx * cos - vdy * sin,
+        cy + vdx * sin + vdy * cos,
+        mx * cos - my * sin,
+        mx * sin + my * cos,
+        srcEg[i + 4],
+      );
+    }
+    out._eg = eg;
+  }
+  if (region._shapeType !== undefined) {
+    out._shapeType = region._shapeType;
+  }
+  return out;
 }
 
 /**
@@ -169,7 +224,7 @@ export function reflectRegion(
       r: b.r,
     };
   }
-  return { edges, _bounds };
+  return { edges, _bounds, _shapeType: region._shapeType };
 }
 
 /**
@@ -234,24 +289,46 @@ const RAY_ANGLES = [0.13719, 0.71923, 1.38411, 2.09137, 2.81473, 3.61942];
  * Exact analytical point-in-region test for a closed CCW ArcRegion.
  */
 export function pointInRegion(p: Point, region: ArcRegion): boolean {
-  for (const angle of RAY_ANGLES) {
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    let total = 0;
-    let ambiguous = false;
-    for (const e of region.edges) {
-      const res = rayEdgeCrossings(p, dx, dy, e);
-      if (res.ambiguous) {
-        ambiguous = true;
-        break;
+  // O(1) bounding-circle early-out skips ~95% of ray-casting in hit testing & probes
+  const b = getRegionBoundingCircle(region);
+  const dx0 = p.x - b.cx;
+  const dy0 = p.y - b.cy;
+  const maxR = b.r + 1e-5;
+  if (dx0 * dx0 + dy0 * dy0 > maxR * maxR) return false;
+
+  const tryPoint = (pt: Point): boolean | null => {
+    for (const angle of RAY_ANGLES) {
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      let total = 0;
+      let ambiguous = false;
+      for (const e of region.edges) {
+        const res = rayEdgeCrossings(pt, dx, dy, e);
+        if (res.ambiguous) {
+          ambiguous = true;
+          break;
+        }
+        total += res.count;
       }
-      total += res.count;
+      if (!ambiguous) {
+        return (total & 1) === 1;
+      }
     }
-    if (!ambiguous) {
-      return (total & 1) === 1;
-    }
+    return null;
+  };
+
+  const direct = tryPoint(p);
+  if (direct !== null) return direct;
+
+  // Jitter fallback when all 6 rays hit vertices/tangencies simultaneously
+  for (const [jx, jy] of [
+    [1.3e-7, 0.7e-7],
+    [-0.9e-7, 1.1e-7],
+    [0.5e-7, -1.4e-7],
+  ]) {
+    const res = tryPoint({ x: p.x + jx, y: p.y + jy });
+    if (res !== null) return res;
   }
-  // Fallback (should virtually never happen): sample with slight jitter
   return false;
 }
 
@@ -362,74 +439,115 @@ export function classifyRegionAgainstCircle(
   circle: Circle,
   eps = 1e-5,
 ): CircleClassification {
-  // O(1) bounding-circle fast-path: skips ~85% of (piece, circle) pairs on multi-circle puzzles
+  // O(1) bounding-circle fast-path: skips ~55-85% of (piece, circle) pairs on multi-circle puzzles
   const b = getRegionBoundingCircle(region);
-  const bdx = b.cx - circle.cx;
-  const bdy = b.cy - circle.cy;
+  const ccx = circle.cx;
+  const ccy = circle.cy;
+  const cr = circle.r;
+  const bdx = b.cx - ccx;
+  const bdy = b.cy - ccy;
   const bd2 = bdx * bdx + bdy * bdy;
-  const outer = circle.r + b.r + eps;
+  const outer = cr + b.r + eps;
   if (bd2 > outer * outer) return 'outside';
-  const inner = circle.r - b.r - eps;
+  const inner = cr - b.r - eps;
   if (inner > 0 && bd2 < inner * inner) return 'inside';
+
+  const rIn = cr - eps;
+  const rInSq = rIn > 0 ? rIn * rIn : -1;
+  const rOut = cr + eps;
+  const rOutSq = rOut * rOut;
+  const epsSq = eps * eps;
 
   let hasInside = false;
   let hasOutside = false;
 
-  for (const e of region.edges) {
-    if (circlesEqual(e, circle, eps)) {
-      // Edge lies directly on the target circle's boundary.
-      // Because region is CCW (interior on the left of e):
-      //   e.sweep > 0 => interior is inside circle
-      //   e.sweep < 0 => interior is outside circle
-      if (e.sweep > 0) hasInside = true;
-      else hasOutside = true;
+  // Exact zero-trig unimodal arc distance test:
+  // Along an arc on circle (ecx, ecy, er), squared distance to (ccx, ccy) is strictly unimodal,
+  // so its min/max on the arc are achieved ONLY at the arc's endpoints or at the radial directions
+  // +u = (C - E)/|C - E| (distance |d - er|) and -u (distance d + er) if they lie on the arc.
+  const edges = region.edges;
+  const eg = getEdgeGeom(region);
+  const n = edges.length;
+
+  for (let ei = 0; ei < n; ei++) {
+    const e = edges[ei];
+    const er = e.r;
+    const cdx = ccx - e.cx;
+    const cdy = ccy - e.cy;
+    const cdSq = cdx * cdx + cdy * cdy;
+
+    if (cdSq <= epsSq) {
+      // Concentric with target circle
+      const dr = er - cr;
+      if (dr <= eps && dr >= -eps) {
+        // Edge lies directly on target circle's boundary; CCW interior is on left of e
+        if (e.sweep > 0) hasInside = true;
+        else hasOutside = true;
+      } else if (dr < 0) {
+        hasInside = true;
+      } else {
+        hasOutside = true;
+      }
+      if (hasInside && hasOutside) return 'straddling';
       continue;
     }
 
-    // Check for transverse circle-circle intersection strictly inside arc e
-    const pts = intersectCircles(e, circle, eps * 0.1);
-    if (pts.length === 2) {
-      for (const pt of pts) {
-        const ang = Math.atan2(pt.y - e.cy, pt.x - e.cx);
-        const u = angleOffsetOnArc(ang, e.startAngle, e.sweep, ANG_EPS);
-        if (u !== null && u > 1e-4 && u < 1 - 1e-4) {
-          // Verify crossing by checking points slightly before and after u
-          const pBefore = edgePointAt(e, Math.max(0, u - 1e-3));
-          const pAfter = edgePointAt(e, Math.min(1, u + 1e-3));
-          const dBefore = Math.hypot(pBefore.x - circle.cx, pBefore.y - circle.cy) - circle.r;
-          const dAfter = Math.hypot(pAfter.x - circle.cx, pAfter.y - circle.cy) - circle.r;
-          if ((dBefore < -eps && dAfter > eps) || (dBefore > eps && dAfter < -eps)) {
-            return 'straddling';
+    const base = ei * 5;
+    // 1. Check start vertex of this edge (closed loop => visits every edge endpoint once)
+    const vdx = eg[base] - ccx;
+    const vdy = eg[base + 1] - ccy;
+    const dvSq = vdx * vdx + vdy * vdy;
+    if (dvSq < rInSq) hasInside = true;
+    else if (dvSq > rOutSq) hasOutside = true;
+    if (hasInside && hasOutside) return 'straddling';
+
+    // 2. Check global minimum (+u, distance |d - er|) if we still haven't seen an inside point
+    let dotComputed = false;
+    let dot = 0;
+    let cosHalf = 0;
+    let rhs = 0;
+
+    if (!hasInside && rIn > 0) {
+      const sumIn = er + rIn;
+      if (cdSq < sumIn * sumIn) {
+        const diffIn = er - rIn;
+        if (diffIn <= 0 || cdSq > diffIn * diffIn) {
+          dot = cdx * eg[base + 2] + cdy * eg[base + 3];
+          cosHalf = eg[base + 4];
+          rhs = cdSq * cosHalf * cosHalf;
+          dotComputed = true;
+          const onArc =
+            cosHalf <= 0
+              ? dot >= 0 || dot * dot <= rhs
+              : dot > 0 && dot * dot >= rhs;
+          if (onArc) {
+            hasInside = true;
+            if (hasOutside) return 'straddling';
           }
         }
       }
     }
 
-    // Since any strict interior transverse crossing was already caught above,
-    // the open arc (0, 1) stays on one side of `circle` (except possibly at an isolated tangency).
-    // Sample midpoint first; only fall back to quarter points / start vertex if midpoint is on the boundary
-    // or the circles intersected near an endpoint.
-    const midPt = edgePointAt(e, 0.5);
-    const dMid = Math.hypot(midPt.x - circle.cx, midPt.y - circle.cy);
-    if (dMid < circle.r - eps) hasInside = true;
-    else if (dMid > circle.r + eps) hasOutside = true;
-    else {
-      for (const t of [0.25, 0.75, 0]) {
-        const pt = edgePointAt(e, t);
-        const d = Math.hypot(pt.x - circle.cx, pt.y - circle.cy);
-        if (d < circle.r - eps) hasInside = true;
-        else if (d > circle.r + eps) hasOutside = true;
+    // 3. Check global maximum (-u, distance d + er) if we still haven't seen an outside point
+    if (!hasOutside) {
+      const diffOut = rOut - er;
+      if (diffOut <= 0 || cdSq > diffOut * diffOut) {
+        if (!dotComputed) {
+          dot = cdx * eg[base + 2] + cdy * eg[base + 3];
+          cosHalf = eg[base + 4];
+          rhs = cdSq * cosHalf * cosHalf;
+        }
+        const negDot = -dot;
+        const onArc =
+          cosHalf <= 0
+            ? negDot >= 0 || negDot * negDot <= rhs
+            : negDot > 0 && negDot * negDot >= rhs;
+        if (onArc) {
+          hasOutside = true;
+          if (hasInside) return 'straddling';
+        }
       }
     }
-
-    if (pts.length > 0 && !(hasInside && hasOutside)) {
-      const startPt = edgeStart(e);
-      const dStart = Math.hypot(startPt.x - circle.cx, startPt.y - circle.cy);
-      if (dStart < circle.r - eps) hasInside = true;
-      else if (dStart > circle.r + eps) hasOutside = true;
-    }
-
-    if (hasInside && hasOutside) return 'straddling';
   }
 
   if (hasInside && hasOutside) return 'straddling';
@@ -437,7 +555,7 @@ export function classifyRegionAgainstCircle(
 
   // Boundary is entirely outside (or on) the circle.
   // Check if the region completely encloses the circle!
-  if (pointInRegion({ x: circle.cx, y: circle.cy }, region)) {
+  if (pointInRegion({ x: ccx, y: ccy }, region)) {
     return 'straddling';
   }
   return 'outside';
@@ -480,28 +598,36 @@ export function regionSilhouetteKey(region: ArcRegion, quantum = 1e-3): string {
   if (region._silhouetteKey !== undefined && region._silhouetteQuantum === quantum) {
     return region._silhouetteKey;
   }
-  // Sort edge midpoints + lengths + signed curvature canonically
-  const tokens = region.edges.map((e) => {
-    const m = edgePointAt(e, 0.5);
-    const mx = snapFloat(m.x, quantum).toFixed(3);
-    const my = snapFloat(m.y, quantum).toFixed(3);
-    const r = snapFloat(e.r, quantum).toFixed(3);
-    const s = snapFloat(e.sweep, quantum).toFixed(3);
-    return `${mx},${my},${r},${s}`;
-  });
-  tokens.sort();
-  const key = tokens.join(';');
+  const decimals = Math.max(0, Math.min(8, Math.ceil(-Math.log10(quantum))));
+  let key: string;
+  // Rotation-invariant key for uncut full circular disks (stored as two 180° semicircles)
+  if (
+    region.edges.length === 2 &&
+    circlesEqual(region.edges[0], region.edges[1], 1e-5) &&
+    Math.sign(region.edges[0].sweep) === Math.sign(region.edges[1].sweep) &&
+    Math.abs(Math.abs(region.edges[0].sweep + region.edges[1].sweep) - TWO_PI) < 1e-4
+  ) {
+    const e0 = region.edges[0];
+    const cx = snapFloat(e0.cx, quantum).toFixed(decimals);
+    const cy = snapFloat(e0.cy, quantum).toFixed(decimals);
+    const r = snapFloat(e0.r, quantum).toFixed(decimals);
+    key = `DISK:${cx},${cy},${r}`;
+  } else {
+    // Sort edge midpoints + lengths + signed curvature canonically
+    const tokens = region.edges.map((e) => {
+      const m = edgePointAt(e, 0.5);
+      const mx = snapFloat(m.x, quantum).toFixed(decimals);
+      const my = snapFloat(m.y, quantum).toFixed(decimals);
+      const r = snapFloat(e.r, quantum).toFixed(decimals);
+      const s = snapFloat(e.sweep, quantum).toFixed(decimals);
+      return `${mx},${my},${r},${s}`;
+    });
+    tokens.sort();
+    key = tokens.join(';');
+  }
   region._silhouetteKey = key;
   region._silhouetteQuantum = quantum;
   return key;
-}
-
-/**
- * Check if two ArcRegions represent the same geometric silhouette within tolerance.
- */
-export function regionsCoincide(a: ArcRegion, b: ArcRegion, eps = 1e-3): boolean {
-  if (a.edges.length !== b.edges.length) return false;
-  return regionSilhouetteKey(a, eps) === regionSilhouetteKey(b, eps);
 }
 
 /**

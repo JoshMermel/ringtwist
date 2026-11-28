@@ -9,13 +9,13 @@ import {
 } from '../geom/arcRegion.ts';
 import { Circle, Point, deg2rad, dist, rotatePoint } from '../geom/math.ts';
 import { mergeRegions, sliceCircles, splitRegionByCircle } from '../geom/slicer.ts';
+import { computeStopDeltaDeg, resolveLayerBounds } from './engine.ts';
 import {
   ClosureMoveStep,
   ColoringRule,
   RegionFilter,
   RingTwistPuzzleDoc,
   evalNumExpr,
-  registerPuzzleSourceDoc,
   resolveAxes,
   resolveAxisOrLayerRef,
   resolveCircleSources,
@@ -50,12 +50,14 @@ function splitAllByCircle(regions: ArcRegion[], circle: Circle, minArea = 1e-5):
 function parseClosureMoveToken(
   token: string,
   axisMap: Map<string, CircleDef>,
+  stopIdxByAxis: Record<string, number>,
 ): {
   circle: CircleDef;
   innerR: number;
   outerR: number;
   turnRegion: 'inside' | 'outside';
   cwDeg: number;
+  nextStopIdx: number;
 } {
   const m = token.trim().match(/^(\d*)([A-Wa-w])(\d*)('?)$/);
   if (!m) throw new Error(`Invalid closure move token "${token}"`);
@@ -68,39 +70,21 @@ function parseClosureMoveToken(
 
   const count = m[3] ? parseInt(m[3], 10) : 1;
   const steps = m[4] === "'" ? -count : count;
-  const n = circle.stopsDeg.length;
-  // Compute signed CW angle from stop 0
-  let cwDeg: number;
-  if (n === 0) {
-    cwDeg = 0;
-  } else {
-    const idx = ((steps % n) + n) % n;
-    const raw = circle.stopsDeg[idx] - circle.stopsDeg[0];
-    cwDeg = steps >= 0 ? (raw === 0 && steps > 0 ? 360 : raw) : raw === 0 ? 0 : raw - 360;
-  }
-
-  const radii = circle.layerRadii && circle.layerRadii.length > 1 ? circle.layerRadii : null;
-  if (!radii) {
-    return {
-      circle,
-      innerR: 0,
-      outerR: circle.r,
-      turnRegion: circle.turnRegion ?? 'inside',
-      cwDeg,
-    };
-  }
-  if (isWide) {
-    const idx =
-      prefixLayer !== undefined ? Math.min(radii.length, Math.max(1, prefixLayer)) - 1 : radii.length - 1;
-    return { circle, innerR: 0, outerR: radii[idx], turnRegion: 'inside', cwDeg };
-  }
-  const idx = Math.min(radii.length, Math.max(1, prefixLayer ?? 1)) - 1;
+  const curIdx = stopIdxByAxis[id] ?? 0;
+  const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(circle, curIdx, steps);
+  const bounds = resolveLayerBounds(
+    circle,
+    prefixLayer !== undefined || isWide
+      ? { ...(prefixLayer !== undefined ? { layer: prefixLayer } : {}), ...(isWide ? { wide: true } : {}) }
+      : undefined,
+  );
   return {
     circle,
-    innerR: idx === 0 ? 0 : radii[idx - 1],
-    outerR: radii[idx],
-    turnRegion: 'inside',
-    cwDeg,
+    innerR: bounds.innerR,
+    outerR: bounds.outerR,
+    turnRegion: bounds.turnRegion,
+    cwDeg: deltaDeg,
+    nextStopIdx,
   };
 }
 
@@ -270,15 +254,24 @@ function splitFilteredByCircle(
   }
   const next: ArcRegion[] = [];
   for (const reg of regions) {
+    // Check cheap bounding-circle-accelerated straddling BEFORE ray-casting interiorPointOfRegion
+    if (classifyRegionAgainstCircle(reg, circle, 1e-4) !== 'straddling') {
+      next.push(reg);
+      continue;
+    }
     const pt = interiorPointOfRegion(reg);
     const area = regionSignedArea(reg.edges);
     const allowed =
       (!onlyFilter || matchesResolvedFilter(pt, area, onlyFilter, symCenter, rotRad)) &&
       (!skipFilter || !matchesResolvedFilter(pt, area, skipFilter, symCenter, rotRad));
-    if (allowed && classifyRegionAgainstCircle(reg, circle, 1e-4) === 'straddling') {
+    if (allowed) {
       const sp = splitRegionByCircle(reg, circle);
-      for (const s of sp) {
-        if (regionSignedArea(s.edges) > minArea) next.push(s);
+      if (sp.length > 1) {
+        for (const s of sp) {
+          if (regionSignedArea(s.edges) > minArea) next.push(s);
+        }
+      } else {
+        next.push(reg);
       }
     } else {
       next.push(reg);
@@ -447,42 +440,77 @@ export function buildPiecesFromRingTwistDoc(
   }
 
   // 2. Execute declarative cut & bandage operations
-  const executeClosureStep = (step: ClosureMoveStep, minArea: number) => {
+  const closureStopIdx: Record<string, number> = {};
+  const executeClosureStep = (
+    step: ClosureMoveStep,
+    minArea: number,
+    allCuttersSynced: boolean,
+  ): boolean => {
     const token = typeof step === 'string' ? step : step.move;
-    const cutList =
-      typeof step === 'string' || !step.cutBy
-        ? allCutters
-        : step.cutBy.map((ref) => resolveAxisOrLayerRef(ref, axisMap));
-    const parsed = parseClosureMoveToken(token, axisMap);
+    const usesDefaultCutters = typeof step === 'string' || !step.cutBy;
+    const cutList = usesDefaultCutters
+      ? allCutters
+      : step.cutBy!.map((ref) => resolveAxisOrLayerRef(ref, axisMap));
+    const parsed = parseClosureMoveToken(token, axisMap, closureStopIdx);
+    closureStopIdx[parsed.circle.id] = parsed.nextStopIdx;
     const rad = deg2rad(-parsed.cwDeg); // math CCW = -CW
 
-    regions = regions.map((reg) => {
+    const rotated: ArcRegion[] = [];
+    const unmoved: ArcRegion[] = [];
+    const outerC: Circle = { cx: parsed.circle.cx, cy: parsed.circle.cy, r: parsed.outerR };
+    const innerC: Circle | null =
+      parsed.innerR > 0 ? { cx: parsed.circle.cx, cy: parsed.circle.cy, r: parsed.innerR } : null;
+
+    for (const reg of regions) {
+      let shouldRotate = false;
       if (parsed.turnRegion === 'outside') {
-        return classifyRegionAgainstCircle(reg, parsed.circle, 1e-4) === 'outside'
-          ? rotateRegion(reg, parsed.circle.cx, parsed.circle.cy, rad)
-          : reg;
+        shouldRotate = classifyRegionAgainstCircle(reg, parsed.circle, 1e-4) === 'outside';
+      } else if (classifyRegionAgainstCircle(reg, outerC, 1e-4) === 'inside') {
+        shouldRotate =
+          !innerC || classifyRegionAgainstCircle(reg, innerC, 1e-4) === 'outside';
       }
-      const outerC: Circle = { cx: parsed.circle.cx, cy: parsed.circle.cy, r: parsed.outerR };
-      if (classifyRegionAgainstCircle(reg, outerC, 1e-4) !== 'inside') return reg;
-      if (parsed.innerR > 0) {
-        const innerC: Circle = { cx: parsed.circle.cx, cy: parsed.circle.cy, r: parsed.innerR };
-        if (classifyRegionAgainstCircle(reg, innerC, 1e-4) !== 'outside') return reg;
+      if (shouldRotate) {
+        rotated.push(rotateRegion(reg, parsed.circle.cx, parsed.circle.cy, rad));
+      } else {
+        unmoved.push(reg);
       }
-      return rotateRegion(reg, parsed.circle.cx, parsed.circle.cy, rad);
-    });
+    }
 
     const onlyFilter =
       typeof step !== 'string' && step.only
-        ? compileRegionFilter(step.only, axisMap, circles, env, symCenter, 0)
+        ? compileRegionFilter(step.only, axisMap, primaryCircles, env, symCenter, 0)
         : null;
     const skipFilter =
       typeof step !== 'string' && step.skip
-        ? compileRegionFilter(step.skip, axisMap, circles, env, symCenter, 0)
+        ? compileRegionFilter(step.skip, axisMap, primaryCircles, env, symCenter, 0)
         : null;
 
+    const isUnmaskedDefault = usesDefaultCutters && !onlyFilter && !skipFilter;
+
+    // Only skip unmoved regions & disjoint/concentric cutters once a prior unmasked default-cutter
+    // step has synced all regions against `allCutters` (any custom `cutBy`/`only`/`skip` resets sync).
+    if (allCuttersSynced && isUnmaskedDefault) {
+      let active = rotated;
+      for (const cutter of cutList) {
+        if (parsed.turnRegion === 'inside') {
+          const dx = cutter.cx - parsed.circle.cx;
+          const dy = cutter.cy - parsed.circle.cy;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < 1e-8) continue; // Concentric with the rotation axis -> invariant under rotation
+          const maxReach = cutter.r + parsed.outerR + 1e-4;
+          if (dSq >= maxReach * maxReach) continue; // Disjoint from the rotated disk
+        }
+        active = splitFilteredByCircle(active, cutter, minArea, null, null, symCenter);
+      }
+      regions = unmoved.concat(active);
+      return true;
+    }
+
+    regions = unmoved.concat(rotated);
     for (const cutter of cutList) {
       regions = splitFilteredByCircle(regions, cutter, minArea, onlyFilter, skipFilter, symCenter);
     }
+    return isUnmaskedDefault;
   };
 
   for (const op of doc.cuts ?? []) {
@@ -501,6 +529,7 @@ export function buildPiecesFromRingTwistDoc(
         const blocks = op.blocks ?? (op.moves ? [{ moves: op.moves, repeat: 1 }] : []);
         const maxIters = op.maxIters ?? 10;
         const minArea = op.minArea ?? 1e-5;
+        let allCuttersSynced = false;
         let prevLen = -1;
         for (let iter = 0; iter < maxIters && regions.length !== prevLen; iter++) {
           prevLen = regions.length;
@@ -508,7 +537,7 @@ export function buildPiecesFromRingTwistDoc(
             const reps = blk.repeat ?? 1;
             for (let r = 0; r < reps; r++) {
               for (const step of blk.moves) {
-                executeClosureStep(step, minArea);
+                allCuttersSynced = executeClosureStep(step, minArea, allCuttersSynced);
               }
             }
           }
@@ -527,10 +556,10 @@ export function buildPiecesFromRingTwistDoc(
         for (let k = 0; k < reps; k++) {
           const rotRad = deg2rad(-k * stepDeg);
           const onlyFilter = onlySpec
-            ? compileRegionFilter(onlySpec, axisMap, circles, env, symCenter, rotRad)
+            ? compileRegionFilter(onlySpec, axisMap, primaryCircles, env, symCenter, rotRad)
             : null;
           const skipFilter = op.skip
-            ? compileRegionFilter(op.skip, axisMap, circles, env, symCenter, rotRad)
+            ? compileRegionFilter(op.skip, axisMap, primaryCircles, env, symCenter, rotRad)
             : null;
 
           for (const bc of baseCircles) {
@@ -545,94 +574,6 @@ export function buildPiecesFromRingTwistDoc(
               symCenter,
               rotRad,
             );
-          }
-        }
-        break;
-      }
-
-      case 'orbitSlice': {
-        const passes = op.passes ?? 1;
-        const targetIds = op.axes ?? primaryCircles.map((c) => c.id);
-        const angles = op.anglesDeg.map((a) => evalNumExpr(a, env));
-        const maxMem = op.maxMemberCircles ?? primaryCircles.length;
-        for (let pass = 0; pass < passes; pass++) {
-          if (op.nonChaining) {
-            const virtualCuts: { home: CircleDef; cutter: Circle }[] = [];
-            for (const cid of targetIds) {
-              const home = axisMap.get(cid);
-              if (!home) continue;
-              for (const deg of angles) {
-                const rad = deg2rad(deg);
-                const cos = Math.cos(rad);
-                const sin = Math.sin(rad);
-                for (const other of circles) {
-                  if (other.id === home.id) continue;
-                  const dx = other.cx - home.cx;
-                  const dy = other.cy - home.cy;
-                  virtualCuts.push({
-                    home,
-                    cutter: {
-                      cx: home.cx + dx * cos - dy * sin,
-                      cy: home.cy + dx * sin + dy * cos,
-                      r: other.r,
-                    },
-                  });
-                }
-              }
-            }
-            let tagged = regions.map((reg) => ({
-              reg,
-              memCount: circles.filter((c) => classifyRegionAgainstCircle(reg, c) === 'inside').length,
-            }));
-            for (const vc of virtualCuts) {
-              const nextTagged: typeof tagged = [];
-              for (const item of tagged) {
-                if (
-                  item.memCount <= maxMem &&
-                  classifyRegionAgainstCircle(item.reg, vc.home) === 'inside'
-                ) {
-                  for (const p of splitRegionByCircle(item.reg, vc.cutter)) {
-                    nextTagged.push({ reg: p, memCount: item.memCount });
-                  }
-                } else {
-                  nextTagged.push(item);
-                }
-              }
-              tagged = nextTagged;
-            }
-            regions = tagged.map((t) => t.reg);
-          } else {
-            for (const cid of targetIds) {
-              const targetCircle = axisMap.get(cid);
-              if (!targetCircle) continue;
-              for (const deg of angles) {
-                const rad = deg2rad(-deg);
-                const nextRegions: ArcRegion[] = [];
-                for (const reg of regions) {
-                  const memCount = circles.filter(
-                    (c) => classifyRegionAgainstCircle(reg, c) === 'inside',
-                  ).length;
-                  if (
-                    memCount > maxMem ||
-                    classifyRegionAgainstCircle(reg, targetCircle) !== 'inside'
-                  ) {
-                    nextRegions.push(reg);
-                    continue;
-                  }
-                  let parts: ArcRegion[] = [rotateRegion(reg, targetCircle.cx, targetCircle.cy, rad)];
-                  for (const other of circles) {
-                    if (other.id === targetCircle.id) continue;
-                    const splitParts: ArcRegion[] = [];
-                    for (const p of parts) splitParts.push(...splitRegionByCircle(p, other));
-                    parts = splitParts;
-                  }
-                  for (const p of parts) {
-                    nextRegions.push(rotateRegion(p, targetCircle.cx, targetCircle.cy, -rad));
-                  }
-                }
-                regions = nextRegions;
-              }
-            }
           }
         }
         break;
@@ -675,7 +616,7 @@ export function buildPiecesFromRingTwistDoc(
         for (const filter of op.where ?? []) {
           for (let k = 0; k < symCount; k++) {
             const rotRad = deg2rad(-k * stepDeg);
-            const rf = compileRegionFilter(filter, axisMap, circles, env, symCenter, rotRad);
+            const rf = compileRegionFilter(filter, axisMap, primaryCircles, env, symCenter, rotRad);
             const toMerge: ArcRegion[] = [];
             const keep: ArcRegion[] = [];
             for (const reg of regions) {
@@ -697,8 +638,8 @@ export function buildPiecesFromRingTwistDoc(
     }
   }
 
-  // 3. Apply index-free coloring rules
-  const colors = applyColoringRules(regions, doc.coloring, circles, axisMap, symCenter, env);
+  // 3. Apply index-free coloring rules (using primary circles so hidden discovered grips don't distort coloring)
+  const colors = applyColoringRules(regions, doc.coloring, primaryCircles, axisMap, symCenter, env);
 
   let pieces: Piece[] = regions.map((region, id) => ({
     id,
@@ -777,8 +718,8 @@ export function compileRingTwistDoc(doc: RingTwistPuzzleDoc): PuzzleSpec {
   const spec: PuzzleSpec = {
     id: doc.id,
     name: doc.name,
-    category: doc.category ?? 'Custom',
-    description: doc.description ?? 'Custom RingTwist puzzle.',
+    category: doc.category ?? 'Classic Circles',
+    description: doc.description ?? 'RingTwist puzzle.',
     circles,
     symmetryStepDeg,
     ...(symmetryCenter ? { symmetryCenter } : {}),
@@ -788,6 +729,5 @@ export function compileRingTwistDoc(doc: RingTwistPuzzleDoc): PuzzleSpec {
     customBuilder: (s) => buildPiecesFromRingTwistDoc(doc, s, env),
   };
 
-  registerPuzzleSourceDoc(spec, doc);
   return spec;
 }

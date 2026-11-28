@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { reflectRegion, rotateRegion } from '../geom/arcRegion.ts';
 import { evaluateProgram } from '../lang/evaluator.ts';
 import {
-  parseInlineMacroFocus,
-  parseInlineMacroHidden,
   parseMacroLibraryText,
   serializeMacroLibraryToText,
-  setInlineMacroFocusInSource,
 } from '../lang/focusDirectives.ts';
 import { decodeShareHash, encodeShareHash } from '../ui/storage.ts';
 import { buildPuzzle } from './builder.ts';
@@ -186,65 +183,40 @@ describe('macro piece-cycle preview', () => {
     const two = buildPuzzle(getPuzzleSpec('two-circle'));
     expect(getPuzzlePieceTypeCatalog(two).map((c) => c.id)[0]).toBe('type1');
 
-    // Parse section-level and per-line // @focus directives
-    const script = [
-      '// === Phase 1: Kites ===',
-      '// @focus kite, small_pent',
-      "sep = s9b [z2': s10b'] // 19t: Kite(2,2) + SP(3)",
-      '',
+    // Parse section-level and per-line // @focus, // @hide, and // @show directives via Macro Library sheet
+    const directiveSheet = [
+      '// === Core Generators ===',
+      '// @hide',
+      "g4 = [A3, C3']",
+      "p8 = [A: D4'] D5 [B': D4'] D3",
+      'peek = g4 // @show — explicitly kept visible',
+      '// @show',
       '// === Phase 3: Big Pentagons ===',
       '// @focus big_pent',
       'big3 = g4 // 4t: BigPent(3)',
-      'petal3 = rot8 // @focus petal, big_pent — 8t: Petal(3)',
+      'petal3 = p8 // @focus petal, big_pent — 8t: Petal(3)',
       'show_all = g4 // @focus all',
+      'tmp = g4 // @hide — one-off helper',
       '// @focus all',
       'tri3 = (p8)2',
     ].join('\n');
 
-    expect(parseInlineMacroFocus(script)).toEqual({
-      sep: ['kite', 'small_pent'],
-      big3: ['big_pent'],
-      petal3: ['petal', 'big_pent'],
+    const parsedDirs = parseMacroLibraryText(directiveSheet, {
+      validCircleIds: ['A', 'B', 'C', 'D', 'E'],
     });
-
-    // Updating inline macro with existing prose comment prepends `@focus ... — ` cleanly
-    const edited1 = setInlineMacroFocusInSource(script, 'sep', ['kite']);
-    expect(edited1).toContain("sep = s9b [z2': s10b'] // @focus kite — 19t: Kite(2,2) + SP(3)");
-    expect(parseInlineMacroFocus(edited1).sep).toEqual(['kite']);
-
-    // Updating inline macro that already has `@focus` replaces tokens while keeping prose
-    const edited2 = setInlineMacroFocusInSource(edited1, 'petal3', ['petal']);
-    expect(edited2).toContain('petal3 = rot8 // @focus petal — 8t: Petal(3)');
-
-    // Clearing focus on a macro under an active section directive writes `@focus all`
-    const edited3 = setInlineMacroFocusInSource(edited2, 'big3', []);
-    expect(edited3).toContain('big3 = g4 // @focus all — 4t: BigPent(3)');
-    expect(parseInlineMacroFocus(edited3).big3).toBeUndefined();
-
-    // Adding and then clearing focus on a bare macro line adds and cleanly removes `// @focus`
-    const edited4 = setInlineMacroFocusInSource(edited3, 'tri3', ['tri']);
-    expect(edited4).toContain('tri3 = (p8)2 // @focus tri');
-    const edited5 = setInlineMacroFocusInSource(edited4, 'tri3', []);
-    expect(edited5).toContain('tri3 = (p8)2');
-    expect(edited5).not.toContain('tri3 = (p8)2 //');
-
-    // Section-level and per-line // @hide and // @show directives
-    const hideScript = [
-      '// === Core Generators ===',
-      '// @hide',
-      'g4 = [A3, C3\']',
-      'p8 = [A: D4\'] D5 [B\': D4\'] D3',
-      'peek = g4 // @show — explicitly kept visible',
-      '// @show',
-      '// @focus big_pent',
-      'big3 = g4',
-      'tmp = g4 // @hide — one-off helper',
-    ].join('\n');
-    expect(Array.from(parseInlineMacroHidden(hideScript)).sort()).toEqual(['g4', 'p8', 'tmp']);
-    expect(parseInlineMacroFocus(hideScript)).toEqual({
-      big3: ['big_pent'],
-      tmp: ['big_pent'],
-    });
+    expect(parsedDirs.errors).toEqual([]);
+    const byName = new Map(parsedDirs.entries.map((e) => [e.name, e]));
+    expect(parsedDirs.entries.filter((e) => e.hidden).map((e) => e.name).sort()).toEqual([
+      'g4',
+      'p8',
+      'tmp',
+    ]);
+    expect(byName.get('peek')?.hidden).toBeUndefined();
+    expect(byName.get('big3')?.focusTypes).toEqual(['big_pent']);
+    expect(byName.get('petal3')?.focusTypes).toEqual(['petal', 'big_pent']);
+    expect(byName.get('show_all')?.focusTypes).toBeUndefined();
+    expect(byName.get('tmp')?.focusTypes).toEqual(['big_pent']);
+    expect(byName.get('tri3')?.focusTypes).toBeUndefined();
 
     // Plain-text Macro Library sheet parser + serializer lossless round-trip (with section & macro notes)
     const sheet = [
@@ -332,5 +304,90 @@ describe('opaque scramble share-hash round-trip & determinism', () => {
     const s1 = generateScramble(state, 12, 'solve-seed-v1');
     const s2 = generateScramble(state, 12, 'solve-seed-v1');
     expect(s1).toBe(s2);
+  });
+
+  it('handles Move-macros-to-Library on bracketed scripts, section resets, negative notes, reflections, and corrupt hashes', () => {
+    // Script starting with `[A, B]` must NOT trip legacy JSON parsing when allowNonMacroLines is true
+    const mixed = [
+      '[A: D3]',
+      '// Comment for macro',
+      'm1 = [A3, C3\']  // -36° setup note',
+      '// Keep this algorithm comment',
+      'm1',
+    ].join('\n');
+    const extracted = parseMacroLibraryText(mixed, {
+      validCircleIds: ['A', 'B', 'C', 'D', 'E'],
+      allowNonMacroLines: true,
+    });
+    expect(extracted.errors).toEqual([]);
+    expect(extracted.entries).toEqual([
+      {
+        name: 'm1',
+        body: "[A3, C3']",
+        note: 'Comment for macro\n-36° setup note',
+      },
+    ]);
+    expect(extracted.remainingText).toBe('[A: D3]\n// Keep this algorithm comment\nm1');
+
+    // Unsectioned macro after sectioned macro round-trips cleanly via `// @section none`
+    const withTrailingUngrouped = [
+      { name: 's1', body: '[A: D3]', section: 'Phase 1', note: '-36° leading dash' },
+      { name: 'loose', body: 'A3 D3' },
+    ];
+    const roundTripped = parseMacroLibraryText(
+      serializeMacroLibraryToText(withTrailingUngrouped),
+      { validCircleIds: ['A', 'B', 'C', 'D', 'E'] },
+    );
+    expect(roundTripped.errors).toEqual([]);
+    expect(roundTripped.entries).toEqual(withTrailingUngrouped);
+
+    // Reflected stickered pieces (`y` and fast-forwarded `y25`) report no fake spin angles
+    const gp = buildPuzzle(getPuzzleSpec('geranium-plus'));
+    const flipPreview = computeMacroCyclePreview(gp, 'y', [], 'y', { solvedState: gp });
+    expect(flipPreview.spins).toEqual([]);
+    const fastFlipPreview = computeMacroCyclePreview(gp, 'y25', [], 'y25', { solvedState: gp });
+    expect(fastFlipPreview.spins).toEqual([]);
+
+    // Corrupt `m=` parameter in share hash degrades gracefully without losing `p`, `s`, `n`, `a`
+    const partial = decodeShareHash('#p=geranium-plus&s=abc&n=50&a=QTM&m=!!!corrupt!!!');
+    expect(partial).not.toBeNull();
+    expect(partial?.puzzleId).toBe('geranium-plus');
+    expect(partial?.scrambleSeed).toBe('abc');
+    expect(partial?.scrambleMoves).toBe(50);
+    expect(partial?.alg).toBe('A3');
+    expect(partial?.macros).toBeUndefined();
+
+    // Unattached section headers & preceding comments survive Move-macros-to-Library (`allowNonMacroLines`)
+    const withAlgSection = [
+      'm1 = A3',
+      '// Note before algorithm section',
+      '// === Algorithm Phase ===',
+      '// Step description',
+      'm1 D3',
+    ].join('\n');
+    const kept = parseMacroLibraryText(withAlgSection, {
+      validCircleIds: ['A', 'B', 'C', 'D', 'E'],
+      allowNonMacroLines: true,
+    });
+    expect(kept.errors).toEqual([]);
+    expect(kept.entries).toEqual([{ name: 'm1', body: 'A3' }]);
+    expect(kept.remainingText).toBe(
+      '// Note before algorithm section\n// === Algorithm Phase ===\n// Step description\nm1 D3',
+    );
+
+    // Chronological order preserved when blank lines and standalone comments follow an unattached section
+    const ordered = parseMacroLibraryText(
+      'm1 = A3\n// === Intro ===\n// Section note\n\n// Standalone comment\n\nm1 D3',
+      { validCircleIds: ['A', 'B', 'C', 'D', 'E'], allowNonMacroLines: true },
+    );
+    expect(ordered.errors).toEqual([]);
+    expect(ordered.remainingText).toBe(
+      '// === Intro ===\n// Section note\n\n// Standalone comment\n\nm1 D3',
+    );
+
+    // Rejects empty-statement macro bodies (`;;;`) and globally reserved `x2`/`z2` even without validCircleIds
+    const badMacros = parseMacroLibraryText('noop = ;;;\nx2 = A\nz2 = A');
+    expect(badMacros.entries).toEqual([]);
+    expect(badMacros.errors.length).toBe(3);
   });
 });

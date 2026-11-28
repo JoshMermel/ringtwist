@@ -62,11 +62,42 @@ function isIdentContinue(ch: string): boolean {
   return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 95;
 }
 
-const CIRCLE_OR_ROT_DIGITS_RE = /^([A-Z]|[xyz])(\d+)$/;
+const UPPER_DIGITS_RE = /^([A-Z])(\d+)$/;
+const ROT_OR_FLIP_DIGITS_RE = /^([xyz])(\d+)$/;
 const LOWER_DIGITS_RE = /^([a-w])(\d+)$/;
+const MAX_SAFE_REPEAT = 1_000_000_000;
+
+/**
+ * Returns true if `name` conflicts with a built-in move token on this puzzle
+ * (valid circle letter, valid circle+digits like `A2`, `x`/`y`/`z` or `z2`,
+ * or multi-layer wide circle like `a` / `a2`).
+ */
+export function isReservedMoveName(
+  name: string,
+  validCircles: Set<string>,
+  multiLayerCircles: Set<string>,
+): boolean {
+  if (validCircles.has(name)) return true;
+  if (name === 'x' || name === 'y' || name === 'z') return true;
+  if (ROT_OR_FLIP_DIGITS_RE.test(name)) return true;
+  const upperMatch = UPPER_DIGITS_RE.exec(name);
+  if (upperMatch && validCircles.has(upperMatch[1])) return true;
+  if (
+    name.length === 1 &&
+    name >= 'a' &&
+    name <= 'w' &&
+    multiLayerCircles.has(name.toUpperCase())
+  ) {
+    return true;
+  }
+  const lowerMatch = LOWER_DIGITS_RE.exec(name);
+  if (lowerMatch && multiLayerCircles.has(lowerMatch[1].toUpperCase())) return true;
+  return false;
+}
 
 function tokenize(
   source: string,
+  validCircles?: Set<string>,
   multiLayerCircles?: Set<string>,
 ): { tokens: Token[]; errors: ParseError[] } {
   const tokens: Token[] = [];
@@ -123,11 +154,14 @@ function tokenize(
       let j = i;
       while (j < n && (source[j] === ' ' || source[j] === '\t')) j++;
       const followedByEquals = j < n && source[j] === '=';
+      const isSplitCircle =
+        UPPER_DIGITS_RE.test(raw) && (!validCircles || validCircles.has(raw[0]));
+      const isSplitRot = ROT_OR_FLIP_DIGITS_RE.test(raw);
       const isSplitWide =
         multiLayerCircles !== undefined &&
         LOWER_DIGITS_RE.test(raw) &&
         multiLayerCircles.has(raw[0].toUpperCase());
-      if (!followedByEquals && (CIRCLE_OR_ROT_DIGITS_RE.test(raw) || isSplitWide)) {
+      if (!followedByEquals && (isSplitCircle || isSplitRot || isSplitWide)) {
         const letter = raw[0];
         const digits = raw.slice(1);
         tokens.push({ kind: 'IDENT', value: letter, start, end: start + 1 });
@@ -204,16 +238,7 @@ class Parser {
       if (this.peek().kind === 'IDENT' && this.peek(1).kind === 'EQUALS') {
         const nameTok = this.advance();
         this.advance(); // '='
-        if (
-          this.validCircles.has(nameTok.value) ||
-          nameTok.value === 'x' ||
-          nameTok.value === 'y' ||
-          nameTok.value === 'z' ||
-          (nameTok.value.length === 1 &&
-            nameTok.value >= 'a' &&
-            nameTok.value <= 'w' &&
-            this.multiLayerCircles.has(nameTok.value.toUpperCase()))
-        ) {
+        if (isReservedMoveName(nameTok.value, this.validCircles, this.multiLayerCircles)) {
           this.errors.push({
             message: `Cannot name macro "${nameTok.value}" (reserved move name)`,
             span: { start: nameTok.start, end: nameTok.end },
@@ -290,7 +315,16 @@ class Parser {
       const next = this.peek();
       if (next.kind === 'NUMBER' && next.start === end) {
         this.advance();
-        repeat = Math.max(0, parseInt(next.value, 10));
+        const parsed = parseInt(next.value, 10);
+        if (!Number.isSafeInteger(parsed) || parsed > MAX_SAFE_REPEAT) {
+          this.errors.push({
+            message: `Repeat count "${next.value}" exceeds maximum (${MAX_SAFE_REPEAT})`,
+            span: { start: next.start, end: next.end },
+          });
+          repeat = 1;
+        } else {
+          repeat = Math.max(0, parsed);
+        }
         end = next.end;
       } else if (next.kind === 'PRIME' && next.start === end) {
         this.advance();
@@ -387,7 +421,7 @@ class Parser {
       tok.end === this.peek(1).start
     ) {
       const idTok = this.peek(1);
-      const isUpperCircle = /^[A-Z]$/.test(idTok.value);
+      const isUpperCircle = /^[A-Z]$/.test(idTok.value) && this.validCircles.has(idTok.value);
       const isLowerWide =
         /^[a-w]$/.test(idTok.value) && this.multiLayerCircles.has(idTok.value.toUpperCase());
       if (isUpperCircle || isLowerWide) {
@@ -427,8 +461,8 @@ class Parser {
         return node;
       }
 
-      // Single uppercase letter => circle move (layer 1 / innermost cap)
-      if (/^[A-Z]$/.test(tok.value)) {
+      // Single uppercase letter on a valid circle => circle move (layer 1 / innermost cap)
+      if (/^[A-Z]$/.test(tok.value) && this.validCircles.has(tok.value)) {
         return this.parseCircleMoveBody(tok.value, tok.start, tok.end, undefined, false);
       }
 
@@ -500,11 +534,12 @@ export function parseAlgorithm(
   validCircleIds?: string[],
   multiLayerCircleIds?: string[],
 ): ProgramAST {
+  const validSet = validCircleIds ? new Set(validCircleIds) : undefined;
   const multiSet =
     multiLayerCircleIds && multiLayerCircleIds.length > 0
       ? new Set(multiLayerCircleIds)
       : undefined;
-  const { tokens, errors } = tokenize(source, multiSet);
+  const { tokens, errors } = tokenize(source, validSet, multiSet);
   const parser = new Parser(source, tokens, errors, validCircleIds, multiLayerCircleIds);
   return parser.parseProgram();
 }

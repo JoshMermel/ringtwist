@@ -66,8 +66,6 @@ export interface EvaluationResult {
   parseErrors: ParseError[];
   runtimeError?: { message: string; span: Span };
   blocked?: BlockedError;
-  /** Inline macros defined in the editor script. */
-  inlineMacros: Record<string, string>;
   /** True if group-theory or cycle fast-forward accelerated any huge repeat. */
   usedFastForward: boolean;
 }
@@ -79,6 +77,10 @@ export interface EvaluateOptions {
   solvedReference?: PuzzleState;
   /** When true, reject `name = expr` macro definitions (macros belong in Macro Library). */
   disallowMacroDefs?: boolean;
+  /** When false, skip allocating ExecutedStep[] snapshots (default true). */
+  recordSteps?: boolean;
+  /** When false, skip dihedral solved-state check (default true). */
+  checkSolved?: boolean;
 }
 
 type MacroEnv = Map<string, { expr: ExprNode; source: string }>;
@@ -223,18 +225,67 @@ function lcmBig(a: bigint, b: bigint): bigint {
   return (a / gcdBig(a, b)) * b;
 }
 
+function isCircleEvenStops(stopsDeg: number[]): boolean {
+  const len = stopsDeg.length;
+  if (len === 0) return true;
+  const step = 360 / len;
+  return stopsDeg.every((a, idx) => Math.abs(a - idx * step) < 1e-4);
+}
+
+function allSpecCirclesEvenStops(state: PuzzleState): boolean {
+  return state.spec.circles.every((c) => isCircleEvenStops(c.stopsDeg));
+}
+
+function unevenStopsUnchanged(state0: PuzzleState, state1: PuzzleState): boolean {
+  for (const c of state0.spec.circles) {
+    if (isCircleEvenStops(c.stopsDeg)) continue;
+    if ((state0.circleStopIndex[c.id] ?? 0) !== (state1.circleStopIndex[c.id] ?? 0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * State hash augmented with mirror-flip parity and uneven-stop circle indices so
+ * cycle detection never conflates flipped vs unflipped or uneven-stop states.
+ */
+function hashStateForCycle(state: PuzzleState): string {
+  const base = `${hashPuzzleState(state)}|F:${state.puzzleFlipped ? 1 : 0}`;
+  let suffix = '';
+  for (const c of state.spec.circles) {
+    if (!isCircleEvenStops(c.stopsDeg)) {
+      suffix += `|${c.id}:${state.circleStopIndex[c.id] ?? 0}`;
+    }
+  }
+  return suffix ? base + suffix : base;
+}
+
+const MAX_WORK_UNITS = 100_000;
+
 interface CompiledProgram {
   ast: ProgramAST;
   baseEnv: MacroEnv;
   parseErrors: ParseError[];
 }
 
-function compileProgram(
-  source: string,
+const compiledMacroEnvCache = new WeakMap<MacroLibraryEntry[], Map<string, MacroEnv>>();
+
+function getCompiledMacroEnv(
   externalMacros: MacroLibraryEntry[],
   validCircles: string[],
   multiLayerCircles: string[],
-): CompiledProgram {
+): MacroEnv {
+  if (externalMacros.length === 0) return new Map();
+  const sig = `${validCircles.join(',')}|${multiLayerCircles.join(',')}`;
+  let bySpec = compiledMacroEnvCache.get(externalMacros);
+  if (!bySpec) {
+    bySpec = new Map();
+    compiledMacroEnvCache.set(externalMacros, bySpec);
+  }
+  const cached = bySpec.get(sig);
+  if (cached) return cached;
+
   const baseEnv: MacroEnv = new Map();
   for (const m of externalMacros) {
     const parsed = parseAlgorithm(m.body, validCircles, multiLayerCircles);
@@ -253,6 +304,17 @@ function compileProgram(
       baseEnv.set(m.name, { expr: combined, source: m.body });
     }
   }
+  bySpec.set(sig, baseEnv);
+  return baseEnv;
+}
+
+function compileProgram(
+  source: string,
+  externalMacros: MacroLibraryEntry[],
+  validCircles: string[],
+  multiLayerCircles: string[],
+): CompiledProgram {
+  const baseEnv = getCompiledMacroEnv(externalMacros, validCircles, multiLayerCircles);
   const ast = parseAlgorithm(source, validCircles, multiLayerCircles);
   return { ast, baseEnv, parseErrors: [...ast.errors] };
 }
@@ -274,13 +336,25 @@ function runCompiledProgram(
 
   const env: MacroEnv = new Map(compiled.baseEnv);
   const parseErrors: ParseError[] = [...compiled.parseErrors];
-  const inlineMacros: Record<string, string> = {};
 
   const steps: ExecutedStep[] = [];
   let currentState = initialState;
   let blocked: BlockedError | undefined;
   let runtimeError: { message: string; span: Span } | undefined;
   let usedFastForward = false;
+  let workUnits = 0;
+
+  const consumeWork = (span: Span, amount = 1): boolean => {
+    workUnits += amount;
+    if (workUnits > MAX_WORK_UNITS) {
+      runtimeError = {
+        message: 'Execution exceeded safety work limit',
+        span,
+      };
+      return false;
+    }
+    return true;
+  };
 
   const execMove = (
     res: MoveResult,
@@ -355,20 +429,15 @@ function runCompiledProgram(
       // Case 1: Shape-invariant! Acts as a pure permutation group element => O(n) exact jump!
       const rotDelta =
         (((state1.puzzleRotationDeg - state0.puzzleRotationDeg) % 360) + 360) % 360;
-      const allCirclesEvenStops = state0.spec.circles.every((c) => {
-        const len = c.stopsDeg.length;
-        if (len === 0) return true;
-        const step = 360 / len;
-        return c.stopsDeg.every((a, idx) => Math.abs(a - idx * step) < 1e-4);
-      });
-      // When a sequence includes whole-puzzle rotation `z` on uneven-stop puzzles or an odd number
-      // of mirror flips (`x` / `y`), circleStopIndex permutes/reflects across circles rather than
-      // shifting uniformly; defer to exact state-hash cycle detection.
+      const allCirclesEvenStops = allSpecCirclesEvenStops(state0);
+      // When a sequence includes whole-puzzle rotation `z` on uneven-stop puzzles, changes an
+      // uneven-stop circle's stop index, or includes an odd number of mirror flips (`x` / `y`),
+      // rep 2 may differ geometrically from rep 1; defer to exact state-hash cycle detection.
       const flippedChanged = (state1.puzzleFlipped ?? false) !== (state0.puzzleFlipped ?? false);
       if (
         hashPuzzleShape(state1) === shape0 &&
         !flippedChanged &&
-        (rotDelta === 0 || allCirclesEvenStops)
+        (allCirclesEvenStops || (rotDelta === 0 && unevenStopsUnchanged(state0, state1)))
       ) {
         const perm = extractShapePermutation(state0, state1);
         if (perm) {
@@ -395,9 +464,9 @@ function runCompiledProgram(
 
       // Case 2: Non-shape-preserving repeat => state-hash cycle detection
       const seen = new Map<string, { rep: number; state: PuzzleState }>();
-      seen.set(hashPuzzleState(state0), { rep: 0, state: state0 });
+      seen.set(hashStateForCycle(state0), { rep: 0, state: state0 });
       const statesByRep: PuzzleState[] = [state0, state1];
-      const h1 = hashPuzzleState(state1);
+      const h1 = hashStateForCycle(state1);
 
       if (seen.has(h1)) {
         // Period 1 (already returned to state0)
@@ -408,10 +477,11 @@ function runCompiledProgram(
         let jumped = false;
         const maxCycleScan = Math.min(repeat, 2000);
         for (let r = 2; r <= maxCycleScan; r++) {
+          if (!consumeWork(topSpan)) return false;
           if (!evalNode(effective, topSpan, macroStack, false)) {
             return false;
           }
-          const h = hashPuzzleState(currentState);
+          const h = hashStateForCycle(currentState);
           const prev = seen.get(h);
           if (prev) {
             const period = r - prev.rep;
@@ -452,6 +522,7 @@ function runCompiledProgram(
 
     // Normal step-by-step execution
     for (let k = 0; k < repeat; k++) {
+      if (!consumeWork(topSpan)) return false;
       if (!evalNode(effective, topSpan, macroStack, recordSteps)) {
         return false;
       }
@@ -466,6 +537,7 @@ function runCompiledProgram(
     recordSteps: boolean,
   ): boolean => {
     if (blocked || runtimeError) return false;
+    if (!consumeWork(topSpan)) return false;
     if (recordSteps && steps.length >= maxExpandedSteps) {
       runtimeError = {
         message: `Execution exceeded ${maxExpandedSteps} steps`,
@@ -502,7 +574,7 @@ function runCompiledProgram(
             : undefined;
         const arrow = node.direction === 1 ? '>' : '<';
         const base = node.wide
-          ? `${node.layer && node.layer > 2 ? node.layer : ''}${node.circleId.toLowerCase()}`
+          ? `${node.layer !== undefined ? node.layer : ''}${node.circleId.toLowerCase()}`
           : `${node.layer && node.layer > 1 ? node.layer : ''}${node.circleId}`;
         const label = `${base}${arrow}${node.count === 1 ? '' : node.count}`;
         const res = turnCircleNextUnblocked(
@@ -528,7 +600,43 @@ function runCompiledProgram(
       case 'mirrorFlip': {
         if (node.count <= 0) return true;
         const spanToUse = macroStack.length === 0 ? node.span : topSpan;
+        // Large flip repeats reduce cleanly by involution parity (x^2 = id, y^2 = id).
+        if (node.count >= 25 || (recordSteps && steps.length + node.count > maxExpandedSteps)) {
+          // Validate symmetry support even when count is even (e.g. y100 on x-only puzzle).
+          const probe = flipWholePuzzle(currentState, node.axis);
+          if (!probe.ok) {
+            return execMove(probe, node.axis, node.axis, node.span, spanToUse, macroStack, recordSteps);
+          }
+          if (node.count % 2 === 1) {
+            currentState = probe.nextState;
+          }
+          usedFastForward = true;
+          if (recordSteps) {
+            steps.push({
+              index: steps.length,
+              moveLabel: `${node.axis}${node.count} (fast)`,
+              span: node.span,
+              topSpan: spanToUse,
+              macroStack: [...macroStack],
+              angleDeg: 0,
+              pivot: currentState.spec.symmetryCenter ?? { x: 0, y: 0 },
+              ...(node.count % 2 === 1 ? { flipAxis: node.axis } : {}),
+              movedPieceIds: node.count % 2 === 1 ? probe.movedPieceIds : [],
+              fastForwarded: true,
+              stateAfter: currentState,
+            });
+          }
+          return true;
+        }
         for (let k = 0; k < node.count; k++) {
+          if (!consumeWork(spanToUse)) return false;
+          if (recordSteps && steps.length >= maxExpandedSteps) {
+            runtimeError = {
+              message: `Execution exceeded ${maxExpandedSteps} steps`,
+              span: spanToUse,
+            };
+            return false;
+          }
           const res = flipWholePuzzle(currentState, node.axis);
           if (!execMove(res, node.axis, node.axis, node.span, spanToUse, macroStack, recordSteps)) {
             return false;
@@ -592,16 +700,31 @@ function runCompiledProgram(
         let entry = env.get(node.name);
         let resolvedName = node.name;
         let resolvedRepeat = node.repeat;
-        // If `conj3` isn't a macro name itself, check if `conj` is a macro and `3` is a repeat count!
+        // If `conj3` or `g42` isn't a macro name itself, find the longest existing macro prefix
+        // followed by a numeric repeat suffix (e.g. `g4` + `2` beats `g` + `42`).
+        const spanToUse = macroStack.length === 0 ? node.span : topSpan;
         if (!entry) {
-          const m = node.name.match(/^([A-Za-z_][A-Za-z0-9_]*?)(\d+)$/);
-          if (m && env.has(m[1])) {
-            resolvedName = m[1];
-            entry = env.get(resolvedName);
-            resolvedRepeat = parseInt(m[2], 10) * node.repeat;
+          let split = node.name.length;
+          while (split > 1 && node.name[split - 1] >= '0' && node.name[split - 1] <= '9') {
+            split--;
+            const candName = node.name.slice(0, split);
+            if (env.has(candName)) {
+              const suffixNum = parseInt(node.name.slice(split), 10);
+              const combined = suffixNum * node.repeat;
+              if (!Number.isSafeInteger(combined) || combined > 1_000_000_000) {
+                runtimeError = {
+                  message: `Repeat count for "${node.name}" exceeds maximum (1000000000)`,
+                  span: spanToUse,
+                };
+                return false;
+              }
+              resolvedName = candName;
+              entry = env.get(resolvedName);
+              resolvedRepeat = combined;
+              break;
+            }
           }
         }
-        const spanToUse = macroStack.length === 0 ? node.span : topSpan;
         if (!entry) {
           runtimeError = {
             message: `Unknown move or macro "${node.name}"`,
@@ -645,8 +768,7 @@ function runCompiledProgram(
         steps: [],
         finalState: initialState,
         solved: isPuzzleSolved(initialState, solvedRef),
-        parseErrors: macroDefErrors,
-        inlineMacros: {},
+        parseErrors: [...parseErrors, ...macroDefErrors],
         usedFastForward: false,
       };
     }
@@ -655,7 +777,6 @@ function runCompiledProgram(
   for (const stmt of compiled.ast.statements) {
     if (stmt.kind === 'macroDef') {
       env.set(stmt.name, { expr: stmt.body, source: stmt.bodySource });
-      inlineMacros[stmt.name] = stmt.bodySource;
     } else {
       if (!evalNode(stmt.expr, stmt.span, [], shouldRecordSteps)) {
         break;
@@ -671,7 +792,6 @@ function runCompiledProgram(
     parseErrors,
     runtimeError,
     blocked,
-    inlineMacros,
     usedFastForward,
   };
 }
@@ -692,9 +812,9 @@ export function evaluateProgram(
     .map((c) => c.id);
   const compiled = compileProgram(source, externalMacros, validCircles, multiLayerCircles);
   return runCompiledProgram(initialState, compiled, {
-    ...options,
     recordSteps: true,
     checkSolved: true,
+    ...options,
   });
 }
 
@@ -718,6 +838,7 @@ export function analyzeAlgorithm(
   algSource: string,
   externalMacros: MacroLibraryEntry[] = [],
   maxReps = 200,
+  options: Pick<EvaluateOptions, 'disallowMacroDefs'> = {},
 ): AlgorithmAnalysis {
   const validCircles = state.spec.circles.map((c) => c.id);
   const multiLayerCircles = state.spec.circles
@@ -725,6 +846,7 @@ export function analyzeAlgorithm(
     .map((c) => c.id);
   const compiled = compileProgram(algSource, externalMacros, validCircles, multiLayerCircles);
   const first = runCompiledProgram(state, compiled, {
+    ...options,
     recordSteps: false,
     checkSolved: false,
   });
@@ -756,7 +878,7 @@ export function analyzeAlgorithm(
 
   const h0 = hashPuzzleState(state);
   const h1 = hashPuzzleState(first.finalState);
-  if (h0 === h1) {
+  if (h0 === h1 && unevenStopsUnchanged(state, first.finalState)) {
     return {
       status: 'identity',
       order: 1,
@@ -770,8 +892,15 @@ export function analyzeAlgorithm(
   const shape1 = hashPuzzleShape(first.finalState);
   const flippedChanged =
     (first.finalState.puzzleFlipped ?? false) !== (state.puzzleFlipped ?? false);
+  const rotDelta =
+    (((first.finalState.puzzleRotationDeg - state.puzzleRotationDeg) % 360) + 360) % 360;
+  const allCirclesEvenStops = allSpecCirclesEvenStops(state);
 
-  if (shape0 === shape1 && !flippedChanged) {
+  if (
+    shape0 === shape1 &&
+    !flippedChanged &&
+    (allCirclesEvenStops || (rotDelta === 0 && unevenStopsUnchanged(state, first.finalState)))
+  ) {
     const perm = extractShapePermutation(state, first.finalState);
     if (perm) {
       // Compute cycle lengths of the permutation (and also check color-visible order)
@@ -813,8 +942,6 @@ export function analyzeAlgorithm(
       // Find exact smallest divisor of permOrder that restores visible colors in O(Omega(N))
       // via greedy prime-factor reduction (exact because {k : P^k preserves colors} is a subgroup of Z).
       let visibleOrder = permOrder;
-      const rotDelta =
-        (((first.finalState.puzzleRotationDeg - state.puzzleRotationDeg) % 360) + 360) % 360;
       for (const p of primeFactors) {
         while (visibleOrder % p === 0n) {
           const cand = visibleOrder / p;
@@ -865,8 +992,16 @@ export function analyzeAlgorithm(
         message: `Shape-changing · blocks on repetition ${rep} at ${next.blocked.moveLabel}`,
       };
     }
+    if (next.runtimeError) {
+      return {
+        status: 'error',
+        changedPieces: -1,
+        shapePreserving: false,
+        message: next.runtimeError.message,
+      };
+    }
     cur = next.finalState;
-    if (hashPuzzleState(cur) === h0) {
+    if (hashPuzzleState(cur) === h0 && unevenStopsUnchanged(state, cur)) {
       return {
         status: 'periodic',
         order: rep,

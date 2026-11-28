@@ -1,5 +1,5 @@
 import { Circle, Point, deg2rad, rotatePoint } from '../geom/math.ts';
-import { CircleDef, PuzzleSpec, PuzzleState, evenStops } from './types.ts';
+import { CircleDef, evenStops } from './types.ts';
 
 export type NumExpr = number | string;
 
@@ -167,15 +167,6 @@ export type CutOp =
       minArea?: number;
     }
   | {
-      op: 'orbitSlice';
-      /** CW rotation angles in degrees at which each target circle's contents get sliced by other circles. */
-      anglesDeg: NumExpr[];
-      axes?: string[];
-      maxMemberCircles?: number;
-      nonChaining?: boolean;
-      passes?: number;
-    }
-  | {
       op: 'bandage';
       /** Groups of [x, y] points whose containing pieces are fused into a single piece. */
       groups?: [NumExpr, NumExpr][][];
@@ -241,7 +232,7 @@ export interface RingTwistPuzzleDoc {
   format: 'ringtwist/v1';
   id: string;
   name: string;
-  category?: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles' | 'Custom';
+  category?: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles';
   description?: string;
   params?: Record<string, NumExpr>;
   symmetryStepDeg?: NumExpr;
@@ -683,111 +674,4 @@ export function validateRingTwistDoc(
       errors: [err instanceof Error ? err.message : String(err)],
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Source Doc Attachment & Export
-// ---------------------------------------------------------------------------
-
-const sourceDocMap = new WeakMap<PuzzleSpec, RingTwistPuzzleDoc>();
-
-export function registerPuzzleSourceDoc(spec: PuzzleSpec, doc: RingTwistPuzzleDoc): void {
-  sourceDocMap.set(spec, doc);
-}
-
-export function getPuzzleSourceDoc(spec: PuzzleSpec): RingTwistPuzzleDoc | undefined {
-  return sourceDocMap.get(spec);
-}
-
-function roundNice(n: number): number {
-  const r = Number(n.toFixed(6));
-  return Object.is(r, -0) ? 0 : r;
-}
-
-/**
- * Export any PuzzleState into a clean, self-contained RingTwist v1 JSON document.
- * If the puzzle was natively defined in ringtwist/v1, returns its exact clean source doc!
- * Otherwise synthesizes an index-free ringtwist/v1 document with exact axes + coloring probes.
- */
-export function exportPuzzleToRingTwistDoc(
-  state: PuzzleState,
-  interiorPointFn: (region: PuzzleState['pieces'][number]['region']) => Point,
-): RingTwistPuzzleDoc {
-  const native = sourceDocMap.get(state.spec);
-  if (native) {
-    return JSON.parse(JSON.stringify(native)) as RingTwistPuzzleDoc;
-  }
-
-  const spec = state.spec;
-  const axes: ExplicitAxisInput[] = spec.circles.map((c) => {
-    const n = c.stopsDeg.length;
-    const step = n > 0 ? 360 / n : 0;
-    const isEven =
-      n > 0 && c.stopsDeg.every((a, i) => Math.abs(a - i * step) < 1e-3);
-    return {
-      id: c.id,
-      cx: roundNice(c.cx),
-      cy: roundNice(c.cy),
-      r: roundNice(c.r),
-      ...(c.layerRadii && c.layerRadii.length > 1
-        ? { layers: c.layerRadii.map(roundNice) }
-        : {}),
-      stops: isEven ? n : c.stopsDeg.map(roundNice),
-      ...(c.turnRegion === 'outside' ? { region: 'outside' } : {}),
-      color: c.color,
-      ...(c.labelPos
-        ? { labelPos: [roundNice(c.labelPos.x), roundNice(c.labelPos.y)] as [number, number] }
-        : {}),
-    };
-  });
-
-  // Synthesize move-closure cuts & index-free point probes for coloring
-  const probes = state.pieces.map((p) => {
-    const pt = interiorPointFn(p.region);
-    return { x: roundNice(pt.x), y: roundNice(pt.y), color: p.color };
-  });
-
-  const closureMoves = spec.circles.map((c) =>
-    c.layerRadii && c.layerRadii.length > 1 ? c.id.toLowerCase() : c.id,
-  );
-
-  return {
-    format: 'ringtwist/v1',
-    id: spec.id,
-    name: spec.name,
-    category: spec.category,
-    description: spec.description,
-    ...(spec.symmetryStepDeg > 0 ? { symmetryStepDeg: spec.symmetryStepDeg } : {}),
-    ...(spec.symmetryCenter
-      ? {
-          symmetryCenter: [
-            roundNice(spec.symmetryCenter.x),
-            roundNice(spec.symmetryCenter.y),
-          ],
-        }
-      : {}),
-    ...(spec.viewBounds
-      ? {
-          viewBounds: [
-            roundNice(spec.viewBounds.minX),
-            roundNice(spec.viewBounds.maxX),
-            roundNice(spec.viewBounds.minY),
-            roundNice(spec.viewBounds.maxY),
-          ],
-        }
-      : {}),
-    axes,
-    cuts: [{ op: 'closure', moves: closureMoves, maxIters: 8 }],
-    coloring: [{ type: 'default' }, { type: 'points', probes }],
-    ...(spec.pieceTypes && spec.pieceTypes.length > 0
-      ? {
-          pieceTypes: spec.pieceTypes.map((pt) => ({
-            id: pt.id,
-            ...(pt.label ? { label: pt.label } : {}),
-            probe: [roundNice(pt.probe.x), roundNice(pt.probe.y)] as [number, number],
-          })),
-        }
-      : {}),
-    ...(spec.sampleAlgorithms ? { sampleAlgorithms: spec.sampleAlgorithms } : {}),
-  };
 }

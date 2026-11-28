@@ -44,65 +44,6 @@ export interface CircleDef extends Circle {
   discovered?: boolean;
 }
 
-export interface OrbitSliceStep {
-  /** CW rotation angles (in degrees) at which each circle's contents get sliced by other circles. */
-  anglesDeg: number[];
-  /** Optional subset of circle IDs to rotate; defaults to all circles. */
-  circleIds?: string[];
-  /** Only slice pieces belonging to at most this many puzzle circles. */
-  maxMemberCircles?: number;
-  /**
-   * When true, project all virtual cuts simultaneously from the current state
-   * (non-chaining) instead of feeding circle i's cuts into circle i+1.
-   */
-  nonChaining?: boolean;
-  /** Number of passes (default 1). */
-  passes?: number;
-}
-
-export interface VirtualCutSpec {
-  /** Cutting circle in the puzzle's coordinate frame. */
-  circle: Circle;
-  /** If set, only slice pieces currently inside this circle ID. */
-  onlyInsideCircleId?: string;
-  /** If true, replicate this cut across the puzzle's rotational symmetry. */
-  symmetric?: boolean;
-}
-
-export interface BandageGroupSpec {
-  /**
-   * Points (in solved coordinate frame) whose containing atomic pieces should
-   * be fused into one single piece (bandaged).
-   */
-  points: Point[];
-  /** If true, replicate this bandage across the puzzle's rotational symmetry. */
-  symmetric?: boolean;
-}
-
-export interface BandageByMemberCountSpec {
-  /**
-   * Merge adjacent atomic regions that both satisfy `predicate` and belong to
-   * the same connected component (useful for bandaging all sub-pieces of an
-   * outer crescent or inner petal).
-   */
-  predicate: (info: AtomicPieceInfo) => boolean;
-}
-
-export interface AtomicPieceInfo {
-  region: ArcRegion;
-  interiorPoint: Point;
-  area: number;
-  /** IDs of all puzzle circles containing this piece. */
-  memberCircles: string[];
-  /** Distance of interiorPoint from puzzle symmetry center. */
-  radialDist: number;
-}
-
-export interface PuzzleColoringContext {
-  circles: CircleDef[];
-  symmetryCenter: Point;
-}
-
 export interface PieceTypeDef {
   /** Short identifier used in `@focus` directives & saved macro metadata (e.g. "big_pent", "kite", "tri"). */
   id: string;
@@ -115,7 +56,7 @@ export interface PieceTypeDef {
 export interface PuzzleSpec {
   id: string;
   name: string;
-  category: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles' | 'Custom';
+  category: 'Geranium Family' | 'Designer & Exotic' | 'Classic Circles';
   description: string;
   circles: CircleDef[];
   /** Whole-puzzle rotational symmetry step in degrees CW (e.g. 72 for 5-fold). */
@@ -123,24 +64,8 @@ export interface PuzzleSpec {
   symmetryCenter?: Point;
   /** Optional named congruent piece-type classes (for `@focus` directives and focus-picker chips). */
   pieceTypes?: PieceTypeDef[];
-  /** Optional orbit-slicing steps to carve pieces created by valid rotations. */
-  orbitSlices?: OrbitSliceStep[];
-  /** Optional explicit virtual cutting circles (e.g. for targeted unbandaging). */
-  extraCuts?: VirtualCutSpec[];
-  /**
-   * Optional declarative bandaging rules (fuse specific atomic pieces together).
-   * Leaving a group out of `bandages` leaves those pieces unbandaged!
-   */
-  bandages?: BandageGroupSpec[];
-  /**
-   * Optional predicate-based bandaging rules (fuse connected components matching
-   * a geometric predicate).
-   */
-  bandagePredicates?: BandageByMemberCountSpec[];
-  /** Optional custom piece builder for exact chiral/unbandaged puzzle constructions. */
+  /** Piece builder for declarative `ringtwist/v1` and Geranium-family puzzle constructions. */
   customBuilder?: (spec: PuzzleSpec) => Piece[];
-  /** Optional custom color assignment function. */
-  assignColor?: (info: AtomicPieceInfo, ctx: PuzzleColoringContext) => string;
   /** Optional sample algorithms shown in the UI for quick exploration. */
   sampleAlgorithms?: { name: string; alg: string; note?: string }[];
   /** Optional explicit math-coordinate bounding box (when pieces extend outside playable circles, e.g. Moonspinner). */

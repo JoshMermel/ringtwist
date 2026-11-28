@@ -13,21 +13,24 @@ export function sanitizeFocusTypes(raw: unknown): string[] | undefined {
   const out: string[] = [];
   for (const item of raw) {
     if (typeof item !== 'string') continue;
-    const trimmed = item.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
+    const norm = item.trim().toLowerCase();
+    if (!norm || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(norm);
   }
   return out.length > 0 ? out : undefined;
 }
 
 export function sanitizeMacroEntries(raw: unknown): MacroLibraryEntry[] {
   if (!Array.isArray(raw)) return [];
-  const out: MacroLibraryEntry[] = [];
+  const byName = new Map<string, MacroLibraryEntry>();
   for (const m of raw) {
     if (!m || typeof m !== 'object') continue;
     const rec = m as Record<string, unknown>;
     if (typeof rec.name !== 'string' || typeof rec.body !== 'string') continue;
+    const name = rec.name.trim();
+    const body = rec.body.replace(/[\r\n]+/g, ' ').trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !body) continue;
     const focusTypes = sanitizeFocusTypes(rec.focusTypes);
     const note = typeof rec.note === 'string' && rec.note.trim() ? rec.note.trim() : undefined;
     const section =
@@ -37,9 +40,9 @@ export function sanitizeMacroEntries(raw: unknown): MacroLibraryEntry[] {
         ? rec.sectionNote.trim()
         : undefined;
     const hidden = rec.hidden === true ? true : undefined;
-    out.push({
-      name: rec.name,
-      body: rec.body,
+    byName.set(name, {
+      name,
+      body,
       ...(note ? { note } : {}),
       ...(focusTypes ? { focusTypes } : {}),
       ...(hidden ? { hidden } : {}),
@@ -47,7 +50,7 @@ export function sanitizeMacroEntries(raw: unknown): MacroLibraryEntry[] {
       ...(sectionNote ? { sectionNote } : {}),
     });
   }
-  return out;
+  return Array.from(byName.values());
 }
 
 export interface PuzzleSession {
@@ -176,7 +179,8 @@ export function encodeShareHash(payload: SharedPayload): string {
   if (payload.scrambleSeed && payload.scrambleSeed.trim().length > 0) {
     params.set('s', payload.scrambleSeed.trim());
     if (payload.scrambleMoves && Number.isFinite(payload.scrambleMoves)) {
-      params.set('n', String(Math.round(payload.scrambleMoves)));
+      const clamped = Math.max(1, Math.min(1000, Math.round(payload.scrambleMoves)));
+      params.set('n', String(clamped));
     }
   }
   if (payload.alg.trim().length > 0) {
@@ -199,23 +203,38 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     const macrosRaw = params.get('m');
     const seedRaw = params.get('s')?.trim();
     const movesRaw = params.get('n');
-    const alg = algRaw ? fromBase64Url(algRaw) : '';
-    let macros: MacroLibraryEntry[] | undefined;
-    if (macrosRaw) {
-      const parsed = JSON.parse(fromBase64Url(macrosRaw));
-      if (Array.isArray(parsed)) {
-        macros = sanitizeMacroEntries(parsed);
+
+    let alg = '';
+    let hasSharedAlg = false;
+    if (algRaw !== null) {
+      try {
+        alg = algRaw ? fromBase64Url(algRaw) : '';
+        hasSharedAlg = true;
+      } catch {
+        // Ignore corrupt `a=` parameter without discarding the rest of the shared link
       }
     }
+
+    let macros: MacroLibraryEntry[] | undefined;
+    if (macrosRaw) {
+      try {
+        const parsed = JSON.parse(fromBase64Url(macrosRaw));
+        if (Array.isArray(parsed)) {
+          macros = sanitizeMacroEntries(parsed);
+        }
+      } catch {
+        // Ignore truncated or corrupt `m=` parameter without discarding `p`/`s`/`n`/`a`
+      }
+    }
+
     const parsedMoves = movesRaw ? parseInt(movesRaw, 10) : NaN;
-    const scrambleMoves =
-      Number.isFinite(parsedMoves) && parsedMoves >= 1 && parsedMoves <= 1000
-        ? parsedMoves
-        : undefined;
+    const scrambleMoves = Number.isFinite(parsedMoves)
+      ? Math.max(1, Math.min(1000, Math.round(parsedMoves)))
+      : undefined;
     return {
       puzzleId,
       alg,
-      ...(algRaw !== null ? { hasSharedAlg: true } : {}),
+      ...(hasSharedAlg ? { hasSharedAlg: true } : {}),
       macros,
       ...(seedRaw ? { scrambleSeed: seedRaw } : {}),
       ...(seedRaw && scrambleMoves !== undefined ? { scrambleMoves } : {}),

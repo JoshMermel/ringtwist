@@ -1,4 +1,4 @@
-export function createHelpModal(): { open: () => void; close: () => void } {
+export function createHelpModal(): { open: () => void; close: () => void; isOpen: () => boolean } {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
@@ -40,14 +40,18 @@ export function createHelpModal(): { open: () => void; close: () => void } {
 
   const open = () => backdrop.classList.add('open');
   const close = () => backdrop.classList.remove('open');
+  const isOpen = () => backdrop.classList.contains('open');
 
   backdrop.querySelector('#help-close-btn')?.addEventListener('click', close);
   backdrop.addEventListener('click', (ev) => {
     if (ev.target === backdrop) close();
   });
   window.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && backdrop.classList.contains('open')) close();
+    if (ev.key === 'Escape' && isOpen()) {
+      ev.preventDefault();
+      close();
+    }
   });
 
-  return { open, close };
+  return { open, close, isOpen };
 }

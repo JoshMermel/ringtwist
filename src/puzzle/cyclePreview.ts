@@ -132,6 +132,7 @@ function minCyclicSerialization(tokens: string[]): string {
  * always produce the exact same ID.
  */
 export function pieceShapeType(region: ArcRegion): string {
+  if (region._shapeType !== undefined) return region._shapeType;
   const n = region.edges.length;
   const area = Math.abs(regionSignedArea(region.edges));
   const areaQ = Math.round(area * 1000);
@@ -145,7 +146,9 @@ export function pieceShapeType(region: ArcRegion): string {
   const minFwd = minCyclicSerialization(fwd);
   const minRev = minCyclicSerialization(rev);
   const canonical = minFwd < minRev ? minFwd : minRev;
-  return `n${n}_a${areaQ}_${fnv1aHex(canonical)}`;
+  const sig = `n${n}_a${areaQ}_${fnv1aHex(canonical)}`;
+  region._shapeType = sig;
+  return sig;
 }
 
 /**
@@ -185,6 +188,8 @@ function computePieceSpinCwDeg(
   center: Point,
   isReflected: boolean,
 ): number {
+  if (isReflected) return 0;
+
   const s0 = pBefore.stickers?.[0];
   const s1 = pAfter.stickers?.[0];
   if (s0 && s1) {
@@ -199,7 +204,6 @@ function computePieceSpinCwDeg(
     return rounded === -180 ? 180 : rounded;
   }
 
-  if (isReflected) return 0;
   const e0 = pBefore.region.edges[0];
   const e1 = pAfter.region.edges[0];
   if (!e0 || !e1) return 0;
@@ -227,7 +231,10 @@ const pieceTypeCatalogCache = new WeakMap<PuzzleSpec, PuzzlePieceTypeEntry[]>();
  * on a puzzle, sorted largest-first, binding any named `spec.pieceTypes` probes and
  * assigning deterministic fallback IDs (`type1`, `type2`, ...) to unnamed shapes.
  */
-export function getPuzzlePieceTypeCatalog(solvedState: PuzzleState): PuzzlePieceTypeEntry[] {
+export function getPuzzlePieceTypeCatalog(
+  solvedState: PuzzleState,
+  allowCache = true,
+): PuzzlePieceTypeEntry[] {
   const cached = pieceTypeCatalogCache.get(solvedState.spec);
   if (cached) return cached;
 
@@ -292,7 +299,9 @@ export function getPuzzlePieceTypeCatalog(solvedState: PuzzleState): PuzzlePiece
     };
   });
 
-  pieceTypeCatalogCache.set(solvedState.spec, catalog);
+  if (allowCache) {
+    pieceTypeCatalogCache.set(solvedState.spec, catalog);
+  }
   return catalog;
 }
 
@@ -303,10 +312,11 @@ export function getPuzzlePieceTypeCatalog(solvedState: PuzzleState): PuzzlePiece
 export function resolveFocusTypeSet(
   solvedState: PuzzleState,
   tokens: string[] | undefined,
+  allowCache = true,
 ): Set<string> {
   const out = new Set<string>();
   if (!tokens || tokens.length === 0) return out;
-  const catalog = getPuzzlePieceTypeCatalog(solvedState);
+  const catalog = getPuzzlePieceTypeCatalog(solvedState, allowCache);
   const byId = new Map<string, string>();
   const byLabel = new Map<string, string>();
   const validShapes = new Set<string>();
@@ -332,12 +342,6 @@ export function resolveFocusTypeSet(
   return out;
 }
 
-/** Map a geometric `shapeType` signature to its canonical focus ID (e.g. "big_pent" or "type1"). */
-export function shapeTypeToFocusId(solvedState: PuzzleState, shapeType: string): string {
-  const catalog = getPuzzlePieceTypeCatalog(solvedState);
-  return catalog.find((c) => c.shapeType === shapeType)?.id ?? shapeType;
-}
-
 /**
  * Toggle a single piece type (given by `shapeType` hash or canonical ID) in `currentTypes`,
  * returning clean deduplicated canonical IDs (e.g. `["big_pent", "kite"]`) when `solvedState` is provided.
@@ -346,6 +350,7 @@ export function toggleFocusType(
   currentTypes: string[] | undefined,
   shapeTypeOrId: string,
   solvedState?: PuzzleState,
+  allowCache = true,
 ): string[] {
   if (!solvedState) {
     const list = currentTypes ? [...currentTypes] : [];
@@ -355,10 +360,10 @@ export function toggleFocusType(
     return [...list, shapeTypeOrId];
   }
 
-  const catalog = getPuzzlePieceTypeCatalog(solvedState);
-  const targetSet = resolveFocusTypeSet(solvedState, [shapeTypeOrId]);
+  const catalog = getPuzzlePieceTypeCatalog(solvedState, allowCache);
+  const targetSet = resolveFocusTypeSet(solvedState, [shapeTypeOrId], allowCache);
   const targetShape = Array.from(targetSet)[0] ?? shapeTypeOrId;
-  const activeShapes = resolveFocusTypeSet(solvedState, currentTypes);
+  const activeShapes = resolveFocusTypeSet(solvedState, currentTypes, allowCache);
 
   if (activeShapes.has(targetShape)) {
     activeShapes.delete(targetShape);
@@ -391,11 +396,12 @@ export function toggleFocusTypeAtPoint(
   if (affectedTypes.size === 0) return null;
 
   // 1. Exact piece containment: clicking any piece whose congruent shape type is affected toggles that type
+  const allowCache = solvedState !== undefined;
   for (const p of state.pieces) {
     if (!pointInRegion(pt, p.region)) continue;
     const st = pieceShapeType(p.region);
     if (affectedTypes.has(st)) {
-      return toggleFocusType(currentTypes, st, solvedState ?? state);
+      return toggleFocusType(currentTypes, st, solvedState ?? state, allowCache);
     }
   }
 
@@ -416,7 +422,7 @@ export function toggleFocusTypeAtPoint(
       bestType = s.shapeType;
     }
   }
-  return bestType ? toggleFocusType(currentTypes, bestType, solvedState ?? state) : null;
+  return bestType ? toggleFocusType(currentTypes, bestType, solvedState ?? state, allowCache) : null;
 }
 
 /**
@@ -430,7 +436,10 @@ export function computeMacroCyclePreview(
   label = '',
   options: CyclePreviewOptions = {},
 ): CyclePreviewResult {
-  const ev = evaluateProgram(state, algSource, macros);
+  const ev = evaluateProgram(state, algSource, macros, {
+    recordSteps: false,
+    checkSolved: false,
+  });
   if (ev.parseErrors.length > 0 || ev.runtimeError) {
     return {
       ok: false,
@@ -473,7 +482,7 @@ export function computeMacroCyclePreview(
       orientedShapeTypes.add(pieceShapeType(p.region));
     }
   }
-  const isReflected = ev.steps.filter((s) => Boolean(s.flipAxis)).length % 2 === 1;
+  const isReflected = Boolean(ev.finalState.puzzleFlipped) !== Boolean(state.puzzleFlipped);
 
   const moved: {
     pieceId: number;
@@ -489,8 +498,12 @@ export function computeMacroCyclePreview(
   const typeMap = new Map<string, MovedPieceTypeSummary>();
 
   const refState = options.solvedState ?? state;
+  // Never poison the spec-level pieceType catalog cache from a potentially scrambled state
   const catalogByShape = new Map(
-    getPuzzlePieceTypeCatalog(refState).map((entry) => [entry.shapeType, entry]),
+    getPuzzlePieceTypeCatalog(refState, options.solvedState !== undefined).map((entry) => [
+      entry.shapeType,
+      entry,
+    ]),
   );
 
   const recordType = (
@@ -522,15 +535,17 @@ export function computeMacroCyclePreview(
   for (const pBefore of state.pieces) {
     const pAfter = afterById.get(pBefore.id);
     if (!pAfter) continue;
+    // O(1) reference equality fast-path: skips ~80% of untouched pieces without silhouette hashing
+    if (pBefore.region === pAfter.region && pBefore.stickers === pAfter.stickers) continue;
     const fromKey = regionSilhouetteKey(pBefore.region);
     const toKey = regionSilhouetteKey(pAfter.region);
-    const from = pieceVisualCenter(pBefore.region);
 
     if (fromKey === toKey) {
-      // Piece remained in the exact same geometric slot: show rotation-in-place if its
-      // shape type has orientation anywhere on the puzzle (even if this slot is solid-colored).
+      // Piece remained in the exact same geometric slot: only compute visual center & spin
+      // if its shape type has orientation anywhere on the puzzle (skips ~95% of untouched pieces).
       const shapeType = pieceShapeType(pBefore.region);
       if (orientedShapeTypes.has(shapeType)) {
+        const from = pieceVisualCenter(pBefore.region);
         const angleDeg = computePieceSpinCwDeg(pBefore, pAfter, from, isReflected);
         if (angleDeg !== 0) {
           allSpins.push({
@@ -547,6 +562,7 @@ export function computeMacroCyclePreview(
       continue;
     }
 
+    const from = pieceVisualCenter(pBefore.region);
     const to = pieceVisualCenter(pAfter.region);
     if (dist(from, to) > 1e-3) {
       const shapeType = pieceShapeType(pBefore.region);
@@ -562,20 +578,20 @@ export function computeMacroCyclePreview(
       });
       recordType(shapeType, pBefore.region, pBefore.area, 'arrow');
     } else {
+      // Piece silhouette visibly changed while its center stayed fixed (in-place rotation of
+      // an oriented OR asymmetric/non-circular piece): emit its exact spin badge!
       const shapeType = pieceShapeType(pBefore.region);
-      if (orientedShapeTypes.has(shapeType)) {
-        const angleDeg = computePieceSpinCwDeg(pBefore, pAfter, from, isReflected);
-        if (angleDeg !== 0) {
-          allSpins.push({
-            pieceId: pBefore.id,
-            point: from,
-            area: pBefore.area,
-            shapeType,
-            angleDeg,
-            color: '#facc15',
-          });
-          recordType(shapeType, pBefore.region, pBefore.area, 'spin');
-        }
+      const angleDeg = computePieceSpinCwDeg(pBefore, pAfter, from, isReflected);
+      if (angleDeg !== 0) {
+        allSpins.push({
+          pieceId: pBefore.id,
+          point: from,
+          area: pBefore.area,
+          shapeType,
+          angleDeg,
+          color: '#facc15',
+        });
+        recordType(shapeType, pBefore.region, pBefore.area, 'spin');
       }
     }
   }
@@ -605,23 +621,32 @@ export function computeMacroCyclePreview(
   }
 
   const nextIdx = new Array<number>(moved.length).fill(-1);
+  const claimed = new Uint8Array(moved.length);
+  // Pass 1: exact silhouette-key matches
   for (let i = 0; i < moved.length; i++) {
     const exact = fromKeyToIdx.get(moved[i].toKey);
-    if (exact !== undefined && exact !== i) {
+    if (exact !== undefined && exact !== i && !claimed[exact]) {
       nextIdx[i] = exact;
-      continue;
+      claimed[exact] = 1;
     }
+  }
+  // Pass 2: bijective nearest-neighbor fallback restricted to congruent shapeType
+  for (let i = 0; i < moved.length; i++) {
+    if (nextIdx[i] !== -1) continue;
     let bestJ = -1;
     let bestD = 0.05;
     for (let j = 0; j < moved.length; j++) {
-      if (j === i) continue;
+      if (j === i || claimed[j] || moved[j].shapeType !== moved[i].shapeType) continue;
       const d = dist(moved[i].to, moved[j].from);
       if (d < bestD) {
         bestD = d;
         bestJ = j;
       }
     }
-    nextIdx[i] = bestJ;
+    if (bestJ !== -1) {
+      nextIdx[i] = bestJ;
+      claimed[bestJ] = 1;
+    }
   }
 
   const cycleOf = new Array<number>(moved.length).fill(-1);
@@ -702,7 +727,7 @@ export function computeMacroCyclePreview(
   let activeMovedCount = moved.length;
 
   if (hasFocus && focusTypes) {
-    const focusSet = resolveFocusTypeSet(refState, focusTypes);
+    const focusSet = resolveFocusTypeSet(refState, focusTypes, options.solvedState !== undefined);
 
     if (options.includeDimmed) {
       arrows = allArrows.map((a) =>

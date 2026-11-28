@@ -1,5 +1,5 @@
 import { MacroLibraryEntry } from './evaluator.ts';
-import { parseAlgorithm } from './parser.ts';
+import { isReservedMoveName, parseAlgorithm } from './parser.ts';
 
 /**
  * Parsing and serialization of plain-text macro sheets (`name = expr`,
@@ -112,197 +112,15 @@ function extractFocusDirective(comment: string): ParsedFocusDirective | null {
   return { start, end: lastTokenEnd, isReset, tokens };
 }
 
-const MACRO_DEF_LINE_RE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/;
 const HIDE_DIRECTIVE_RE = /@hide\b/i;
 const SHOW_DIRECTIVE_RE = /@show\b/i;
-
-export interface InlineMacroMeta {
-  /** Map from inline macro name -> list of piece-type IDs (lowercased) from `@focus`. */
-  focus: Record<string, string[]>;
-  /** Set of inline macro names hidden from the Macro Library via `@hide` / `@show`. */
-  hidden: Set<string>;
-}
-
-/**
- * Parse all `@focus`, `@hide`, and `@show` directives for inline macros in `source`.
- * Both section-level comment lines (`// @hide`, `// @show`, `// @focus ...`) and
- * per-macro trailing comment overrides are supported.
- */
-export function parseInlineMacroMeta(source: string): InlineMacroMeta {
-  const focus: Record<string, string[]> = {};
-  const hidden = new Set<string>();
-  let sectionFocus: string[] | null = null;
-  let sectionHidden = false;
-  const lines = source.split('\n');
-
-  for (const rawLine of lines) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    const { code, prefix, comment } = splitLineComment(line);
-    const trimmedCode = code.trim();
-
-    if (trimmedCode.length === 0) {
-      // Pure comment (or blank) line: check for section-level directives
-      if (prefix !== null) {
-        if (HIDE_DIRECTIVE_RE.test(comment)) sectionHidden = true;
-        if (SHOW_DIRECTIVE_RE.test(comment)) sectionHidden = false;
-        const dir = extractFocusDirective(comment);
-        if (dir) {
-          sectionFocus = dir.isReset ? null : [...dir.tokens];
-        }
-      }
-      continue;
-    }
-
-    const m = MACRO_DEF_LINE_RE.exec(code);
-    if (!m) continue;
-    const macroName = m[1];
-
-    // Visibility (@hide / @show)
-    const hasLineHide = prefix !== null && HIDE_DIRECTIVE_RE.test(comment);
-    const hasLineShow = prefix !== null && SHOW_DIRECTIVE_RE.test(comment);
-    if (hasLineShow) {
-      hidden.delete(macroName);
-    } else if (hasLineHide || sectionHidden) {
-      hidden.add(macroName);
-    } else {
-      hidden.delete(macroName);
-    }
-
-    // Focus (@focus)
-    const lineDir = prefix !== null ? extractFocusDirective(comment) : null;
-    if (lineDir) {
-      if (lineDir.isReset) {
-        delete focus[macroName];
-      } else {
-        focus[macroName] = [...lineDir.tokens];
-      }
-    } else if (sectionFocus && sectionFocus.length > 0) {
-      focus[macroName] = [...sectionFocus];
-    } else {
-      delete focus[macroName];
-    }
-  }
-
-  return { focus, hidden };
-}
-
-/**
- * Parse all active `@focus` directives for inline macros in `source`.
- * Returns a map from inline macro name -> list of piece-type IDs (lowercased).
- */
-export function parseInlineMacroFocus(source: string): Record<string, string[]> {
-  return parseInlineMacroMeta(source).focus;
-}
-
-/**
- * Parse all inline macro names hidden from the Macro Library via `// @hide` / `// @show`.
- */
-export function parseInlineMacroHidden(source: string): Set<string> {
-  return parseInlineMacroMeta(source).hidden;
-}
-
-/**
- * Update (or insert/remove) the trailing `// @focus ...` directive on an inline macro's
- * definition line in `source`, preserving any existing prose comments and line endings.
- */
-export function setInlineMacroFocusInSource(
-  source: string,
-  macroName: string,
-  focusIds: string[],
-): string {
-  const cleanIds = Array.from(
-    new Set(focusIds.map((s) => s.trim()).filter((s) => s.length > 0)),
-  );
-  const lines = source.split('\n');
-
-  // Track active section focus at each macro line and locate the last definition of `macroName`
-  let sectionFocus: string[] | null = null;
-  let targetIdx = -1;
-  let sectionAtTarget: string[] | null = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    const { code, prefix, comment } = splitLineComment(line);
-    if (code.trim().length === 0) {
-      if (prefix !== null) {
-        const dir = extractFocusDirective(comment);
-        if (dir) sectionFocus = dir.isReset ? null : [...dir.tokens];
-      }
-      continue;
-    }
-    const m = MACRO_DEF_LINE_RE.exec(code);
-    if (m && m[1] === macroName) {
-      targetIdx = i;
-      sectionAtTarget = sectionFocus ? [...sectionFocus] : null;
-    }
-  }
-
-  if (targetIdx < 0) return source;
-
-  const rawLine = lines[targetIdx];
-  const hasCR = rawLine.endsWith('\r');
-  const line = hasCR ? rawLine.slice(0, -1) : rawLine;
-  const { code, prefix, comment } = splitLineComment(line);
-  const needsExplicitReset = cleanIds.length === 0 && sectionAtTarget !== null && sectionAtTarget.length > 0;
-  const directiveText =
-    cleanIds.length > 0
-      ? `@focus ${cleanIds.join(', ')}`
-      : needsExplicitReset
-        ? '@focus all'
-        : '';
-
-  let nextLine: string;
-  if (prefix === null) {
-    // No existing comment on the macro line
-    if (!directiveText) {
-      nextLine = line;
-    } else {
-      const base = code.replace(/[ \t]+$/, '');
-      nextLine = `${base} // ${directiveText}`;
-    }
-  } else {
-    const existing = extractFocusDirective(comment);
-    if (existing) {
-      const before = comment.slice(0, existing.start);
-      const after = comment.slice(existing.end);
-      if (directiveText) {
-        nextLine = `${code}${prefix}${before}${directiveText}${after}`;
-      } else {
-        // Remove the directive cleanly and tidy any leftover separator like `—` / `--` / `|`
-        let merged = `${before}${after}`;
-        if (before.trim().length === 0) {
-          merged = merged.replace(/^\s*(?:—|--|\||;|:)\s*/, ' ');
-        } else {
-          merged = merged.replace(/\s*(?:—|--|\||;)\s*$/, '');
-        }
-        if (merged.trim().length === 0) {
-          nextLine = code.replace(/[ \t]+$/, '');
-        } else {
-          const normalizedComment = merged.startsWith(' ') ? merged : ` ${merged.trimStart()}`;
-          nextLine = `${code}${prefix}${normalizedComment}`;
-        }
-      }
-    } else if (!directiveText) {
-      nextLine = line;
-    } else {
-      // Existing prose comment without @focus: prepend `@focus ... — ` inside the comment
-      const trimmedComment = comment.trim();
-      nextLine = trimmedComment
-        ? `${code}${prefix} ${directiveText} — ${trimmedComment}`
-        : `${code}${prefix} ${directiveText}`;
-    }
-  }
-
-  lines[targetIdx] = hasCR ? `${nextLine}\r` : nextLine;
-  return lines.join('\n');
-}
 
 // ---------------------------------------------------------------------------
 // Plain-Text Macro Library Sheet Parser & Serializer
 // ---------------------------------------------------------------------------
 
 const SECTION_HEADING_RE = /^\s*(?:={2,}|-{3,})\s*(.+?)\s*(?:={2,}|-{3,})?\s*$/;
+const SECTION_RESET_RE = /@section\s+(?:none|clear|off)\b/i;
 
 function extractSectionHeading(comment: string): string | null {
   const trimmed = comment.trim();
@@ -322,7 +140,12 @@ function extractCleanNote(comment: string): string | undefined {
     text = text.slice(0, focusDir.start) + ' ' + text.slice(focusDir.end);
   }
   text = text.replace(/@hide\b/gi, ' ').replace(/@show\b/gi, ' ');
-  text = text.replace(/^[\s—\-|:;]+/, '').replace(/[\s—\-|:;]+$/, '').trim();
+  // Strip leading/trailing separator punctuation (`—`, `--`, `|`, `:`, `;`, or `- ` before text),
+  // while preserving leading negative signs like `-36° setup` and avoiding ES2018 lookbehind.
+  text = text
+    .replace(/^(?:\s*(?:—|--|\||:|;|-(?=\s|$)))+\s*/, '')
+    .replace(/(?:\s+-|\s*(?:—|--|\||:|;))+\s*$/, '')
+    .trim();
   return text.length > 0 ? text : undefined;
 }
 
@@ -361,14 +184,23 @@ export function parseMacroLibraryText(
     return { entries: [], errors: [], remainingText: '' };
   }
 
-  // Auto-detect legacy JSON array format for seamless backwards compatibility
-  if (trimmedAll.startsWith('[')) {
+  const validCircleSet = new Set(options.validCircleIds ?? []);
+  const multiLayerSet = new Set(options.multiLayerCircleIds ?? []);
+  const isNameReserved = (name: string): boolean => {
+    if (options.reservedNames?.has(name)) return true;
+    return isReservedMoveName(name, validCircleSet, multiLayerSet);
+  };
+
+  // Auto-detect legacy JSON array format only when not extracting from mixed scripts
+  // and input actually begins like a JSON array of objects (`[{...}]` or `[]`),
+  // so commutators/conjugates like `[A, B]` or `[A: B]` are never misread as JSON.
+  if (!options.allowNonMacroLines && /^\[\s*(?:\{|\]|$)/.test(trimmedAll)) {
     try {
       const parsed = JSON.parse(trimmedAll);
       if (!Array.isArray(parsed)) {
         return { entries: [], errors: ['Expected a JSON array of macro objects'], remainingText: '' };
       }
-      const entries: MacroLibraryEntry[] = [];
+      const entriesByName = new Map<string, MacroLibraryEntry>();
       const errors: string[] = [];
       for (let i = 0; i < parsed.length; i++) {
         const rec = parsed[i];
@@ -377,12 +209,12 @@ export function parseMacroLibraryText(
           continue;
         }
         const name = typeof rec.name === 'string' ? rec.name.trim() : '';
-        const body = typeof rec.body === 'string' ? rec.body.trim() : '';
+        const body = typeof rec.body === 'string' ? rec.body.replace(/\s+/g, ' ').trim() : '';
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
           errors.push(`JSON item #${i + 1}: invalid macro name "${name}"`);
           continue;
         }
-        if (options.reservedNames?.has(name)) {
+        if (isNameReserved(name)) {
           errors.push(`JSON item #${i + 1}: "${name}" is a reserved move name`);
           continue;
         }
@@ -390,12 +222,29 @@ export function parseMacroLibraryText(
           errors.push(`Macro "${name}": body cannot be empty`);
           continue;
         }
-        const focusTypes = Array.isArray(rec.focusTypes)
-          ? rec.focusTypes
-              .filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
-              .map((s: string) => s.trim())
+        const check = parseAlgorithm(body, options.validCircleIds, options.multiLayerCircleIds);
+        if (check.errors.length > 0) {
+          errors.push(`Macro "${name}": ${check.errors[0].message}`);
+          continue;
+        }
+        if (check.statements.some((s) => s.kind === 'macroDef')) {
+          errors.push(`Macro "${name}": nested "=" is not allowed inside a macro body`);
+          continue;
+        }
+        if (!check.statements.some((s) => s.kind === 'exprStmt')) {
+          errors.push(`Macro "${name}": body must contain at least one move`);
+          continue;
+        }
+        const focusTypes: string[] | undefined = Array.isArray(rec.focusTypes)
+          ? Array.from(
+              new Set<string>(
+                rec.focusTypes
+                  .filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
+                  .map((s: string) => s.trim().toLowerCase()),
+              ),
+            )
           : undefined;
-        entries.push({
+        entriesByName.set(name, {
           name,
           body,
           ...(typeof rec.note === 'string' && rec.note.trim() ? { note: rec.note.trim() } : {}),
@@ -409,7 +258,7 @@ export function parseMacroLibraryText(
             : {}),
         });
       }
-      return { entries, errors, remainingText: '' };
+      return { entries: Array.from(entriesByName.values()), errors, remainingText: '' };
     } catch (err) {
       return {
         entries: [],
@@ -426,10 +275,32 @@ export function parseMacroLibraryText(
 
   let currentSection: string | undefined;
   let pendingSectionNoteLines: string[] = [];
+  let pendingSectionRawLines: string[] = [];
   let sectionNoteOpen = false;
   let pendingMacroNoteLines: string[] = [];
+  let pendingMacroNoteRawLines: string[] = [];
   let sectionHidden = false;
   let sectionFocus: string[] | undefined;
+
+  const flushUnusedMacroCommentLines = (): void => {
+    if (options.allowNonMacroLines && pendingMacroNoteRawLines.length > 0) {
+      remainingLines.push(...pendingMacroNoteRawLines);
+    }
+    pendingMacroNoteLines = [];
+    pendingMacroNoteRawLines = [];
+  };
+
+  const flushUnusedSectionLines = (): void => {
+    if (options.allowNonMacroLines && pendingSectionRawLines.length > 0) {
+      remainingLines.push(...pendingSectionRawLines);
+    }
+    pendingSectionRawLines = [];
+  };
+
+  const flushAllUnusedInOrder = (): void => {
+    flushUnusedSectionLines();
+    flushUnusedMacroCommentLines();
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
@@ -441,26 +312,37 @@ export function parseMacroLibraryText(
       if (prefix !== null) {
         let isDirectiveLine = false;
         if (HIDE_DIRECTIVE_RE.test(comment)) {
+          if (pendingMacroNoteRawLines.length > 0) flushAllUnusedInOrder();
           sectionHidden = true;
           sectionNoteOpen = false;
           isDirectiveLine = true;
         }
         if (SHOW_DIRECTIVE_RE.test(comment)) {
+          if (pendingMacroNoteRawLines.length > 0) flushAllUnusedInOrder();
           sectionHidden = false;
+          sectionNoteOpen = false;
+          isDirectiveLine = true;
+        }
+        if (SECTION_RESET_RE.test(comment)) {
+          flushAllUnusedInOrder();
+          currentSection = undefined;
+          pendingSectionNoteLines = [];
           sectionNoteOpen = false;
           isDirectiveLine = true;
         }
         const dir = extractFocusDirective(comment);
         if (dir) {
+          if (pendingMacroNoteRawLines.length > 0) flushAllUnusedInOrder();
           sectionFocus = dir.isReset ? undefined : [...dir.tokens];
           sectionNoteOpen = false;
           isDirectiveLine = true;
         }
         const heading = extractSectionHeading(comment);
         if (heading) {
+          flushAllUnusedInOrder();
           currentSection = heading;
           pendingSectionNoteLines = [];
-          pendingMacroNoteLines = [];
+          pendingSectionRawLines = options.allowNonMacroLines ? [rawLine] : [];
           sectionNoteOpen = true;
           isDirectiveLine = true;
         }
@@ -470,98 +352,161 @@ export function parseMacroLibraryText(
           if (prose.length > 0 && !/^[=\-]+$/.test(prose)) {
             if (sectionNoteOpen) {
               pendingSectionNoteLines.push(prose);
+              if (options.allowNonMacroLines) pendingSectionRawLines.push(rawLine);
             } else {
               pendingMacroNoteLines.push(prose);
+              pendingMacroNoteRawLines.push(rawLine);
             }
-          }
-          if (options.allowNonMacroLines) {
-            remainingLines.push(rawLine);
+          } else if (options.allowNonMacroLines) {
+            if (pendingMacroNoteRawLines.length > 0) {
+              flushAllUnusedInOrder();
+              remainingLines.push(rawLine);
+            } else if (pendingSectionRawLines.length > 0) {
+              pendingSectionRawLines.push(rawLine);
+            } else if (!sectionNoteOpen) {
+              remainingLines.push(rawLine);
+            }
           }
         }
       } else {
-        // Blank line closes section-note capture and clears any unattached macro comment
+        // Blank line closes section-note capture and flushes any unattached macro comments in exact order
         sectionNoteOpen = false;
-        pendingMacroNoteLines = [];
-        if (options.allowNonMacroLines) {
-          remainingLines.push(rawLine);
+        if (pendingMacroNoteRawLines.length > 0) {
+          flushAllUnusedInOrder();
+          if (options.allowNonMacroLines) remainingLines.push(rawLine);
+        } else {
+          pendingMacroNoteLines = [];
+          if (options.allowNonMacroLines) {
+            if (pendingSectionRawLines.length > 0) {
+              pendingSectionRawLines.push(rawLine);
+            } else {
+              remainingLines.push(rawLine);
+            }
+          }
         }
       }
       continue;
     }
 
     sectionNoteOpen = false;
-    const eqMatch = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(code);
-    if (!eqMatch) {
+    // Handle semicolon-separated statements on a single line (e.g. `m1 = A B; m1` or `m1 = A B; m2 = C D`)
+    // so macro extraction never swallows trailing calls or rejects multi-definition lines.
+    const rawSegments = code.includes(';') ? code.split(';') : [code];
+    const nonEmptySegments = rawSegments.map((s) => s.trim()).filter((s) => s.length > 0);
+    const remainingOnLine: string[] = [];
+
+    for (let si = 0; si < nonEmptySegments.length; si++) {
+      const seg = nonEmptySegments[si];
+      const isLastSeg = si === nonEmptySegments.length - 1;
+      const segPrefix = isLastSeg ? prefix : null;
+      const segComment = isLastSeg ? comment : '';
+
+      const eqMatch = /^([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(seg);
+      if (!eqMatch) {
+        if (options.allowNonMacroLines) {
+          remainingOnLine.push(seg);
+        } else {
+          errors.push(`Line ${i + 1}: expected "name = moves" (got "${seg}")`);
+        }
+        continue;
+      }
+
+      const name = eqMatch[1];
+      const body = eqMatch[2].trim();
+      if (isNameReserved(name)) {
+        pendingMacroNoteLines = [];
+        pendingMacroNoteRawLines = [];
+        errors.push(`Line ${i + 1}: "${name}" is a reserved move name`);
+        continue;
+      }
+      if (!body) {
+        pendingMacroNoteLines = [];
+        pendingMacroNoteRawLines = [];
+        errors.push(`Line ${i + 1}: macro "${name}" has an empty body`);
+        continue;
+      }
+
+      // Syntax-check macro body using the exact algorithm parser
+      const check = parseAlgorithm(body, options.validCircleIds, options.multiLayerCircleIds);
+      if (check.errors.length > 0) {
+        pendingMacroNoteLines = [];
+        pendingMacroNoteRawLines = [];
+        errors.push(`Line ${i + 1} (${name}): ${check.errors[0].message}`);
+        continue;
+      }
+      if (check.statements.some((s) => s.kind === 'macroDef')) {
+        pendingMacroNoteLines = [];
+        pendingMacroNoteRawLines = [];
+        errors.push(`Line ${i + 1} (${name}): nested "=" is not allowed inside a macro body`);
+        continue;
+      }
+      const exprCount = check.statements.filter((s) => s.kind === 'exprStmt').length;
+      if (exprCount === 0) {
+        pendingMacroNoteLines = [];
+        pendingMacroNoteRawLines = [];
+        errors.push(`Line ${i + 1} (${name}): macro body must contain at least one move`);
+        continue;
+      }
+      if (exprCount > 1) {
+        pendingMacroNoteLines = [];
+        pendingMacroNoteRawLines = [];
+        errors.push(`Line ${i + 1} (${name}): multiple statements are not allowed inside a macro body`);
+        continue;
+      }
+
+      // Resolve visibility
+      const hasLineHide = segPrefix !== null && HIDE_DIRECTIVE_RE.test(segComment);
+      const hasLineShow = segPrefix !== null && SHOW_DIRECTIVE_RE.test(segComment);
+      const hidden = hasLineShow ? false : hasLineHide || sectionHidden;
+
+      // Resolve focus types
+      const lineDir = segPrefix !== null ? extractFocusDirective(segComment) : null;
+      const focusTypes = lineDir
+        ? lineDir.isReset
+          ? undefined
+          : [...lineDir.tokens]
+        : sectionFocus
+          ? [...sectionFocus]
+          : undefined;
+
+      const trailingNote = segPrefix !== null ? extractCleanNote(segComment) : undefined;
+      const noteLines = [...pendingMacroNoteLines];
+      if (trailingNote) noteLines.push(trailingNote);
+      const note = noteLines.length > 0 ? noteLines.join('\n') : undefined;
       pendingMacroNoteLines = [];
-      if (options.allowNonMacroLines) {
+      pendingMacroNoteRawLines = [];
+
+      const sectionNote =
+        pendingSectionNoteLines.length > 0 ? pendingSectionNoteLines.join('\n') : undefined;
+      if (sectionNote) pendingSectionNoteLines = [];
+      pendingSectionRawLines = [];
+
+      entriesByName.set(name, {
+        name,
+        body,
+        ...(note ? { note } : {}),
+        ...(focusTypes && focusTypes.length > 0 ? { focusTypes } : {}),
+        ...(hidden ? { hidden: true } : {}),
+        ...(currentSection ? { section: currentSection } : {}),
+        ...(sectionNote ? { sectionNote } : {}),
+      });
+    }
+
+    if (options.allowNonMacroLines && remainingOnLine.length > 0) {
+      flushUnusedSectionLines();
+      flushUnusedMacroCommentLines();
+      if (remainingOnLine.length === nonEmptySegments.length) {
+        // Pure non-macro line: preserve exact original formatting & comment
         remainingLines.push(rawLine);
       } else {
-        errors.push(`Line ${i + 1}: expected "name = moves" (got "${trimmedCode}")`);
+        const suffix = prefix !== null ? ` ${prefix}${comment}` : '';
+        remainingLines.push(`${remainingOnLine.join('; ')}${suffix}`);
       }
-      continue;
     }
-
-    const name = eqMatch[1];
-    const body = eqMatch[2].trim();
-    if (options.reservedNames?.has(name)) {
-      pendingMacroNoteLines = [];
-      errors.push(`Line ${i + 1}: "${name}" is a reserved move name`);
-      continue;
-    }
-    if (!body) {
-      pendingMacroNoteLines = [];
-      errors.push(`Line ${i + 1}: macro "${name}" has an empty body`);
-      continue;
-    }
-
-    // Syntax-check macro body using the exact algorithm parser
-    const check = parseAlgorithm(body, options.validCircleIds, options.multiLayerCircleIds);
-    if (check.errors.length > 0) {
-      pendingMacroNoteLines = [];
-      errors.push(`Line ${i + 1} (${name}): ${check.errors[0].message}`);
-      continue;
-    }
-    if (check.statements.some((s) => s.kind === 'macroDef')) {
-      pendingMacroNoteLines = [];
-      errors.push(`Line ${i + 1} (${name}): nested "=" is not allowed inside a macro body`);
-      continue;
-    }
-
-    // Resolve visibility
-    const hasLineHide = prefix !== null && HIDE_DIRECTIVE_RE.test(comment);
-    const hasLineShow = prefix !== null && SHOW_DIRECTIVE_RE.test(comment);
-    const hidden = hasLineShow ? false : hasLineHide || sectionHidden;
-
-    // Resolve focus types
-    const lineDir = prefix !== null ? extractFocusDirective(comment) : null;
-    const focusTypes = lineDir
-      ? lineDir.isReset
-        ? undefined
-        : [...lineDir.tokens]
-      : sectionFocus
-        ? [...sectionFocus]
-        : undefined;
-
-    const trailingNote = prefix !== null ? extractCleanNote(comment) : undefined;
-    const noteLines = [...pendingMacroNoteLines];
-    if (trailingNote) noteLines.push(trailingNote);
-    const note = noteLines.length > 0 ? noteLines.join('\n') : undefined;
-    pendingMacroNoteLines = [];
-
-    const sectionNote =
-      pendingSectionNoteLines.length > 0 ? pendingSectionNoteLines.join('\n') : undefined;
-    if (sectionNote) pendingSectionNoteLines = [];
-
-    entriesByName.set(name, {
-      name,
-      body,
-      ...(note ? { note } : {}),
-      ...(focusTypes && focusTypes.length > 0 ? { focusTypes } : {}),
-      ...(hidden ? { hidden: true } : {}),
-      ...(currentSection ? { section: currentSection } : {}),
-      ...(sectionNote ? { sectionNote } : {}),
-    });
   }
+
+  flushUnusedSectionLines();
+  flushUnusedMacroCommentLines();
 
   return {
     entries: Array.from(entriesByName.values()),
@@ -595,6 +540,8 @@ export function serializeMacroLibraryToText(entries: MacroLibraryEntry[]): strin
             lines.push(`// ${nl}`);
           }
         }
+      } else if (curSection !== undefined) {
+        lines.push('// @section none');
       }
       curSection = entry.section;
     }

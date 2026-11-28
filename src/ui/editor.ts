@@ -22,6 +22,8 @@ export class AlgorithmEditor {
   private backdrop: HTMLPreElement;
   private highlightState: EditorHighlightState = { errorSpans: [] };
   private lastBackdropKey = '';
+  private lastCursorPos = -1;
+  private suppressedAltKeyCodes = new Set<string>();
 
   constructor(
     container: HTMLElement,
@@ -49,6 +51,7 @@ export class AlgorithmEditor {
     container.appendChild(wrap);
 
     this.textarea.addEventListener('input', () => {
+      this.lastCursorPos = this.textarea.selectionStart ?? 0;
       this.renderBackdrop();
       callbacks.onChange(this.textarea.value);
     });
@@ -58,8 +61,36 @@ export class AlgorithmEditor {
       this.backdrop.scrollLeft = this.textarea.scrollLeft;
     });
 
-    const emitCursor = () => {
-      callbacks.onCursorMove(this.textarea.selectionStart ?? 0);
+    // Track keys pressed with Alt so releasing Alt slightly before ArrowLeft/ArrowRight/Space
+    // still suppresses the trailing keyup cursor-sync snap-back.
+    this.textarea.addEventListener('keydown', (ev) => {
+      if (ev.altKey && (ev.code === 'ArrowLeft' || ev.code === 'ArrowRight' || ev.code === 'Space')) {
+        this.suppressedAltKeyCodes.add(ev.code);
+      } else {
+        this.suppressedAltKeyCodes.delete(ev.code);
+      }
+    });
+    this.textarea.addEventListener('blur', () => {
+      this.suppressedAltKeyCodes.clear();
+    });
+
+    const emitCursor = (ev?: Event) => {
+      if (ev instanceof KeyboardEvent) {
+        if (this.suppressedAltKeyCodes.delete(ev.code)) return;
+        if (
+          ev.altKey ||
+          ev.key === 'Alt' ||
+          ev.key === 'Control' ||
+          ev.key === 'Meta' ||
+          ev.key === 'Shift'
+        ) {
+          return;
+        }
+      }
+      const pos = this.textarea.selectionStart ?? 0;
+      if (ev instanceof KeyboardEvent && pos === this.lastCursorPos) return;
+      this.lastCursorPos = pos;
+      callbacks.onCursorMove(pos);
     };
     this.textarea.addEventListener('click', emitCursor);
     this.textarea.addEventListener('keyup', emitCursor);
@@ -72,7 +103,12 @@ export class AlgorithmEditor {
 
   public setValue(text: string): void {
     this.textarea.value = text;
+    this.lastCursorPos = this.textarea.selectionStart ?? text.length;
     this.renderBackdrop();
+  }
+
+  public syncCursorTracking(pos?: number): void {
+    this.lastCursorPos = pos ?? (this.textarea.selectionStart ?? 0);
   }
 
   public getSelection(): { start: number; end: number; text: string } {
@@ -96,6 +132,7 @@ export class AlgorithmEditor {
     const nextPos = start + inserted.length;
     this.textarea.selectionStart = nextPos;
     this.textarea.selectionEnd = nextPos;
+    this.lastCursorPos = nextPos;
     this.renderBackdrop();
     this.textarea.focus();
   }
@@ -149,9 +186,9 @@ export class AlgorithmEditor {
         while (i < n && src[i] !== '\n') {
           syntax[i++] = 'tok-comment';
         }
-        // Subtly highlight `@focus` / `@hide` / `@show` / `@milestone` directives inside comments
+        // Subtly highlight `@focus` / `@hide` / `@show` directives inside comments
         const commentLine = src.slice(lineStart, i);
-        const dirRe = /@(?:focus|hide|show|milestone|active)\b/gi;
+        const dirRe = /@(?:focus|hide|show)\b/gi;
         let m: RegExpExecArray | null;
         while ((m = dirRe.exec(commentLine)) !== null) {
           for (let k = lineStart + m.index; k < lineStart + m.index + m[0].length; k++) {

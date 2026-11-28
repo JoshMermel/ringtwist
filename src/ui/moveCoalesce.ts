@@ -5,6 +5,10 @@ export interface CoalesceResult {
   nextText: string;
   nextCursor: number;
   action: 'appended' | 'merged' | 'cancelled';
+  /** Start offset in the original text of the preceding token that was merged or cancelled. */
+  replacedStart?: number;
+  /** Resulting merged move token when `action === 'merged'`. */
+  mergedToken?: string;
 }
 
 type ParsedSimpleMove =
@@ -13,14 +17,32 @@ type ParsedSimpleMove =
   | { kind: 'rot'; steps: number }
   | { kind: 'flip'; axis: 'x' | 'y'; count: number };
 
-function sameLayerOpt(a?: MoveLayerSpec, b?: MoveLayerSpec): boolean {
-  return (a?.layer ?? 1) === (b?.layer ?? 1) && Boolean(a?.wide) === Boolean(b?.wide);
+function sameLayerOpt(a: MoveLayerSpec | undefined, b: MoveLayerSpec | undefined, numLayers: number): boolean {
+  const wideA = Boolean(a?.wide);
+  const wideB = Boolean(b?.wide);
+  if (wideA !== wideB) return false;
+  const effA = wideA ? (a?.layer ?? numLayers) : (a?.layer ?? 1);
+  const effB = wideB ? (b?.layer ?? numLayers) : (b?.layer ?? 1);
+  return effA === effB;
+}
+
+function parseModifierPair(a: string, b: string): { count: number; invert: boolean } | null {
+  const raw = a + b;
+  if (!raw) return { count: 1, invert: false };
+  const primeCount = raw.match(/'/g)?.length ?? 0;
+  const invert = primeCount % 2 === 1;
+  const digits = raw.replace(/'/g, '');
+  const count = digits ? parseInt(digits, 10) : 1;
+  if (!Number.isSafeInteger(count) || count <= 0) return null;
+  return { count, invert };
 }
 
 function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimpleMove | null {
-  const trimmed = token.trim();
-  const nextMatch = trimmed.match(/^(\d*)([A-Za-w])([><])(\d*)$/);
+  const trimmed = token.trim().replace(/’/g, "'");
+  const nextMatch = trimmed.match(/^(\d*)([A-Za-w])([><])(\d*|'?)(\d*|'?)$/);
   if (nextMatch) {
+    const mod = parseModifierPair(nextMatch[4], nextMatch[5]);
+    if (!mod) return null;
     const rawLetter = nextMatch[2];
     const isLower = rawLetter >= 'a' && rawLetter <= 'w';
     const circleId = rawLetter.toUpperCase();
@@ -30,27 +52,28 @@ function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimp
     const layer = nextMatch[1] ? parseInt(nextMatch[1], 10) : undefined;
     const layerOpt: MoveLayerSpec | undefined =
       layer !== undefined || isLower ? { ...(layer ? { layer } : {}), ...(isLower ? { wide: true } : {}) } : undefined;
-    const count = nextMatch[4] ? parseInt(nextMatch[4], 10) : 1;
-    if (count === 0) return null;
-    return { kind: 'next', circleId, steps: nextMatch[3] === '>' ? count : -count, layerOpt };
+    const dir = (nextMatch[3] === '>' ? 1 : -1) * (mod.invert ? -1 : 1);
+    return { kind: 'next', circleId, steps: dir * mod.count, layerOpt };
   }
 
-  const rotMatch = trimmed.match(/^z(\d*)('?)$/);
+  const rotMatch = trimmed.match(/^z(\d*|'?)(\d*|'?)$/);
   if (rotMatch && spec.symmetryStepDeg > 0) {
-    const count = rotMatch[1] ? parseInt(rotMatch[1], 10) : 1;
-    if (count === 0) return null;
-    return { kind: 'rot', steps: rotMatch[2] === "'" ? -count : count };
+    const mod = parseModifierPair(rotMatch[1], rotMatch[2]);
+    if (!mod) return null;
+    return { kind: 'rot', steps: mod.invert ? -mod.count : mod.count };
   }
 
-  const flipMatch = trimmed.match(/^([xy])(\d*)('?)$/);
+  const flipMatch = trimmed.match(/^([xy])(\d*|'?)(\d*|'?)$/);
   if (flipMatch) {
-    const count = flipMatch[2] ? parseInt(flipMatch[2], 10) : 1;
-    if (count === 0) return null;
-    return { kind: 'flip', axis: flipMatch[1] as 'x' | 'y', count };
+    const mod = parseModifierPair(flipMatch[2], flipMatch[3]);
+    if (!mod) return null;
+    return { kind: 'flip', axis: flipMatch[1] as 'x' | 'y', count: mod.count };
   }
 
-  const circleMatch = trimmed.match(/^(\d*)([A-Za-w])(\d*)('?)$/);
+  const circleMatch = trimmed.match(/^(\d*)([A-Za-w])(\d*|'?)(\d*|'?)$/);
   if (circleMatch) {
+    const mod = parseModifierPair(circleMatch[3], circleMatch[4]);
+    if (!mod) return null;
     const rawLetter = circleMatch[2];
     const isLower = rawLetter >= 'a' && rawLetter <= 'w';
     const circleId = rawLetter.toUpperCase();
@@ -60,12 +83,20 @@ function parseSimpleInteractiveMove(token: string, spec: PuzzleSpec): ParsedSimp
     const layer = circleMatch[1] ? parseInt(circleMatch[1], 10) : undefined;
     const layerOpt: MoveLayerSpec | undefined =
       layer !== undefined || isLower ? { ...(layer ? { layer } : {}), ...(isLower ? { wide: true } : {}) } : undefined;
-    const count = circleMatch[3] ? parseInt(circleMatch[3], 10) : 1;
-    if (count === 0) return null;
-    return { kind: 'circle', circleId, steps: circleMatch[4] === "'" ? -count : count, layerOpt };
+    return { kind: 'circle', circleId, steps: mod.invert ? -mod.count : mod.count, layerOpt };
   }
 
   return null;
+}
+
+function hasUnclosedBracketOnLine(line: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '[' || ch === '(') depth++;
+    else if (ch === ']' || ch === ')') depth = Math.max(0, depth - 1);
+  }
+  return depth > 0;
 }
 
 function shortestSignedMod(sum: number, modulus: number): number {
@@ -85,7 +116,7 @@ function formatNextToken(circleId: string, steps: number, layerOpt?: MoveLayerSp
   const abs = Math.abs(steps);
   const dir = steps > 0 ? '>' : '<';
   const base = layerOpt?.wide
-    ? `${layerOpt.layer && layerOpt.layer > 2 ? layerOpt.layer : ''}${circleId.toLowerCase()}`
+    ? `${layerOpt.layer !== undefined ? layerOpt.layer : ''}${circleId.toLowerCase()}`
     : `${layerOpt?.layer && layerOpt.layer > 1 ? layerOpt.layer : ''}${circleId}`;
   return `${base}${dir}${abs === 1 ? '' : abs}`;
 }
@@ -123,33 +154,37 @@ export function applyInteractiveMoveToText(
     };
   };
 
+  // Only inspect the current line before the cursor (never cross a newline!)
+  const lineStart = before.lastIndexOf('\n') + 1;
+  const currentLine = before.slice(lineStart);
+
+  // If the current line has a comment before the cursor, jump to end of that comment line
+  // and append on a new line so we never split or insert into the middle of a comment.
+  if (/(?:\/\/|#)/.test(currentLine)) {
+    const nlInAfter = after.indexOf('\n');
+    const restOfLine = nlInAfter >= 0 ? after.slice(0, nlInAfter) : after;
+    const restAfterLine = nlInAfter >= 0 ? after.slice(nlInAfter) : '';
+    const linePrefixWithComment = before + restOfLine;
+    const inserted = `\n${newToken}`;
+    return {
+      nextText: linePrefixWithComment + inserted + restAfterLine,
+      nextCursor: linePrefixWithComment.length + inserted.length,
+      action: 'appended',
+    };
+  }
+
   if (!allowCoalesce) return fallbackAppend();
 
-  // Do not coalesce if cursor is mid-token (immediately followed by token characters)
-  if (/^[A-Za-z0-9'><]/.test(after)) {
+  // Do not coalesce if cursor is mid-token or inside/right before a closing bracketed group
+  if (/^[A-Za-z0-9'’><)\]]/.test(after) || hasUnclosedBracketOnLine(currentLine)) {
     return fallbackAppend();
   }
 
   const parsedNew = parseSimpleInteractiveMove(newToken, spec);
   if (!parsedNew) return fallbackAppend();
 
-  // Only inspect the current line before the cursor (never cross a newline!)
-  const lineStart = before.lastIndexOf('\n') + 1;
-  const currentLine = before.slice(lineStart);
-
-  // If the current line has a comment before the cursor, append on a new line instead
-  if (/(?:\/\/|#)/.test(currentLine)) {
-    const inserted = `\n${newToken}`;
-    const nextText = before + inserted + after;
-    return {
-      nextText,
-      nextCursor: before.length + inserted.length,
-      action: 'appended',
-    };
-  }
-
   // Match the standalone token at the end of the current line (preceded by start-of-line or space/tab)
-  const match = currentLine.match(/^(.*?)([ \t]*)([A-Za-z0-9'><]+)([ \t]*)$/);
+  const match = currentLine.match(/^(.*?)([ \t]*)([A-Za-z0-9'’><]+)([ \t]*)$/);
   if (!match) return fallbackAppend();
 
   const [, linePrefix, leadingSpaces, prevTok] = match;
@@ -166,21 +201,24 @@ export function applyInteractiveMoveToText(
 
   let replacement: string | null = null;
   if (parsedPrev.kind === 'circle' && parsedNew.kind === 'circle') {
+    const circle = spec.circles.find((c) => c.id === parsedPrev.circleId);
+    const numLayers = circle?.layerRadii?.length ?? 1;
     if (
       parsedPrev.circleId !== parsedNew.circleId ||
-      !sameLayerOpt(parsedPrev.layerOpt, parsedNew.layerOpt)
+      !sameLayerOpt(parsedPrev.layerOpt, parsedNew.layerOpt, numLayers)
     ) {
       return fallbackAppend();
     }
-    const circle = spec.circles.find((c) => c.id === parsedPrev.circleId);
     const modulus = circle?.stopsDeg.length ?? 0;
     const combined = shortestSignedMod(parsedPrev.steps + parsedNew.steps, modulus);
     replacement =
       combined === 0 ? null : formatMoveToken(parsedPrev.circleId, combined, parsedPrev.layerOpt);
   } else if (parsedPrev.kind === 'next' && parsedNew.kind === 'next') {
+    const circle = spec.circles.find((c) => c.id === parsedPrev.circleId);
+    const numLayers = circle?.layerRadii?.length ?? 1;
     if (
       parsedPrev.circleId !== parsedNew.circleId ||
-      !sameLayerOpt(parsedPrev.layerOpt, parsedNew.layerOpt)
+      !sameLayerOpt(parsedPrev.layerOpt, parsedNew.layerOpt, numLayers)
     ) {
       return fallbackAppend();
     }
@@ -200,6 +238,7 @@ export function applyInteractiveMoveToText(
   }
 
   const prefixBeforeLine = before.slice(0, lineStart);
+  const replacedStart = lineStart + linePrefix.length + leadingSpaces.length;
 
   if (replacement === null) {
     // Cancelled! Remove the token and its separating space (preserve indentation if first on line)
@@ -212,6 +251,7 @@ export function applyInteractiveMoveToText(
       nextText: nextBefore + cleanAfter,
       nextCursor: nextBefore.length,
       action: 'cancelled',
+      replacedStart,
     };
   }
 
@@ -222,5 +262,7 @@ export function applyInteractiveMoveToText(
     nextText: nextBefore + (needSpaceAfter ? ' ' : '') + after,
     nextCursor: nextBefore.length,
     action: 'merged',
+    replacedStart,
+    mergedToken: replacement,
   };
 }

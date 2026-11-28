@@ -4,6 +4,7 @@ import {
   CRAZY_LEKKI,
   FOUR_CIRCLE_CLOVER,
   GERANIUM_PLUS,
+  GERANIUM_STANDARD,
   GIGAHEX,
   MINI_GERANIUM,
   POCKET_GERANIUM,
@@ -12,8 +13,9 @@ import {
   TWIN_RINGS,
   TWO_CIRCLE_VENN,
 } from '../puzzle/catalog.ts';
-import { generateScramble, hashPuzzleState } from '../puzzle/engine.ts';
+import { formatMoveToken, generateScramble, hashPuzzleState } from '../puzzle/engine.ts';
 import { analyzeAlgorithm, evaluateProgram } from './evaluator.ts';
+import { parseMacroLibraryText } from './focusDirectives.ts';
 import { parseAlgorithm } from './parser.ts';
 
 describe('notation parser, macros & non-doctrinaire evaluator', () => {
@@ -114,11 +116,91 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
     expect(fastTwin.usedFastForward).toBe(true);
     expect(fastTwin.solved).toBe(true);
 
-    // 3. Non-shape-preserving cycle-detection check on Geranium Plus (`A3 E3 A3' E3'`)
+    // 3. Non-shape-preserving cycle-detection check on Mini Geranium (`([A, B])40`)
     const mini = buildPuzzle(MINI_GERANIUM);
-    const miniRes = evaluateProgram(mini, '[A, B] [A, B]\'');
+    const miniAnalysis = analyzeAlgorithm(mini, '[A, B]');
+    expect(['periodic', 'shape-preserving', 'blocked']).toContain(miniAnalysis.status);
+    const miniRes = evaluateProgram(mini, '([A, B]) ([A, B])\'');
     expect(miniRes.blocked).toBeUndefined();
     expect(miniRes.solved).toBe(true);
+  });
+
+  it('guards against DoS inputs, supports non-circle uppercase macro names, and picks longest macro prefix', () => {
+    const plus = buildPuzzle(GERANIUM_PLUS);
+
+    // Non-circle uppercase macro names (`M`, `M1`) define and invoke cleanly on 5-circle Geranium Plus
+    const macroM = evaluateProgram(plus, "M = [A: D3]\nM1 = [B: E3]\nM M' M1 M1'");
+    expect(macroM.parseErrors).toEqual([]);
+    expect(macroM.runtimeError).toBeUndefined();
+    expect(macroM.blocked).toBeUndefined();
+    expect(macroM.solved).toBe(true);
+
+    // Reserved move+digit names (`A2`, `z2`, `x2`) are rejected as macro names
+    const badNames = parseAlgorithm('A2 = A\nz2 = z\nx2 = x', ['A', 'B', 'C', 'D', 'E']);
+    expect(badNames.errors.length).toBe(3);
+
+    // Longest-prefix digit-suffixed macro lookup: `g42` resolves to `g4` × 2 (not `g` × 42)
+    const longestPrefix = evaluateProgram(plus, 'g42', [
+      { name: 'g', body: 'A3' },
+      { name: 'g4', body: '[A: D3]' },
+    ]);
+    const directG42 = evaluateProgram(plus, '([A: D3])2');
+    expect(longestPrefix.runtimeError).toBeUndefined();
+    expect(longestPrefix.blocked).toBeUndefined();
+    expect(hashPuzzleState(longestPrefix.finalState)).toBe(hashPuzzleState(directG42.finalState));
+
+    // Huge mirror flip `y1000000` fast-forwards cleanly by parity (0 flips) without hanging
+    const bigFlip = evaluateProgram(plus, 'y1000000');
+    expect(bigFlip.runtimeError).toBeUndefined();
+    expect(bigFlip.usedFastForward).toBe(true);
+    expect(bigFlip.solved).toBe(true);
+
+    // Empty nested repeats hit global work limit safely instead of hanging the tab
+    const emptyLoop = evaluateProgram(plus, '(((((()24)24)24)24)24)24');
+    expect(emptyLoop.runtimeError?.message).toContain('safety work limit');
+
+    // Huge turn count on uneven-stop circle & huge next-unblocked count finish in O(1)
+    const std = buildPuzzle(GERANIUM_STANDARD);
+    const bigTurn = evaluateProgram(std, 'A700000000');
+    expect(bigTurn.runtimeError).toBeUndefined();
+    expect(bigTurn.blocked).toBeUndefined();
+    expect(bigTurn.solved).toBe(true);
+
+    const bigNext = evaluateProgram(plus, 'A>100000');
+    expect(bigNext.runtimeError).toBeUndefined();
+    expect(bigNext.blocked).toBeUndefined();
+
+    // 310-digit repeat count returns a clean ParseError instead of Infinity/NaN crash
+    const hugeRep = parseAlgorithm(`(A B)${'9'.repeat(310)}`, ['A', 'B']);
+    expect(hugeRep.errors.length).toBeGreaterThan(0);
+    expect(hugeRep.errors[0].message).toContain('exceeds maximum');
+
+    // Recursive macro detection & disallowMacroDefs merging + analyzeAlgorithm consistency
+    const rec = evaluateProgram(plus, 'a = b\nb = a\na');
+    expect(rec.runtimeError?.message).toContain('Recursive macro');
+
+    const mixedErr = evaluateProgram(plus, 'm = A\n(A', [], { disallowMacroDefs: true });
+    expect(mixedErr.parseErrors.length).toBeGreaterThanOrEqual(2);
+
+    const disallowedAnalysis = analyzeAlgorithm(plus, 'm = A\nm', [], 200, {
+      disallowMacroDefs: true,
+    });
+    expect(disallowedAnalysis.status).toBe('error');
+    expect(disallowedAnalysis.message).toContain('belongs in the Macro Library');
+
+    // Case 2 fast-forward preserves mirror-flip parity on color-symmetric puzzles: `(x)25` stays flipped
+    const venn = buildPuzzle(TWO_CIRCLE_VENN);
+    const flip23 = evaluateProgram(venn, '(x)23');
+    const flip25 = evaluateProgram(venn, '(x)25');
+    expect(flip23.finalState.puzzleFlipped).toBe(true);
+    expect(flip25.usedFastForward).toBe(true);
+    expect(flip25.finalState.puzzleFlipped).toBe(true);
+
+    // Digit-suffixed macro repeat product > 1e9 fails cleanly instead of losing integer precision
+    const hugeMacroProd = evaluateProgram(plus, "g1000000000'1000000000", [
+      { name: 'g', body: 'A3' },
+    ]);
+    expect(hugeMacroProd.runtimeError?.message).toContain('exceeds maximum');
   });
 
   it('analyzes Pocket Geranium, Mini Geranium, Hex Flower, and ALL catalog sample algorithms accurately', () => {
@@ -268,5 +350,39 @@ describe('notation parser, macros & non-doctrinaire evaluator', () => {
     const ghFast = evaluateProgram(gigahex, '([y: [a, B]])40');
     expect(ghFast.blocked).toBeUndefined();
     expect(ghFast.usedFastForward).toBe(true);
+  });
+
+  it('extracts semicolon-separated macros cleanly and preserves wide layer prefixes', () => {
+    const ext1 = parseMacroLibraryText('m1 = A B; m1', {
+      validCircleIds: ['A', 'B'],
+      allowNonMacroLines: true,
+    });
+    expect(ext1.errors).toEqual([]);
+    expect(ext1.entries.map((e) => [e.name, e.body])).toEqual([['m1', 'A B']]);
+    expect(ext1.remainingText).toBe('m1');
+
+    const ext2 = parseMacroLibraryText('m1 = A B; m2 = B A', {
+      validCircleIds: ['A', 'B'],
+      allowNonMacroLines: true,
+    });
+    expect(ext2.errors).toEqual([]);
+    expect(ext2.entries.map((e) => [e.name, e.body])).toEqual([
+      ['m1', 'A B'],
+      ['m2', 'B A'],
+    ]);
+    expect(ext2.remainingText).toBe('');
+
+    const ext3 = parseMacroLibraryText('m1 = A B; B A // keep', {
+      validCircleIds: ['A', 'B'],
+      allowNonMacroLines: true,
+    });
+    expect(ext3.errors).toEqual([]);
+    expect(ext3.entries.map((e) => [e.name, e.body])).toEqual([['m1', 'A B']]);
+    expect(ext3.remainingText).toBe('B A // keep');
+
+    // Wide layer formatting preserves explicit layer depth (`2a2`) vs all-layers (`a2`)
+    expect(formatMoveToken('A', 2, { wide: true })).toBe('a2');
+    expect(formatMoveToken('A', 2, { wide: true, layer: 2 })).toBe('2a2');
+    expect(formatMoveToken('A', -1, { wide: true, layer: 3 })).toBe("3a'");
   });
 });

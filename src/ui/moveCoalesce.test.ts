@@ -65,9 +65,9 @@ describe('interactive move coalescing & cancellation', () => {
     expect(r2.nextText).toBe('z2');
 
     // Pocket Geranium has symmetryStepDeg = 0 so z does not coalesce
-    const rNone = applyInteractiveMoveToText('A', 1, 'B', POCKET_GERANIUM);
+    const rNone = applyInteractiveMoveToText('z', 1, "z'", POCKET_GERANIUM);
     expect(rNone.action).toBe('appended');
-    expect(rNone.nextText).toBe('A B');
+    expect(rNone.nextText).toBe("z z'");
   });
 
   it('never crosses newlines or mutates scramble lines or comments', () => {
@@ -121,5 +121,62 @@ describe('interactive move coalescing & cancellation', () => {
     const fxy = applyInteractiveMoveToText('x', 1, 'y', GIGAHEX);
     expect(fxy.action).toBe('appended');
     expect(fxy.nextText).toBe('x y');
+  });
+
+  it('handles wide-layer equality, mid-comment cursors, unclosed brackets, and prime-before-digit forms', () => {
+    // Wide `a` on 2-layer GigaHex equals `2a` (all layers), NOT `1a` (inner layer only)
+    const wideDiff = applyInteractiveMoveToText('a', 1, "1a'", GIGAHEX);
+    expect(wideDiff.action).toBe('appended');
+    expect(wideDiff.nextText).toBe("a 1a'");
+
+    const wideSame = applyInteractiveMoveToText('2a', 2, "a'", GIGAHEX);
+    expect(wideSame.action).toBe('cancelled');
+    expect(wideSame.nextText).toBe('');
+
+    // Cursor in the middle of a comment jumps to end of comment line instead of splitting it
+    const commentLine = '// my comment\nA';
+    const midComment = applyInteractiveMoveToText(commentLine, 5, 'B', GERANIUM_PLUS);
+    expect(midComment.action).toBe('appended');
+    expect(midComment.nextText).toBe('// my comment\nB\nA');
+
+    // Never mutates inside unclosed brackets `[A: B` or before closing `]`
+    const inBracket = applyInteractiveMoveToText('[A: B', 5, "B'", GERANIUM_PLUS);
+    expect(inBracket.action).toBe('appended');
+    expect(inBracket.nextText).toBe("[A: B B'");
+
+    const beforeClose = applyInteractiveMoveToText('[A, B]', 5, "B'", GERANIUM_PLUS);
+    expect(beforeClose.action).toBe('appended');
+    expect(beforeClose.nextText).toBe("[A, B B']");
+
+    // Supports prime-before-digit (`B'2`) and curly prime (`’`)
+    const primeFirst = applyInteractiveMoveToText("B'2", 3, 'B', GERANIUM_PLUS);
+    expect(primeFirst.action).toBe('merged');
+    expect(primeFirst.nextText).toBe("B'");
+
+    const curly = applyInteractiveMoveToText('B’', 2, 'B', GERANIUM_PLUS);
+    expect(curly.action).toBe('cancelled');
+    expect(curly.nextText).toBe('');
+
+    // Double-prime `A''` equals +1 step (so `A''` + `A` merges to `A2`, not cancels)
+    const doublePrime = applyInteractiveMoveToText("A''", 3, 'A', GERANIUM_PLUS);
+    expect(doublePrime.action).toBe('merged');
+    expect(doublePrime.nextText).toBe('A2');
+
+    // Non-coalescing insert (e.g. Macro Insert) on a comment line still jumps to a new line
+    const macroOnComment = applyInteractiveMoveToText('A // setup', 10, 'conj', GERANIUM_PLUS, false);
+    expect(macroOnComment.action).toBe('appended');
+    expect(macroOnComment.nextText).toBe('A // setup\nconj');
+
+    // Reports exact replacedStart & mergedToken for O(1) incremental interactive fast-path
+    const m1 = applyInteractiveMoveToText('A B', 3, 'B', GERANIUM_PLUS);
+    expect(m1.action).toBe('merged');
+    expect(m1.replacedStart).toBe(2);
+    expect(m1.mergedToken).toBe('B2');
+    expect(m1.nextText).toBe('A B2');
+
+    const c1 = applyInteractiveMoveToText('A B', 3, "B'", GERANIUM_PLUS);
+    expect(c1.action).toBe('cancelled');
+    expect(c1.replacedStart).toBe(2);
+    expect(c1.nextText).toBe('A');
   });
 });

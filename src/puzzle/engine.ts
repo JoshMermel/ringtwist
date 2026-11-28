@@ -8,6 +8,7 @@ import {
   simplifyRegion,
 } from '../geom/arcRegion.ts';
 import {
+  Circle,
   Point,
   deg2rad,
   dist,
@@ -142,30 +143,40 @@ export function resolveLayerBounds(
   };
 }
 
+interface CompiledLayerBounds {
+  turnRegion: 'inside' | 'outside';
+  outerCircle: Circle;
+  innerCircle: Circle | null;
+}
+
+function compileLayerBounds(circle: CircleDef, bounds: ResolvedLayerBounds): CompiledLayerBounds {
+  const outerCircle: Circle =
+    bounds.outerR === circle.r ? circle : { cx: circle.cx, cy: circle.cy, r: bounds.outerR };
+  const innerCircle: Circle | null =
+    bounds.innerR > 0 ? { cx: circle.cx, cy: circle.cy, r: bounds.innerR } : null;
+  return { turnRegion: bounds.turnRegion, outerCircle, innerCircle };
+}
+
 function classifyRegionForBounds(
   region: Piece['region'],
   circle: CircleDef,
-  bounds: ResolvedLayerBounds,
+  compiled: CompiledLayerBounds,
 ): 'inside' | 'outside' | 'straddling' {
-  if (bounds.turnRegion === 'outside') {
+  if (compiled.turnRegion === 'outside') {
     const cls = classifyRegionAgainstCircle(region, circle);
     if (cls === 'straddling') return 'straddling';
     return cls === 'outside' ? 'inside' : 'outside';
   }
-  const outerCircle =
-    bounds.outerR === circle.r ? circle : { cx: circle.cx, cy: circle.cy, r: bounds.outerR };
-  const cOut = classifyRegionAgainstCircle(region, outerCircle);
-  if (bounds.innerR <= 0) return cOut;
+  const cOut = classifyRegionAgainstCircle(region, compiled.outerCircle);
+  if (!compiled.innerCircle) return cOut;
   if (cOut === 'outside' || cOut === 'straddling') return cOut;
 
-  const cIn = classifyRegionAgainstCircle(region, {
-    cx: circle.cx,
-    cy: circle.cy,
-    r: bounds.innerR,
-  });
+  const cIn = classifyRegionAgainstCircle(region, compiled.innerCircle);
   if (cIn === 'straddling') return 'straddling';
   return cIn === 'outside' ? 'inside' : 'outside';
 }
+
+const allCircleStatusesCache = new WeakMap<PuzzleState, Record<string, CircleStatus>>();
 
 /**
  * Determine whether a circle (or specific concentric layer/slice) is currently free to turn
@@ -181,12 +192,12 @@ export function getCircleStatus(
     return { circleId, blocked: true, blockingPieceIds: [], insidePieceIds: [] };
   }
 
-  const bounds = resolveLayerBounds(circle, layerOpt);
+  const compiled = compileLayerBounds(circle, resolveLayerBounds(circle, layerOpt));
   const blockingPieceIds: number[] = [];
   const insidePieceIds: number[] = [];
 
   for (const p of state.pieces) {
-    const cls = classifyRegionForBounds(p.region, circle, bounds);
+    const cls = classifyRegionForBounds(p.region, circle, compiled);
     if (cls === 'inside') {
       insidePieceIds.push(p.id);
     } else if (cls === 'straddling') {
@@ -202,12 +213,15 @@ export function getCircleStatus(
   };
 }
 
-/** Get status of every circle in the puzzle. */
+/** Get status of every circle in the puzzle (memoized per immutable PuzzleState). */
 export function getAllCircleStatuses(state: PuzzleState): Record<string, CircleStatus> {
+  const cached = allCircleStatusesCache.get(state);
+  if (cached) return cached;
   const out: Record<string, CircleStatus> = {};
   for (const c of state.spec.circles) {
     out[c.id] = getCircleStatus(state, c.id);
   }
+  allCircleStatusesCache.set(state, out);
   return out;
 }
 
@@ -236,13 +250,15 @@ export function computeStopDeltaDeg(
     return { deltaDeg: steps * stepDeg, nextStopIdx };
   }
 
-  // General uneven stops: accumulate step-by-step around the sorted stops array
+  // General uneven stops: reduce full 360° revolutions in O(1), then step at most (n - 1) times
   let idx = ((currentStopIdx % n) + n) % n;
-  let totalDeg = 0;
   const dir = steps >= 0 ? 1 : -1;
   const absSteps = Math.abs(steps);
+  const fullRevs = Math.floor(absSteps / n);
+  const remSteps = absSteps % n;
+  let totalDeg = dir * fullRevs * 360;
 
-  for (let s = 0; s < absSteps; s++) {
+  for (let s = 0; s < remSteps; s++) {
     const nextIdx = (idx + dir + n) % n;
     let diff = circle.stopsDeg[nextIdx] - circle.stopsDeg[idx];
     if (dir > 0) {
@@ -265,9 +281,9 @@ function isCircleBlocked(
   circle: CircleDef,
   layerOpt?: MoveLayerSpec,
 ): boolean {
-  const bounds = resolveLayerBounds(circle, layerOpt);
+  const compiled = compileLayerBounds(circle, resolveLayerBounds(circle, layerOpt));
   for (const p of state.pieces) {
-    if (classifyRegionForBounds(p.region, circle, bounds) === 'straddling') {
+    if (classifyRegionForBounds(p.region, circle, compiled) === 'straddling') {
       return true;
     }
   }
@@ -296,33 +312,64 @@ export function turnCircleByAngle(
     };
   }
 
-  let insidePieceIds = knownInsideIds;
-  if (!insidePieceIds) {
-    const status = getCircleStatus(state, circleId, layerOpt);
-    if (status.blocked) {
+  const pieces = state.pieces;
+  const n = pieces.length;
+  let insidePieceIds: number[];
+  const insideIndices: number[] = [];
+
+  if (knownInsideIds) {
+    insidePieceIds = knownInsideIds;
+    const insideSet = new Set(knownInsideIds);
+    for (let i = 0; i < n; i++) {
+      if (insideSet.has(pieces[i].id)) insideIndices.push(i);
+    }
+  } else {
+    const compiled = compileLayerBounds(circle, resolveLayerBounds(circle, layerOpt));
+    const blockingPieceIds: number[] = [];
+    insidePieceIds = [];
+    for (let i = 0; i < n; i++) {
+      const p = pieces[i];
+      const cls = classifyRegionForBounds(p.region, circle, compiled);
+      if (cls === 'inside') {
+        insideIndices.push(i);
+        insidePieceIds.push(p.id);
+      } else if (cls === 'straddling') {
+        blockingPieceIds.push(p.id);
+      }
+    }
+    if (blockingPieceIds.length > 0) {
       return {
         ok: false,
         circleId,
-        blockingPieceIds: status.blockingPieceIds,
-        reason: `Circle ${circleId} is blocked by ${status.blockingPieceIds.length} piece${
-          status.blockingPieceIds.length === 1 ? '' : 's'
+        blockingPieceIds,
+        reason: `Circle ${circleId} is blocked by ${blockingPieceIds.length} piece${
+          blockingPieceIds.length === 1 ? '' : 's'
         }`,
       };
     }
-    insidePieceIds = status.insidePieceIds;
   }
 
-  const insideSet = new Set(insidePieceIds);
-  const rad = deg2rad(-cwDeg); // CW in +y-up math coords is negative angle
+  // Reduce modulo 360° before trig so huge step counts (e.g. A700000000) incur zero float drift
+  const geomCwDeg = cwDeg % 360;
+  const rad = deg2rad(-geomCwDeg); // CW in +y-up math coords is negative angle
 
-  const nextPieces: Piece[] = state.pieces.map((p) => {
-    if (!insideSet.has(p.id)) return p;
-    return {
-      ...p,
-      region: rotateRegion(p.region, circle.cx, circle.cy, rad),
-      stickers: rotateStickers(p.stickers, circle.cx, circle.cy, rad),
-    };
-  });
+  let nextPieces: Piece[];
+  if (Math.abs(geomCwDeg) < 1e-9 || insideIndices.length === 0) {
+    nextPieces = pieces;
+  } else {
+    nextPieces = pieces.slice();
+    const cx = circle.cx;
+    const cy = circle.cy;
+    for (let k = 0; k < insideIndices.length; k++) {
+      const i = insideIndices[k];
+      const p = pieces[i];
+      nextPieces[i] = {
+        ...p,
+        region: rotateRegion(p.region, cx, cy, rad),
+        stickers: rotateStickers(p.stickers, cx, cy, rad),
+      };
+    }
+  }
 
   const nextStops = { ...state.circleStopIndex };
   if (nextStopIdx !== undefined) {
@@ -336,7 +383,7 @@ export function turnCircleByAngle(
       pieces: nextPieces,
       circleStopIndex: nextStops,
     },
-    angleDeg: cwDeg,
+    angleDeg: Math.abs(cwDeg) > 720 ? geomCwDeg : cwDeg,
     movedPieceIds: insidePieceIds,
     pivot: { x: circle.cx, y: circle.cy },
   };
@@ -350,6 +397,7 @@ export function turnCircleBySteps(
   circleId: string,
   steps: number,
   layerOpt?: MoveLayerSpec,
+  knownInsideIds?: number[],
 ): MoveResult {
   const circle = getCircleDef(state.spec, circleId);
   if (!circle) {
@@ -362,7 +410,7 @@ export function turnCircleBySteps(
   }
   const curIdx = state.circleStopIndex[circleId] ?? 0;
   const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(circle, curIdx, steps);
-  return turnCircleByAngle(state, circleId, deltaDeg, nextStopIdx, undefined, layerOpt);
+  return turnCircleByAngle(state, circleId, deltaDeg, nextStopIdx, knownInsideIds, layerOpt);
 }
 
 /**
@@ -370,11 +418,22 @@ export function turnCircleBySteps(
  */
 function overlappingCircleIds(spec: PuzzleSpec, circle: CircleDef): string[] {
   return spec.circles
-    .filter(
-      (o) =>
-        o.id !== circle.id &&
-        dist({ x: o.cx, y: o.cy }, { x: circle.cx, y: circle.cy }) < o.r + circle.r - 1e-4,
-    )
+    .filter((o) => {
+      if (o.id === circle.id) return false;
+      const d = dist({ x: o.cx, y: o.cy }, { x: circle.cx, y: circle.cy });
+      if (circle.turnRegion === 'outside' && o.turnRegion === 'outside') {
+        return true;
+      }
+      if (circle.turnRegion === 'outside') {
+        // Exterior turn moves everything outside `circle`, so `o` is affected unless strictly inside `circle`
+        return d + o.r > circle.r + 1e-4;
+      }
+      if (o.turnRegion === 'outside') {
+        // Interior turn on `circle` only crosses `o`'s rim if `circle` actually intersects `o`'s boundary
+        return d + circle.r > o.r + 1e-4 && d < o.r + circle.r - 1e-4;
+      }
+      return d < o.r + circle.r - 1e-4;
+    })
     .map((o) => o.id);
 }
 
@@ -418,9 +477,11 @@ export function turnCircleNextUnblocked(
     .filter((c): c is CircleDef => c !== undefined);
   const curIdx = state.circleStopIndex[circleId] ?? 0;
   const nStops = circle.stopsDeg.length;
-  let found = 0;
+  const targetCount = Math.max(1, count);
 
-  for (let step = 1; step <= nStops * Math.max(1, count); step++) {
+  // Scan at most one full revolution (nStops); any larger `count` wraps periodically in O(1)
+  const unblockedSteps: number[] = [];
+  for (let step = 1; step <= nStops; step++) {
     const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(circle, curIdx, direction * step);
     const candidate = turnCircleByAngle(
       state,
@@ -439,15 +500,30 @@ export function turnCircleNextUnblocked(
       neighborDefs.some((nb) => !isCircleBlocked(candidate.nextState, nb));
 
     if (neighborFree) {
-      found++;
-      if (found === count) {
+      unblockedSteps.push(step);
+      if (unblockedSteps.length === targetCount) {
         return candidate;
       }
     }
   }
 
+  if (unblockedSteps.length > 0) {
+    const fullRevs = Math.floor((targetCount - 1) / unblockedSteps.length);
+    const remStep = unblockedSteps[(targetCount - 1) % unblockedSteps.length];
+    const totalSteps = fullRevs * nStops + remStep;
+    const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(circle, curIdx, direction * totalSteps);
+    return turnCircleByAngle(
+      state,
+      circleId,
+      deltaDeg,
+      nextStopIdx,
+      status.insidePieceIds,
+      layerOpt,
+    );
+  }
+
   // If no stop unlocked any neighbor, advance by `count` stops so the move still works predictably
-  const fallback = computeStopDeltaDeg(circle, curIdx, direction * count);
+  const fallback = computeStopDeltaDeg(circle, curIdx, direction * targetCount);
   return turnCircleByAngle(
     state,
     circleId,
@@ -474,20 +550,28 @@ export function rotateWholePuzzle(state: PuzzleState, steps: number): MoveResult
   }
   const symCenter = state.spec.symmetryCenter ?? { x: 0, y: 0 };
   const cwDeg = steps * state.spec.symmetryStepDeg;
-  const rad = deg2rad(-cwDeg);
+  const geomCwDeg = cwDeg % 360;
+  const rad = deg2rad(-geomCwDeg);
 
-  const nextPieces: Piece[] = state.pieces.map((p) => ({
-    ...p,
-    region: rotateRegion(p.region, symCenter.x, symCenter.y, rad),
-    stickers: rotateStickers(p.stickers, symCenter.x, symCenter.y, rad),
-  }));
+  const nextPieces: Piece[] =
+    Math.abs(geomCwDeg) < 1e-9
+      ? state.pieces
+      : state.pieces.map((p) => ({
+          ...p,
+          region: rotateRegion(p.region, symCenter.x, symCenter.y, rad),
+          stickers: rotateStickers(p.stickers, symCenter.x, symCenter.y, rad),
+        }));
 
-  // Map each circle's stop index to the spatial slot it rotated into
+  // Map each circle's stop index to the matching spatial slot it rotated into (handling concentric axes)
   const nextStops: Record<string, number> = { ...state.circleStopIndex };
   for (const c of state.spec.circles) {
     const rotPos = rotatePoint({ x: c.cx, y: c.cy }, symCenter, rad);
-    const dest = state.spec.circles.find((o) =>
-      pointsEqual({ x: o.cx, y: o.cy }, rotPos, 1e-3),
+    const dest = state.spec.circles.find(
+      (o) =>
+        pointsEqual({ x: o.cx, y: o.cy }, rotPos, 1e-3) &&
+        Math.abs(o.r - c.r) <= 1e-3 &&
+        (o.turnRegion ?? 'inside') === (c.turnRegion ?? 'inside') &&
+        Boolean(o.discovered) === Boolean(c.discovered),
     );
     if (dest) {
       nextStops[dest.id] = state.circleStopIndex[c.id] ?? 0;
@@ -500,9 +584,9 @@ export function rotateWholePuzzle(state: PuzzleState, steps: number): MoveResult
       ...state,
       pieces: nextPieces,
       circleStopIndex: nextStops,
-      puzzleRotationDeg: (((state.puzzleRotationDeg + cwDeg) % 360) + 360) % 360,
+      puzzleRotationDeg: (((state.puzzleRotationDeg + geomCwDeg) % 360) + 360) % 360,
     },
-    angleDeg: cwDeg,
+    angleDeg: Math.abs(cwDeg) > 720 ? geomCwDeg : cwDeg,
     movedPieceIds: state.pieces.map((p) => p.id),
     pivot: symCenter,
   };
@@ -550,8 +634,10 @@ function mirrorPartnerMap(
   const map = new Map<string, CircleDef>();
   for (const c of spec.circles) {
     const refPos = reflectPoint({ x: c.cx, y: c.cy }, axis, symCenter);
-    const dest = spec.circles.find((o) => pointsEqual({ x: o.cx, y: o.cy }, refPos, 1e-3));
-    if (!dest || !circlesMatchMirrored(c, dest)) return null;
+    const dest = spec.circles.find(
+      (o) => pointsEqual({ x: o.cx, y: o.cy }, refPos, 1e-3) && circlesMatchMirrored(c, o),
+    );
+    if (!dest) return null;
     map.set(c.id, dest);
   }
   return map;
@@ -692,11 +778,16 @@ export function pieceStickerKey(p: Piece): string {
     .join(',');
 }
 
+const puzzleStateHashCache = new WeakMap<PuzzleState, string>();
+
 /**
  * Canonical hash of the full puzzle state (piece silhouettes + colors),
  * invariant to piece array ordering and interchangeable same-color pieces.
+ * Memoized per immutable PuzzleState.
  */
 export function hashPuzzleState(state: PuzzleState): string {
+  const cached = puzzleStateHashCache.get(state);
+  if (cached !== undefined) return cached;
   const entries = state.pieces.map((p) => {
     let base = `${regionSilhouetteKey(p.region)}|${p.color}`;
     const sKey = pieceStickerKey(p);
@@ -706,7 +797,9 @@ export function hashPuzzleState(state: PuzzleState): string {
     return base;
   });
   entries.sort();
-  return entries.join('\n');
+  const h = entries.join('\n');
+  puzzleStateHashCache.set(state, h);
+  return h;
 }
 
 /**
@@ -790,14 +883,15 @@ export function hashSeed(seed: string | number): number {
 }
 
 /**
- * Deterministic-seedable legal scramble generator.
+ * Deterministic-seedable legal scramble generator returning both the move string
+ * and its exact resulting PuzzleState (avoiding redundant re-evaluation).
  * Prefers moves that leave at least 2 circles free so scrambles stay rich and deep.
  */
-export function generateScramble(
+export function generateScrambleWithState(
   initialState: PuzzleState,
   moveCount = 24,
   seed?: number | string,
-): string {
+): { sequence: string; finalState: PuzzleState } {
   // Simple mulberry32 PRNG if seed provided, else Math.random
   let s =
     seed !== undefined && String(seed).trim() !== ''
@@ -810,11 +904,13 @@ export function generateScramble(
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 
-  // Precompute circle adjacency once so scramble checks only re-test overlapping neighbors
-  const circleMap = new Map(initialState.spec.circles.map((c) => [c.id, c]));
+  // Precompute circle adjacency once for the entire scramble
+  const allCircles = initialState.spec.circles;
+  const circleMap = new Map(allCircles.map((c) => [c.id, c]));
   const overlapMap = new Map<string, CircleDef[]>();
   const nonOverlapMap = new Map<string, string[]>();
-  for (const c of initialState.spec.circles) {
+
+  for (const c of allCircles) {
     const ovIds = new Set(overlappingCircleIds(initialState.spec, c));
     overlapMap.set(
       c.id,
@@ -822,9 +918,7 @@ export function generateScramble(
     );
     nonOverlapMap.set(
       c.id,
-      initialState.spec.circles
-        .filter((o) => o.id !== c.id && !ovIds.has(o.id))
-        .map((o) => o.id),
+      allCircles.filter((o) => o.id !== c.id && !ovIds.has(o.id)).map((o) => o.id),
     );
   }
 
@@ -835,27 +929,63 @@ export function generateScramble(
     return specs;
   };
 
-  const isNeighborPlayable = (st: PuzzleState, nb: CircleDef): boolean => {
-    if (!isCircleBlocked(st, nb)) return true;
-    if (nb.layerRadii && nb.layerRadii.length > 1) {
-      return !isCircleBlocked(st, nb, { layer: 1 });
-    }
-    return false;
-  };
-
   let cur = initialState;
   let lastCircle = '';
   let lastSteps = 0;
   const turnCounts = new Map<string, number>();
-  for (const c of initialState.spec.circles) turnCounts.set(c.id, 0);
+  for (const c of allCircles) turnCounts.set(c.id, 0);
   const tokens: string[] = [];
 
-  type CandidateMove = { cid: string; layerOpt: MoveLayerSpec; steps: number; next: PuzzleState };
+  // Maintain per-circle default-layer piece classifications (0 = outside, 1 = inside, 2 = straddling)
+  // so each scramble step only re-classifies moved pieces on overlapping neighbors!
+  const pieceCount = cur.pieces.length;
+  const compiledBounds = new Map<string, CompiledLayerBounds>();
+  const clsByCircle = new Map<string, Uint8Array>();
+  const statuses: Record<string, CircleStatus> = {};
+
+  const buildStatusFromCls = (
+    cid: string,
+    pieces: Piece[],
+    clsArr: Uint8Array,
+  ): CircleStatus => {
+    const insidePieceIds: number[] = [];
+    const blockingPieceIds: number[] = [];
+    for (let pi = 0; pi < pieces.length; pi++) {
+      const code = clsArr[pi];
+      if (code === 1) insidePieceIds.push(pieces[pi].id);
+      else if (code === 2) blockingPieceIds.push(pieces[pi].id);
+    }
+    return {
+      circleId: cid,
+      blocked: blockingPieceIds.length > 0,
+      blockingPieceIds,
+      insidePieceIds,
+    };
+  };
+
+  for (const c of allCircles) {
+    const cb = compileLayerBounds(c, resolveLayerBounds(c, undefined));
+    compiledBounds.set(c.id, cb);
+    const clsArr = new Uint8Array(pieceCount);
+    for (let pi = 0; pi < pieceCount; pi++) {
+      const cls = classifyRegionForBounds(cur.pieces[pi].region, c, cb);
+      clsArr[pi] = cls === 'inside' ? 1 : cls === 'straddling' ? 2 : 0;
+    }
+    clsByCircle.set(c.id, clsArr);
+    statuses[c.id] = buildStatusFromCls(c.id, cur.pieces, clsArr);
+  }
+
+  type CandidateMove = {
+    cid: string;
+    layerOpt: MoveLayerSpec;
+    steps: number;
+    deltaDeg: number;
+    nextStopIdx: number;
+    insideIds: number[];
+    insideIndices: number[];
+  };
 
   for (let i = 0; i < moveCount; i++) {
-    const statuses = getAllCircleStatuses(cur);
-    const allCircles = cur.spec.circles;
-
     // Order circles with inverse-frequency weighting (skipping lastCircle first) so all regions
     // of large/multi-ring puzzles get mixed evenly and we only evaluate moves until a circle
     // yields an overlapping-neighbor-preserving turn (Tier 1).
@@ -872,10 +1002,7 @@ export function generateScramble(
 
     const otherCircles = allCircles.filter((c) => c.id !== lastCircle);
     const lastCircleList = allCircles.filter((c) => c.id === lastCircle);
-    const orderedCircles = [
-      ...sortByWeightedRand(otherCircles),
-      ...lastCircleList,
-    ];
+    const orderedCircles = [...sortByWeightedRand(otherCircles), ...lastCircleList];
 
     let chosen: CandidateMove | null = null;
     const otherFreeMoves: CandidateMove[] = [];
@@ -896,10 +1023,46 @@ export function generateScramble(
       const overlapGood: CandidateMove[] = [];
 
       for (const layerOpt of layerSpecsFor(c)) {
-        const layerStatus =
-          !layerOpt.layer && !layerOpt.wide ? statuses[c.id] : getCircleStatus(cur, c.id, layerOpt);
+        // Default status is already layer 1 (or single layer), so `{ layer: 1 }` reuses statuses[c.id]
+        const isDefaultLayer =
+          (!layerOpt.layer && !layerOpt.wide) || (layerOpt.layer === 1 && !layerOpt.wide);
+        const layerStatus = isDefaultLayer
+          ? statuses[c.id]
+          : getCircleStatus(cur, c.id, layerOpt);
         if (layerStatus.blocked) continue;
         const insideIds = layerStatus.insidePieceIds;
+        const insideSet = new Set(insideIds);
+        const insideRegions: ArcRegion[] = [];
+        const insideIndices: number[] = [];
+        if (isDefaultLayer) {
+          const cCls = clsByCircle.get(c.id)!;
+          for (let pi = 0; pi < pieceCount; pi++) {
+            if (cCls[pi] === 1) {
+              insideIndices.push(pi);
+              insideRegions.push(cur.pieces[pi].region);
+            }
+          }
+        } else {
+          for (let pi = 0; pi < pieceCount; pi++) {
+            const p = cur.pieces[pi];
+            if (insideSet.has(p.id)) {
+              insideIndices.push(pi);
+              insideRegions.push(p.region);
+            }
+          }
+        }
+
+        // Pre-filter neighbors: a neighbor `nb` can only be unblocked after rotating `insideSet`
+        // if EVERY piece currently blocking `nb` belongs to `insideSet` (stationary pieces don't move!).
+        const checkableNeighbors: CircleDef[] = [];
+        for (const nb of neighbors) {
+          const blockedOutside = statuses[nb.id].blockingPieceIds.some(
+            (pid) => !insideSet.has(pid),
+          );
+          if (!blockedOutside) {
+            checkableNeighbors.push(nb);
+          }
+        }
 
         for (let step = 1; step <= maxHalf; step++) {
           for (const dir of [1, -1]) {
@@ -908,17 +1071,50 @@ export function generateScramble(
             if (c.id === lastCircle && signedSteps === -lastSteps) continue;
 
             const { deltaDeg, nextStopIdx } = computeStopDeltaDeg(c, curIdx, signedSteps);
-            const res = turnCircleByAngle(cur, c.id, deltaDeg, nextStopIdx, insideIds, layerOpt);
-            if (!res.ok) continue;
-
             const cand: CandidateMove = {
               cid: c.id,
               layerOpt,
               steps: signedSteps,
-              next: res.nextState,
+              deltaDeg,
+              nextStopIdx,
+              insideIds,
+              insideIndices,
             };
 
-            if (neighbors.some((nb) => isNeighborPlayable(res.nextState, nb))) {
+            let anyNeighborPlayable = false;
+            if (checkableNeighbors.length > 0) {
+              // Exact rigid isometry: rotating `insideRegions` by `-geomCwDeg` around `(c.cx, c.cy)`
+              // and testing against `nb` is identical to keeping `insideRegions` unrotated and
+              // inverse-rotating the single circle `nb` by `+geomCwDeg` around `(c.cx, c.cy)`!
+              const invRad = deg2rad(deltaDeg % 360);
+              const cos = Math.cos(invRad);
+              const sin = Math.sin(invRad);
+
+              for (let ni = 0; ni < checkableNeighbors.length; ni++) {
+                const nb = checkableNeighbors[ni];
+                const dx = nb.cx - c.cx;
+                const dy = nb.cy - c.cy;
+                const testR = nb.layerRadii && nb.layerRadii.length > 1 ? nb.layerRadii[0] : nb.r;
+                const invCircle: Circle = {
+                  cx: c.cx + dx * cos - dy * sin,
+                  cy: c.cy + dx * sin + dy * cos,
+                  r: testR,
+                };
+                let blocked = false;
+                for (let ri = 0; ri < insideRegions.length; ri++) {
+                  if (classifyRegionAgainstCircle(insideRegions[ri], invCircle) === 'straddling') {
+                    blocked = true;
+                    break;
+                  }
+                }
+                if (!blocked) {
+                  anyNeighborPlayable = true;
+                  break;
+                }
+              }
+            }
+
+            if (anyNeighborPlayable) {
               overlapGood.push(cand);
             } else if (nonOverlappingOtherFree) {
               otherFreeMoves.push(cand);
@@ -941,14 +1137,54 @@ export function generateScramble(
       chosen = pool[Math.floor(rand() * pool.length)];
     }
 
-    cur = chosen.next;
+    const applied = turnCircleByAngle(
+      cur,
+      chosen.cid,
+      chosen.deltaDeg,
+      chosen.nextStopIdx,
+      chosen.insideIds,
+      chosen.layerOpt,
+    );
+    if (!applied.ok) break;
+    cur = applied.nextState;
     lastCircle = chosen.cid;
     lastSteps = chosen.steps;
     turnCounts.set(chosen.cid, (turnCounts.get(chosen.cid) ?? 0) + 1);
     tokens.push(formatMoveToken(chosen.cid, chosen.steps, chosen.layerOpt));
+
+    // Incrementally refresh ONLY the moved pieces on overlapping neighbors!
+    // `chosen.cid`'s own default-layer status is 100% invariant under concentric rotation,
+    // and stationary pieces never change classification against any neighbor.
+    if (i + 1 < moveCount) {
+      const movedIndices = chosen.insideIndices;
+      const neighbors = overlapMap.get(chosen.cid)!;
+      for (let ni = 0; ni < neighbors.length; ni++) {
+        const nb = neighbors[ni];
+        const nbCls = clsByCircle.get(nb.id)!;
+        const nbBounds = compiledBounds.get(nb.id)!;
+        for (let mi = 0; mi < movedIndices.length; mi++) {
+          const pi = movedIndices[mi];
+          const cls = classifyRegionForBounds(cur.pieces[pi].region, nb, nbBounds);
+          nbCls[pi] = cls === 'inside' ? 1 : cls === 'straddling' ? 2 : 0;
+        }
+        statuses[nb.id] = buildStatusFromCls(nb.id, cur.pieces, nbCls);
+      }
+    }
   }
 
-  return tokens.join(' ');
+  return { sequence: tokens.join(' '), finalState: cur };
+}
+
+/**
+ * Deterministic-seedable legal scramble generator.
+ * Prefers moves that leave at least 2 circles free so scrambles stay rich and deep.
+ */
+export function generateScramble(
+  initialState: PuzzleState,
+  moveCount = 24,
+  seed?: number | string,
+): string {
+  return generateScrambleWithState(initialState, moveCount, seed).sequence;
 }
 
 /** Format a circle move into standard Twizzle-style notation (e.g. `A`, `A2`, `A'`, `a`, `a2'`, `2A`, `2A3'`). */
@@ -961,7 +1197,7 @@ export function formatMoveToken(
   const prime = steps < 0 ? "'" : '';
   const stepStr = abs === 1 ? '' : String(abs);
   if (layerOpt?.wide) {
-    const prefix = layerOpt.layer && layerOpt.layer > 2 ? String(layerOpt.layer) : '';
+    const prefix = layerOpt.layer !== undefined ? String(layerOpt.layer) : '';
     return `${prefix}${circleId.toLowerCase()}${stepStr}${prime}`;
   }
   const prefix = layerOpt?.layer && layerOpt.layer > 1 ? String(layerOpt.layer) : '';
