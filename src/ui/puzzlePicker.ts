@@ -78,11 +78,8 @@ export function createPuzzlePickerModal(options: PuzzlePickerOptions): PuzzlePic
   backdrop.innerHTML = `
     <div class="modal bp-modal">
       <div class="modal-header">
-        <div>
-          <h2 id="bp-modal-title">Choose a Puzzle</h2>
-          <div class="bp-subtitle">Select any 2D twisty circle puzzle</div>
-        </div>
-        <button class="btn btn-sm" id="bp-close" aria-label="Close puzzle picker">✕ Close</button>
+        <h2 id="bp-modal-title">Puzzles</h2>
+        <button class="btn btn-sm btn-ghost" id="bp-close" aria-label="Close puzzle picker">Esc</button>
       </div>
       <div class="bp-filter-bar" id="bp-filter-bar"></div>
       <div class="modal-body bp-body" id="bp-body"></div>

@@ -24,7 +24,7 @@ export function createHelpModal(): { open: () => void; close: () => void; isOpen
           <tr><td>Click / Scroll</td><td>Turn circle CW; <b>Shift+Click</b> or right-click for CCW.</td></tr>
           <tr><td>Alt+Click / Scroll</td><td>Outer ring on multi-layer puzzles: turn slice <code>2A</code> (default is wide <code>a</code>).</td></tr>
           <tr><td>Scrubber</td><td>Drag smoothly mid-turn (stays parked on release); <code>Alt + ← / → / Space</code> to step/play.</td></tr>
-          <tr><td>Hover macro / 🎯</td><td>Preview live piece-cycle arrows &amp; spins; click <code>🎯</code> to filter by piece type (hold <code>Alt</code> to peek all).</td></tr>
+          <tr><td>Hover macro / ◎</td><td>Preview live piece-cycle arrows &amp; spins; click <code>◎</code> to filter by piece type (hold <code>Alt</code> to peek all).</td></tr>
         </table>
 
         <h3>Macro Library &amp; Sharing</h3>

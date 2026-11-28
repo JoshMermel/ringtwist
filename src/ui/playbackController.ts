@@ -169,7 +169,7 @@ export class PlaybackController {
       this.scrubberEl.value = pos.toFixed(2);
       this.stepCounterEl.textContent = this.formatStepCounter(pos, total);
       const macroTag = step.macroStack.length > 0 ? ` (${step.macroStack.join(' › ')})` : '';
-      this.host.onMovePillText(`Move: ${step.moveLabel} (${Math.round(frac * 100)}%)${macroTag}`);
+      this.host.onMovePillText(`${step.moveLabel} ${Math.round(frac * 100)}%${macroTag}`);
     }
   }
 

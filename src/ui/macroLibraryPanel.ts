@@ -312,7 +312,7 @@ export class MacroLibraryPanel {
 
     if (macros.length === 0) {
       this.macroListEl.innerHTML =
-        '<div class="empty-state">No macros yet. Click <b>+ Save Macro</b> above, or switch to <b>Text</b> to paste a macro sheet.</div>';
+        '<div class="empty-state">No macros. Click <b>+ Macro</b> or switch to <b>Text</b>.</div>';
       return;
     }
 
@@ -335,13 +335,13 @@ export class MacroLibraryPanel {
             <div class="macro-body" title="${escapeHtml(entry.body)}">${escapeHtml(entry.body)}</div>
           </div>
           <div class="macro-btns">
-            <button class="btn btn-sm" data-act="insert" title="Insert ${escapeHtml(entry.name)} at cursor">Insert</button>
-            <button class="btn btn-sm" data-act="inv" title="Insert inverse ${escapeHtml(entry.name)}' at cursor">Inv '</button>
-            <button class="btn btn-sm macro-focus-btn${focusCount > 0 ? ' has-focus' : ''}${isEditingFocus ? ' active' : ''}" data-act="focus" title="${
+            <button class="btn btn-sm btn-ghost" data-act="insert" title="Insert ${escapeHtml(entry.name)} at cursor">+</button>
+            <button class="btn btn-sm btn-ghost" data-act="inv" title="Insert inverse ${escapeHtml(entry.name)}' at cursor">'</button>
+            <button class="btn btn-sm btn-ghost macro-focus-btn${focusCount > 0 ? ' has-focus' : ''}${isEditingFocus ? ' active' : ''}" data-act="focus" title="${
               focusCount > 0
                 ? `Focusing ${focusCount} piece ${focusCount === 1 ? 'type' : 'types'} on hover — click to edit (Alt-hover peeks all)`
-                : 'Pick specific piece types to highlight on hover'
-            }">🎯${focusCount > 0 ? ` ${focusCount}` : ''}</button>
+                : 'Filter piece types highlighted on hover'
+            }">◎${focusCount > 0 ? ` ${focusCount}` : ''}</button>
           </div>
         </div>
         ${entry.note ? `<div class="macro-note">${escapeHtml(entry.note)}</div>` : ''}

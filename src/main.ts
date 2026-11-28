@@ -30,7 +30,11 @@ import { MacroLibraryPanel, copyTextToClipboard } from './ui/macroLibraryPanel.t
 import { applyInteractiveMoveToText } from './ui/moveCoalesce.ts';
 import { PlaybackController } from './ui/playbackController.ts';
 import { PuzzlePickerController, createPuzzlePickerModal } from './ui/puzzlePicker.ts';
-import { ScramblePopoverController, rollRandomSeed } from './ui/scramblePopover.ts';
+import {
+  DEFAULT_SCRAMBLE_MOVES,
+  ScramblePopoverController,
+  rollRandomSeed,
+} from './ui/scramblePopover.ts';
 import {
   SharedPayload,
   decodeShareHash,
@@ -63,7 +67,7 @@ class RingTwistApp {
 
   // Optional active scramble (Twizzle-style: starts solved unless scrambled)
   private scrambleSeed: string | null = null;
-  private scrambleMoves = 20;
+  private scrambleMoves = DEFAULT_SCRAMBLE_MOVES;
   private initialState: PuzzleState;
 
   // Active evaluation & macros
@@ -164,7 +168,7 @@ class RingTwistApp {
 
   private computeScrambleState(solved: PuzzleState, seed: string, moves: number): PuzzleState {
     const clean = seed.trim() || rollRandomSeed();
-    const clamped = Math.max(1, Math.min(1000, Math.round(moves) || 20));
+    const clamped = Math.max(1, Math.min(1000, Math.round(moves) || DEFAULT_SCRAMBLE_MOVES));
     return generateScrambleWithState(solved, clamped, clean).finalState;
   }
 
@@ -174,15 +178,15 @@ class RingTwistApp {
     if (shared && (shared.hasSharedAlg || shared.scrambleSeed || shared.macros !== undefined)) {
       this.alg = shared.alg;
       this.scrambleSeed = shared.scrambleSeed ?? null;
-      this.scrambleMoves = shared.scrambleMoves ?? 20;
+      this.scrambleMoves = shared.scrambleMoves ?? DEFAULT_SCRAMBLE_MOVES;
     } else if (saved) {
       this.alg = saved.alg;
       this.scrambleSeed = saved.scrambleSeed ?? null;
-      this.scrambleMoves = saved.scrambleMoves ?? 20;
+      this.scrambleMoves = saved.scrambleMoves ?? DEFAULT_SCRAMBLE_MOVES;
     } else {
       this.alg = '';
       this.scrambleSeed = null;
-      this.scrambleMoves = 20;
+      this.scrambleMoves = DEFAULT_SCRAMBLE_MOVES;
     }
 
     this.initialState = this.scrambleSeed
@@ -265,73 +269,67 @@ class RingTwistApp {
   private mountDOM(root: HTMLElement): void {
     root.innerHTML = `
       <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark"></div>
-          <div>
-            <h1>RingTwist</h1>
-            <div class="subtitle">2D twisty circle puzzle simulator</div>
-          </div>
-        </div>
-        <div class="topbar-controls">
+        <div class="topbar-left">
+          <span class="brand-name">RingTwist</span>
+          <span class="topbar-sep" aria-hidden="true">/</span>
           <button type="button" class="book-btn" id="puzzle-picker-btn" title="Choose a puzzle">
-            <span class="book-btn-dot"></span>
             <span class="book-btn-name" id="puzzle-picker-name"></span>
           </button>
+        </div>
+        <div class="topbar-controls">
           <div class="scramble-wrap">
-            <button type="button" class="btn" id="btn-scramble-toggle" title="Apply or clear a deterministic seeded scramble">Scramble</button>
+            <button type="button" class="btn btn-ghost" id="btn-scramble-toggle" title="Apply or clear a deterministic seeded scramble">Scramble</button>
             <div class="scramble-popover" id="scramble-popover" hidden>
-              <div class="sp-title">Seeded Scramble</div>
               <form id="scramble-form">
                 <div class="sp-row">
                   <label for="sp-seed">Seed</label>
                   <div class="sp-seed-group">
-                    <input type="text" id="sp-seed" autocomplete="off" spellcheck="false" placeholder="random seed" />
-                    <button type="button" class="btn btn-sm" id="btn-sp-rand" title="Roll a random seed">🎲</button>
+                    <input type="text" id="sp-seed" autocomplete="off" spellcheck="false" placeholder="seed" />
+                    <button type="button" class="btn btn-sm" id="btn-sp-rand" title="Generate a new random seed in the box">Random</button>
                   </div>
                 </div>
                 <div class="sp-row">
                   <label for="sp-moves">Moves (1–1000)</label>
-                  <input type="number" id="sp-moves" min="1" max="1000" value="20" />
+                  <input type="number" id="sp-moves" min="1" max="1000" value="${DEFAULT_SCRAMBLE_MOVES}" />
                 </div>
                 <div class="sp-actions">
                   <button type="button" class="btn btn-sm" id="btn-sp-clear" hidden>Reset Solved</button>
-                  <button type="submit" class="btn btn-primary btn-sm">Scramble</button>
+                  <button type="submit" class="btn btn-primary btn-sm">Apply Scramble</button>
                 </div>
               </form>
             </div>
           </div>
-          <button class="btn" id="btn-share" title="Copy shareable link">Share</button>
-          <button class="btn btn-primary" id="btn-help" title="Notation and controls guide">? Help</button>
+          <button type="button" class="btn btn-ghost" id="btn-share" title="Copy shareable link">Share</button>
+          <button type="button" class="btn btn-ghost" id="btn-help" title="Notation and controls reference">Help</button>
         </div>
       </header>
 
       <main class="workspace" id="workspace">
-        <section class="card puzzle-pane">
-          <div class="status-strip" id="status-strip">
-            <div class="status-pills" id="status-pills"></div>
-          </div>
-
+        <section class="pane puzzle-pane">
           <div class="diagnostic-banner error" id="diag-banner"></div>
           <div class="diagnostic-banner analysis" id="analysis-banner"></div>
 
           <div class="stage-wrap" id="stage-wrap">
             <div class="stage-overlay-tl">
-              <button class="btn btn-sm" id="btn-rot-ccw" title="Whole-puzzle rotation CCW (z')">↺ z'</button>
-              <button class="btn btn-sm" id="btn-rot-cw" title="Whole-puzzle rotation CW (z)">↻ z</button>
-              <button class="btn btn-sm" id="btn-flip-x" title="Flip puzzle top↔bottom (x)">⇅ x</button>
-              <button class="btn btn-sm" id="btn-flip-y" title="Flip puzzle left↔right (y)">⇄ y</button>
+              <button class="btn btn-sm btn-ghost" id="btn-rot-ccw" title="Whole-puzzle rotation CCW (z')">↺ z'</button>
+              <button class="btn btn-sm btn-ghost" id="btn-rot-cw" title="Whole-puzzle rotation CW (z)">↻ z</button>
+              <button class="btn btn-sm btn-ghost" id="btn-flip-x" title="Flip puzzle top↔bottom (x)">⇅ x</button>
+              <button class="btn btn-sm btn-ghost" id="btn-flip-y" title="Flip puzzle left↔right (y)">⇄ y</button>
             </div>
             <div class="stage-overlay-tr">
-              <button type="button" class="btn btn-sm solved-peek-btn" id="btn-solved-peek" title="Toggle a reference preview of the solved puzzle">👁 Solved</button>
+              <button type="button" class="btn btn-sm btn-ghost solved-peek-btn" id="btn-solved-peek" title="Toggle reference preview of solved state">Ref</button>
+            </div>
+            <div class="status-strip" id="status-strip" hidden>
+              <div class="status-pills" id="status-pills"></div>
             </div>
             <div class="cycle-preview-pill" id="cycle-preview-pill" hidden></div>
             <div class="focus-pick-bar" id="focus-pick-bar" hidden></div>
             <div class="solved-ref-card" id="solved-ref-card" hidden>
               <div class="solved-ref-head">
-                <span>Solved Reference</span>
+                <span>Solved</span>
                 <div class="solved-ref-btns">
                   <button type="button" class="solved-ref-icon" id="btn-solved-expand" title="Expand / shrink reference">⤢</button>
-                  <button type="button" class="solved-ref-icon" id="btn-solved-close" title="Hide solved reference">✕</button>
+                  <button type="button" class="solved-ref-icon" id="btn-solved-close" title="Hide solved reference">×</button>
                 </div>
               </div>
               <div class="solved-ref-stage" id="solved-ref-stage"></div>
@@ -340,16 +338,15 @@ class RingTwistApp {
 
           <div class="playback-bar">
             <div class="playback-row">
-              <button class="btn btn-icon" id="btn-start" title="Jump to start">|◀</button>
-              <button class="btn btn-icon" id="btn-prev" title="Step back (Alt+←)">◀</button>
-              <button class="btn btn-primary btn-icon" id="btn-play" title="Play / Pause (Alt+Space)">▶</button>
-              <button class="btn btn-icon" id="btn-next" title="Step forward (Alt+→)">▶</button>
-              <button class="btn btn-icon" id="btn-end" title="Fast-forward to end">▶|</button>
+              <button class="btn btn-icon btn-ghost" id="btn-start" title="Jump to start" aria-label="Jump to start">|◀</button>
+              <button class="btn btn-icon btn-ghost" id="btn-prev" title="Step back (Alt+←)" aria-label="Step back">◀</button>
+              <button class="btn btn-primary btn-icon" id="btn-play" title="Play / Pause (Alt+Space)" aria-label="Play or pause">▶</button>
+              <button class="btn btn-icon btn-ghost" id="btn-next" title="Step forward (Alt+→)" aria-label="Step forward">▶</button>
+              <button class="btn btn-icon btn-ghost" id="btn-end" title="Fast-forward to end" aria-label="Jump to end">▶|</button>
               <input type="range" class="scrubber" id="scrubber" min="0" max="0" step="0.01" value="0" aria-label="Move scrubber" />
               <span class="step-counter" id="step-counter">0 / 0</span>
               <div class="speed-wrap">
-                <span>Speed</span>
-                <input type="range" id="speed-slider" min="-2" max="2" step="0.1" value="0" aria-label="Playback speed" />
+                <input type="range" id="speed-slider" min="-2" max="2" step="0.1" value="0" aria-label="Playback speed" title="Playback speed" />
                 <span class="speed-readout" id="speed-readout">1.0×</span>
               </div>
             </div>
@@ -357,12 +354,12 @@ class RingTwistApp {
         </section>
 
         <aside class="side-pane">
-          <section class="card editor-card">
+          <section class="pane editor-card">
             <div class="section-header">
               <h2 class="section-title">Algorithm</h2>
               <div class="editor-actions">
-                <button class="btn btn-sm" id="btn-analyze" title="Compute exact order and cycle structure from solved state">Analyze Order</button>
-                <button class="btn btn-sm" id="btn-save-sel" title="Save selected text (or whole sequence) to Macro Library">+ Save Macro</button>
+                <button class="btn btn-sm btn-ghost" id="btn-analyze" title="Compute exact order and cycle structure from solved state">Analyze</button>
+                <button class="btn btn-sm btn-ghost" id="btn-save-sel" title="Save selected text (or whole sequence) to Macros">+ Macro</button>
               </div>
             </div>
 
@@ -370,15 +367,15 @@ class RingTwistApp {
             <div class="samples-row" id="samples-row"></div>
           </section>
 
-          <section class="card macros-card">
+          <section class="pane macros-card">
             <div class="section-header">
-              <h2 class="section-title">Macro Library</h2>
+              <h2 class="section-title">Macros</h2>
               <div class="editor-actions">
-                <div class="preview-mode-toggle" id="macro-view-toggle" role="group" aria-label="Macro library view" title="Switch between interactive macro List and plain-text macro sheet">
+                <div class="preview-mode-toggle" id="macro-view-toggle" role="group" aria-label="Macro view" title="Switch between interactive List and plain-text macro sheet">
                   <button type="button" class="preview-mode-btn active" data-view="list">List</button>
                   <button type="button" class="preview-mode-btn" data-view="text">Text</button>
                 </div>
-                <button class="btn btn-sm" id="btn-copy-macros" title="Copy Macro Library as a shareable plain-text sheet">Copy</button>
+                <button class="btn btn-sm btn-ghost" id="btn-copy-macros" title="Copy macros as plain text">Copy</button>
               </div>
             </div>
 
@@ -387,7 +384,7 @@ class RingTwistApp {
                 <input type="text" id="save-macro-name" placeholder="name (e.g. tri3)" required pattern="[a-zA-Z_][a-zA-Z0-9_]*" autocomplete="off" />
                 <input type="text" id="save-macro-body" placeholder="moves" required autocomplete="off" />
                 <button type="submit" class="btn btn-primary btn-sm">Save</button>
-                <button type="button" class="btn btn-sm" id="btn-save-macro-cancel">✕</button>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-save-macro-cancel">×</button>
               </form>
               <div class="macro-list" id="macro-list"></div>
             </div>
@@ -398,13 +395,13 @@ class RingTwistApp {
                 id="macro-text-area"
                 spellcheck="false"
                 autocomplete="off"
-                placeholder="// Paste or edit macros here (// === Section ===, // @hide, // @show, // @focus):&#10;// @focus big_pent&#10;big3 = [A3, C3']  // 4t: BigPent(3)"
+                placeholder="// Paste or edit macros (// === Section ===, // @hide, // @show, // @focus):&#10;// @focus big_pent&#10;big3 = [A3, C3']  // 4t: BigPent(3)"
               ></textarea>
               <div class="macro-text-error" id="macro-text-error" hidden></div>
               <div class="macro-text-actions">
-                <span class="macro-text-hint"><code>// === Section ===</code> · <code>// @hide</code> · <code>// @focus</code> · JSON</span>
+                <span class="macro-text-hint"><code>// === Section ===</code> · <code>// @hide</code> · <code>// @focus</code></span>
                 <div class="macro-text-btns">
-                  <button type="button" class="btn btn-sm" id="btn-macro-text-cancel">Cancel</button>
+                  <button type="button" class="btn btn-sm btn-ghost" id="btn-macro-text-cancel">Cancel</button>
                   <button type="button" class="btn btn-primary btn-sm" id="btn-macro-text-apply">Apply</button>
                 </div>
               </div>
@@ -633,7 +630,7 @@ class RingTwistApp {
 
   private applyScramble(seed: string, moves: number): void {
     const cleanSeed = seed.trim() || rollRandomSeed();
-    const clampedMoves = Math.max(1, Math.min(1000, Math.round(moves) || 20));
+    const clampedMoves = Math.max(1, Math.min(1000, Math.round(moves) || DEFAULT_SCRAMBLE_MOVES));
     this.isUntouchedSharedSession = false;
     this.playback.stopPlayback();
     this.hideAnalysisBanner();
@@ -813,15 +810,15 @@ class RingTwistApp {
 
     this.playback.syncScrubberReadout(pos, total);
 
-    // Minimal, meaningful status pills only
+    // Minimal status items (plain monospace badges, zero emoji noise)
     const pills: string[] = [];
     const solvedNow = !isMid && isPuzzleSolved(state, this.solvedState);
     if (solvedNow) {
-      pills.push('<span class="pill pill-solved">✓ Solved</span>');
+      pills.push('<span class="pill pill-solved">Solved</span>');
     }
     if (this.scrambleSeed) {
       pills.push(
-        `<span class="pill pill-scramble">Scrambled · ${escapeHtml(this.scrambleSeed)} <button type="button" class="pill-clear-btn" id="btn-pill-clear-scramble" title="Reset starting state to solved">×</button></span>`,
+        `<span class="pill pill-scramble">Scramble ${escapeHtml(this.scrambleSeed)} (${this.scrambleMoves}) <button type="button" class="pill-clear-btn" id="btn-pill-clear-scramble" title="Reset starting state to solved">×</button></span>`,
       );
     }
 
@@ -831,21 +828,21 @@ class RingTwistApp {
       const st = this.allSteps[idx];
       const macroTag = st.macroStack.length > 0 ? ` (${st.macroStack.join(' › ')})` : '';
       pills.push(
-        `<span class="pill pill-info" id="status-move-pill">Move: ${escapeHtml(st.moveLabel)} (${pct}%)${escapeHtml(macroTag)}</span>`,
+        `<span class="pill pill-info" id="status-move-pill">${escapeHtml(st.moveLabel)} ${pct}%${escapeHtml(macroTag)}</span>`,
       );
     } else if (intPos > 0 && intPos <= total) {
       const st = this.allSteps[intPos - 1];
       const macroTag = st.macroStack.length > 0 ? ` (${st.macroStack.join(' › ')})` : '';
       pills.push(
-        `<span class="pill pill-info" id="status-move-pill">Move: ${escapeHtml(st.moveLabel)}${escapeHtml(macroTag)}</span>`,
+        `<span class="pill pill-info" id="status-move-pill">${escapeHtml(st.moveLabel)}${escapeHtml(macroTag)}</span>`,
       );
     }
     if (this.evalResult.usedFastForward) {
-      pills.push('<span class="pill pill-info">⚡ Group fast-forward</span>');
+      pills.push('<span class="pill pill-info">fast-fwd</span>');
     }
     if (this.evalResult.blocked) {
       pills.push(
-        `<span class="pill pill-blocked">⛔ Blocked at ${escapeHtml(this.evalResult.blocked.moveLabel)}</span>`,
+        `<span class="pill pill-blocked">Blocked: ${escapeHtml(this.evalResult.blocked.moveLabel)}</span>`,
       );
     }
     const unlockedDiscovered = this.currentSpec.circles
@@ -853,7 +850,7 @@ class RingTwistApp {
       .map((c) => c.id);
     if (unlockedDiscovered.length > 0) {
       pills.push(
-        `<span class="pill pill-discovered" title="Emergent internal circle(s) aligned and ready to turn">✦ Discovered: ${escapeHtml(unlockedDiscovered.join(', '))}</span>`,
+        `<span class="pill pill-discovered" title="Emergent internal circle(s) aligned and ready to turn">Discovered: ${escapeHtml(unlockedDiscovered.join(', '))}</span>`,
       );
     }
 

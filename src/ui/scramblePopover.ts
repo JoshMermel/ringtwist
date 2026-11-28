@@ -1,3 +1,5 @@
+export const DEFAULT_SCRAMBLE_MOVES = 100;
+
 export function rollRandomSeed(): string {
   return String(Math.floor(10000 + Math.random() * 90000));
 }
@@ -14,7 +16,7 @@ export class ScramblePopoverController {
   private movesInput: HTMLInputElement;
   private clearBtn: HTMLButtonElement;
   private currentSeed: string | null = null;
-  private currentMoves = 20;
+  private currentMoves = DEFAULT_SCRAMBLE_MOVES;
 
   constructor(root: HTMLElement, callbacks: ScramblePopoverCallbacks) {
     this.toggleBtn = root.querySelector('#btn-scramble-toggle')!;
@@ -29,6 +31,7 @@ export class ScramblePopoverController {
         this.syncFields();
         this.popoverEl.hidden = false;
         this.seedInput.focus();
+        this.seedInput.select();
       } else {
         this.close();
       }
@@ -40,17 +43,18 @@ export class ScramblePopoverController {
       }
     });
 
+    // Only rolls a new seed into the textbox — never mutates puzzle state until Apply is clicked.
     root.querySelector('#btn-sp-rand')!.addEventListener('click', () => {
-      const seed = rollRandomSeed();
-      this.seedInput.value = seed;
-      callbacks.onApply(seed, parseInt(this.movesInput.value, 10) || 20);
+      this.seedInput.value = rollRandomSeed();
+      this.seedInput.focus();
+      this.seedInput.select();
     });
 
     root.querySelector<HTMLFormElement>('#scramble-form')!.addEventListener('submit', (ev) => {
       ev.preventDefault();
       callbacks.onApply(
         this.seedInput.value || rollRandomSeed(),
-        parseInt(this.movesInput.value, 10) || 20,
+        parseInt(this.movesInput.value, 10) || DEFAULT_SCRAMBLE_MOVES,
       );
     });
 
