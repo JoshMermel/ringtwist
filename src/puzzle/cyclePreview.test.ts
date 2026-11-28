@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { reflectRegion, rotateRegion } from '../geom/arcRegion.ts';
 import { decodeShareHash, encodeShareHash } from '../ui/storage.ts';
 import { buildPuzzle } from './builder.ts';
 import { getPuzzleSpec } from './catalog.ts';
-import { computeMacroCyclePreview } from './cyclePreview.ts';
+import {
+  computeMacroCyclePreview,
+  pieceShapeType,
+  toggleFocusTypeAtPoint,
+} from './cyclePreview.ts';
 import { generateScramble } from './engine.ts';
 import { parseSolveTranscript, serializeSolveTranscript } from './solveStack.ts';
 
@@ -34,6 +39,85 @@ describe('macro piece-cycle preview', () => {
     expect(preview.blocked).toBeDefined();
     expect(preview.blocked?.circleId).toBe('B');
     expect(preview.summary).toMatch(/Blocked at B/);
+  });
+
+  it('reports exact signed CW spin angle for in-place sticker rotations and ignores invisible solid-piece spins', () => {
+    const state = buildPuzzle(getPuzzleSpec('geranium-plus'));
+    // Whole-puzzle rotation z rotates the oriented 5-color central pentagon by +72° CW in place
+    const zPrev = computeMacroCyclePreview(state, 'z', [], 'rot');
+    expect(zPrev.ok).toBe(true);
+    expect(zPrev.spins.length).toBe(1);
+    expect(zPrev.spins[0].angleDeg).toBe(72);
+    expect(zPrev.summary).toContain('↻ 72°');
+
+    const zInvPrev = computeMacroCyclePreview(state, "z'", [], 'rotInv');
+    expect(zInvPrev.spins.length).toBe(1);
+    expect(zInvPrev.spins[0].angleDeg).toBe(-72);
+    expect(zInvPrev.summary).toContain('↺ 72°');
+
+    // On a single-color puzzle with a symmetric center piece (e.g. 4-Circle Clover / Roto 36),
+    // rotating a solid-color piece in place should NOT emit bogus moved arrows
+    const r36 = buildPuzzle(getPuzzleSpec('roto-36'));
+    const r36Spin = computeMacroCyclePreview(r36, 'A', [], 'turnA');
+    expect(r36Spin.ok).toBe(true);
+    // The central hexagon of A stays in place (solid red) — only the 18 surrounding pieces should have arrows!
+    expect(r36Spin.arrows.length).toBe(18);
+    expect(r36Spin.spins.length).toBe(0);
+  });
+
+  it('computes rotation- and mirror-invariant pieceShapeType IDs and filters by piece type cleanly', () => {
+    const gp = buildPuzzle(getPuzzleSpec('geranium-plus'));
+    // Every piece keeps its exact shapeType under arbitrary rotation and mirror reflection
+    for (const p of gp.pieces.slice(0, 12)) {
+      const base = pieceShapeType(p.region);
+      expect(pieceShapeType(rotateRegion(p.region, 0, 0, 1.234))).toBe(base);
+      expect(pieceShapeType(reflectRegion(p.region, 'x', 0, 0))).toBe(base);
+      expect(pieceShapeType(reflectRegion(p.region, 'y', 0, 0))).toBe(base);
+    }
+
+    // On Geranium Plus, z moves multiple distinct piece types AND spins the central pentagon
+    const zFull = computeMacroCyclePreview(gp, 'z', [], 'rot');
+    expect(zFull.pieceTypes.length).toBeGreaterThan(2);
+    // Largest piece type is the regular pentagon: includes the 5 outer pentagons (arrows) AND central pentagon (spin)!
+    const pentType = zFull.pieceTypes[0];
+    expect(pentType.hasArrows).toBe(true);
+    expect(pentType.hasSpins).toBe(true);
+
+    // Click an outer pentagon -> focuses ONLY the pentagon piece type!
+    const pentArrow = zFull.arrows.find((a) => a.shapeType === pentType.shapeType)!;
+    const focus1 = toggleFocusTypeAtPoint(undefined, gp, zFull, pentArrow.from);
+    expect(focus1).toEqual([pentType.shapeType]);
+
+    // Normal hover with focusTypes fully hides all non-pentagon pieces while keeping pentagon arrows + center spin
+    const focused = computeMacroCyclePreview(gp, 'z', [], 'rot', { focusTypes: focus1! });
+    const expectedPentArrows = zFull.arrows.filter((a) => a.shapeType === pentType.shapeType).length;
+    expect(focused.arrows.length).toBe(expectedPentArrows);
+    expect(focused.spins.length).toBe(1);
+    expect(focused.hiddenCount).toBe(zFull.arrows.length - expectedPentArrows);
+    expect(focused.summary).toContain('hidden');
+
+    // Inverse macro with the exact same focusTypes highlights the exact same piece type!
+    const invFocused = computeMacroCyclePreview(gp, "z'", [], "rot'", { focusTypes: focus1! });
+    expect(invFocused.arrows.length).toBe(expectedPentArrows);
+    expect(invFocused.spins.length).toBe(1);
+
+    // Focus-picking mode keeps non-focused piece types as `dimmed: true`
+    const pickView = computeMacroCyclePreview(gp, 'z', [], 'rot', {
+      focusTypes: focus1!,
+      includeDimmed: true,
+    });
+    expect(pickView.arrows.length).toBe(zFull.arrows.length);
+    expect(pickView.arrows.filter((a) => !a.dimmed).length).toBe(expectedPentArrows);
+    expect(pickView.arrows.filter((a) => a.dimmed).length).toBe(
+      zFull.arrows.length - expectedPentArrows,
+    );
+
+    // Clicking a DIFFERENT pentagon removes the pentagon shape type from focus
+    const otherPent = zFull.arrows.find(
+      (a) => a.shapeType === pentType.shapeType && a.pieceId !== pentArrow.pieceId,
+    )!;
+    const focusCleared = toggleFocusTypeAtPoint(focus1!, gp, zFull, otherPent.from);
+    expect(focusCleared).toEqual([]);
   });
 });
 

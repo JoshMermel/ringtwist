@@ -19,6 +19,8 @@ export interface MacroLibraryEntry {
   name: string;
   body: string;
   note?: string;
+  /** Optional congruent piece shape-type IDs selecting which piece types to highlight on hover. */
+  focusTypes?: string[];
 }
 
 export interface ExecutedStep {

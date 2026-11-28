@@ -9,8 +9,42 @@ const EXPLORE_SESSION_PREFIX = 'ringtwist:explore:v1:';
 const SOLVE_SESSION_PREFIX = 'ringtwist:solve:v1:';
 const UI_MODE_KEY = 'ringtwist:ui-mode:v1';
 const LAST_PUZZLE_KEY = 'ringtwist:last-puzzle:v1';
+const MACRO_HOVER_ENABLED_KEY = 'ringtwist:macro-hover:v1';
 
 export type UiMode = 'explorer' | 'solve';
+
+/** Sanitize an optional list of congruent piece shape-type IDs for per-macro hover focus. */
+export function sanitizeFocusTypes(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+export function sanitizeMacroEntries(raw: unknown): MacroLibraryEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: MacroLibraryEntry[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== 'object') continue;
+    const rec = m as Record<string, unknown>;
+    if (typeof rec.name !== 'string' || typeof rec.body !== 'string') continue;
+    const focusTypes = sanitizeFocusTypes(rec.focusTypes);
+    out.push({
+      name: rec.name,
+      body: rec.body,
+      ...(typeof rec.note === 'string' ? { note: rec.note } : {}),
+      ...(focusTypes ? { focusTypes } : {}),
+    });
+  }
+  return out;
+}
 
 export interface ExploreSession {
   alg: string;
@@ -46,10 +80,7 @@ export function loadMacros(puzzleId: string): MacroLibraryEntry[] {
     if (!raw) return [...(DEFAULT_MACROS[puzzleId] ?? [])];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.filter(
-        (m): m is MacroLibraryEntry =>
-          typeof m?.name === 'string' && typeof m?.body === 'string',
-      );
+      return sanitizeMacroEntries(parsed);
     }
   } catch {
     // Ignore storage errors (private browsing, quota, etc.)
@@ -120,6 +151,24 @@ export function loadLastPuzzleId(): string | null {
 export function saveLastPuzzleId(puzzleId: string): void {
   try {
     localStorage.setItem(LAST_PUZZLE_KEY, puzzleId);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function loadMacroHoverEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(MACRO_HOVER_ENABLED_KEY);
+    if (raw === '0' || raw === 'false') return false;
+  } catch {
+    // Ignore storage errors
+  }
+  return true;
+}
+
+export function saveMacroHoverEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(MACRO_HOVER_ENABLED_KEY, enabled ? '1' : '0');
   } catch {
     // Ignore storage errors
   }
@@ -255,10 +304,7 @@ export function decodeShareHash(hash: string): SharedPayload | null {
     if (macrosRaw) {
       const parsed = JSON.parse(fromBase64Url(macrosRaw));
       if (Array.isArray(parsed)) {
-        macros = parsed.filter(
-          (m): m is MacroLibraryEntry =>
-            typeof m?.name === 'string' && typeof m?.body === 'string',
-        );
+        macros = sanitizeMacroEntries(parsed);
       }
     }
     let customDoc: RingTwistPuzzleDoc | undefined;

@@ -1,4 +1,13 @@
-import { edgeEnd, edgePointAt, edgeStart, regionToSvgPath } from '../geom/arcRegion.ts';
+import {
+  ArcRegion,
+  edgeEnd,
+  edgePointAt,
+  edgeStart,
+  regionBounds,
+  regionToSvgPath,
+} from '../geom/arcRegion.ts';
+import { Point } from '../geom/math.ts';
+import { ExecutedStep } from '../lang/evaluator.ts';
 import { CyclePreviewResult } from '../puzzle/cyclePreview.ts';
 import { CircleStatus, MoveLayerSpec, getAllCircleStatuses, getCircleStatus } from '../puzzle/engine.ts';
 import { CircleDef, MirrorAxis, Piece, PuzzleSpec, PuzzleState, StickerWedge } from '../puzzle/types.ts';
@@ -44,6 +53,12 @@ export interface TurnAnimationSpec {
   durationMs: number;
   /** If set, animates a 180° pancake mirror flip around 'x' (top↔bottom) or 'y' (left↔right). */
   flipAxis?: MirrorAxis;
+  /** Starting fraction along [0, 1] for resuming/rewinding from a mid-turn scrub position (default 0). */
+  startFrac?: number;
+  /** Ending fraction along [0, 1] (default 1; pass 0 to smoothly rewind back to fromState). */
+  endFrac?: number;
+  /** Optional per-frame progress callback receiving the live fraction u in [0, 1]. */
+  onProgress?: (u: number) => void;
 }
 
 export interface SvgRendererCallbacks {
@@ -247,6 +262,43 @@ export function renderStaticPuzzleSvg(
   return svg;
 }
 
+/**
+ * Render a crisp miniature SVG silhouette of a single piece's geometric shape —
+ * used as visual shape-type chips in the per-macro focus picker.
+ */
+export function renderPieceSilhouetteSvg(
+  region: ArcRegion,
+  className = 'focus-shape-svg',
+): SVGSVGElement {
+  const b = regionBounds(region);
+  const svgMinX = b.minX;
+  const svgMaxX = b.maxX;
+  const svgMinY = -b.maxY;
+  const svgMaxY = -b.minY;
+  const cx = (svgMinX + svgMaxX) * 0.5;
+  const cy = (svgMinY + svgMaxY) * 0.5;
+  const span = Math.max(svgMaxX - svgMinX, svgMaxY - svgMinY, 0.05);
+  const pad = span * 0.16;
+  const size = span + pad * 2;
+
+  const svg = svgEl('svg', {
+    class: className,
+    viewBox: `${(cx - size * 0.5).toFixed(4)} ${(cy - size * 0.5).toFixed(4)} ${size.toFixed(4)} ${size.toFixed(4)}`,
+    'aria-hidden': 'true',
+  });
+  svg.appendChild(
+    svgEl('path', {
+      d: regionToSvgPath(region),
+      fill: 'currentColor',
+      'fill-opacity': '0.32',
+      stroke: 'currentColor',
+      'stroke-width': (span * 0.085).toFixed(4),
+      'stroke-linejoin': 'round',
+    }),
+  );
+  return svg;
+}
+
 export class PuzzleSvgRenderer {
   private svg: SVGSVGElement;
   private piecesLayer: SVGGElement;
@@ -261,11 +313,13 @@ export class PuzzleSvgRenderer {
   private currentState: PuzzleState | null = null;
   private currentStatuses: Record<string, CircleStatus> = {};
   private hoveredHit: { circleId: string; layerOpt?: MoveLayerSpec } | null = null;
+  private focusPickHandler: ((pt: Point) => void) | null = null;
   private lastPointerEvent: MouseEvent | null = null;
   private wheelAccum = 0;
   private wheelCircleId: string | null = null;
   private lastWheelEventMs = 0;
   private lastWheelFireMs = 0;
+  private scrubCache: { fromState: PuzzleState; step: ExecutedStep; half: 0 | 1 } | null = null;
 
   constructor(container: HTMLElement, callbacks: SvgRendererCallbacks) {
     this.callbacks = callbacks;
@@ -378,6 +432,13 @@ export class PuzzleSvgRenderer {
 
     this.svg.addEventListener('mousemove', (ev) => {
       this.lastPointerEvent = ev;
+      if (this.focusPickHandler) {
+        if (this.hoveredHit !== null) {
+          this.hoveredHit = null;
+          this.updateHoverRing();
+        }
+        return;
+      }
       const hit = pickCircleAt(ev);
       const next = hit ? { circleId: hit.circle.id, layerOpt: hit.layerOpt } : null;
       if (!sameHover(next, this.hoveredHit)) {
@@ -395,6 +456,7 @@ export class PuzzleSvgRenderer {
     });
 
     const refreshHoverOnAlt = (ev: KeyboardEvent) => {
+      if (this.focusPickHandler) return;
       if (ev.key !== 'Alt' || !this.lastPointerEvent || !this.hoveredHit) return;
       const hit = pickCircleAt(this.lastPointerEvent, ev.altKey);
       const next = hit ? { circleId: hit.circle.id, layerOpt: hit.layerOpt } : null;
@@ -407,6 +469,11 @@ export class PuzzleSvgRenderer {
     window.addEventListener('keyup', refreshHoverOnAlt);
 
     this.svg.addEventListener('click', (ev) => {
+      if (this.focusPickHandler) {
+        const pt = clientToMath(ev);
+        if (pt) this.focusPickHandler(pt);
+        return;
+      }
       const hit = pickCircleAt(ev);
       if (!hit) return;
       const dir: 1 | -1 = ev.shiftKey ? -1 : 1;
@@ -414,6 +481,10 @@ export class PuzzleSvgRenderer {
     });
 
     this.svg.addEventListener('contextmenu', (ev) => {
+      if (this.focusPickHandler) {
+        ev.preventDefault();
+        return;
+      }
       const hit = pickCircleAt(ev);
       if (!hit) return;
       ev.preventDefault();
@@ -427,6 +498,7 @@ export class PuzzleSvgRenderer {
     this.svg.addEventListener(
       'wheel',
       (ev) => {
+        if (this.focusPickHandler) return;
         const hit = pickCircleAt(ev);
         if (!hit) return;
         const c = hit.circle;
@@ -508,6 +580,19 @@ export class PuzzleSvgRenderer {
   }
 
   /**
+   * Enter or exit interactive focus-cycle picking mode: while active, clicking the puzzle
+   * invokes `handler(mathPt)` to toggle cycles instead of turning circles.
+   */
+  public setFocusPickHandler(handler: ((pt: Point) => void) | null): void {
+    this.focusPickHandler = handler;
+    this.svg.classList.toggle('focus-picking', handler !== null);
+    if (handler !== null && this.hoveredHit !== null) {
+      this.hoveredHit = null;
+      this.updateHoverRing();
+    }
+  }
+
+  /**
    * Render (or clear when null) live piece-cycle arrows overlaid on the puzzle when hovering a macro.
    */
   public setCyclePreview(preview: CyclePreviewResult | null): void {
@@ -534,8 +619,18 @@ export class PuzzleSvgRenderer {
     }
 
     const fmt = (n: number) => Number(n.toFixed(4)).toString();
+    // Smoothly slim down arrows when many active pieces move at once so dense macros stay readable
+    const activeArrowCount = preview.arrows.filter((a) => !a.dimmed).length;
+    const denseScale = activeArrowCount > 14 ? 0.62 : activeArrowCount > 8 ? 0.78 : 1.0;
+    const baseOpacity = activeArrowCount > 14 ? 0.78 : activeArrowCount > 8 ? 0.88 : 0.96;
 
-    for (const arrow of preview.arrows) {
+    // Draw dimmed (unselected in focus-pick mode) arrows underneath bright focused ones
+    const orderedArrows = [
+      ...preview.arrows.filter((a) => a.dimmed),
+      ...preview.arrows.filter((a) => !a.dimmed),
+    ];
+
+    for (const arrow of orderedArrows) {
       const x1 = arrow.from.x;
       const y1 = -arrow.from.y;
       const x2 = arrow.to.x;
@@ -544,6 +639,9 @@ export class PuzzleSvgRenderer {
       const dy = y2 - y1;
       const len = Math.hypot(dx, dy);
       if (len < 1e-3) continue;
+
+      const scale = arrow.dimmed ? Math.min(denseScale, 0.7) : denseScale;
+      const opacity = arrow.dimmed ? 0.24 : baseOpacity;
 
       // Arch slightly to the right of chord so 2-cycles form clean non-overlapping lenses
       const ux = dx / len;
@@ -563,8 +661,8 @@ export class PuzzleSvgRenderer {
       const tuy = ty / tLen;
       const tipX = x2 - tux * (trimEnd * 0.35);
       const tipY = y2 - tuy * (trimEnd * 0.35);
-      const shaftEndX = tipX - tux * 0.075;
-      const shaftEndY = tipY - tuy * 0.075;
+      const shaftEndX = tipX - tux * (0.075 * scale);
+      const shaftEndY = tipY - tuy * (0.075 * scale);
 
       const dCurve = `M ${fmt(x1)} ${fmt(y1)} Q ${fmt(cx)} ${fmt(cy)} ${fmt(shaftEndX)} ${fmt(shaftEndY)}`;
 
@@ -573,9 +671,10 @@ export class PuzzleSvgRenderer {
         svgEl('path', {
           d: dCurve,
           fill: 'none',
-          stroke: 'rgba(9, 14, 28, 0.85)',
-          'stroke-width': 0.068,
+          stroke: 'rgba(9, 14, 28, 0.82)',
+          'stroke-width': fmt(0.068 * scale),
           'stroke-linecap': 'round',
+          opacity: arrow.dimmed ? 0.25 : 1,
         }),
       );
       this.previewLayer.appendChild(
@@ -583,9 +682,9 @@ export class PuzzleSvgRenderer {
           d: dCurve,
           fill: 'none',
           stroke: arrow.color,
-          'stroke-width': 0.036,
+          'stroke-width': fmt(0.036 * scale),
           'stroke-linecap': 'round',
-          opacity: 0.96,
+          opacity,
         }),
       );
 
@@ -594,16 +693,17 @@ export class PuzzleSvgRenderer {
         svgEl('circle', {
           cx: fmt(x1),
           cy: fmt(y1),
-          r: 0.042,
+          r: fmt(0.042 * scale),
           fill: arrow.color,
           stroke: '#090e1c',
-          'stroke-width': 0.018,
+          'stroke-width': fmt(0.018 * scale),
+          opacity,
         }),
       );
 
       // Crisp geometric arrowhead aligned with tangent at tip
-      const headLen = 0.12;
-      const headHalfW = 0.068;
+      const headLen = 0.12 * scale;
+      const headHalfW = 0.068 * scale;
       const baseX = tipX - tux * headLen;
       const baseY = tipY - tuy * headLen;
       const pnx = -tuy;
@@ -618,37 +718,98 @@ export class PuzzleSvgRenderer {
           d: `M ${fmt(tipX)} ${fmt(tipY)} L ${fmt(leftX)} ${fmt(leftY)} L ${fmt(rightX)} ${fmt(rightY)} Z`,
           fill: arrow.color,
           stroke: '#090e1c',
-          'stroke-width': 0.016,
+          'stroke-width': fmt(0.016 * scale),
           'stroke-linejoin': 'round',
+          opacity,
         }),
       );
     }
 
-    for (const spin of preview.spins) {
+    // Crisp directional circular arc + arrowhead + angle badge for in-place rotations
+    const orderedSpins = [
+      ...preview.spins.filter((s) => s.dimmed),
+      ...preview.spins.filter((s) => !s.dimmed),
+    ];
+    for (const spin of orderedSpins) {
       const sx = spin.point.x;
       const sy = -spin.point.y;
-      this.previewLayer.appendChild(
-        svgEl('circle', {
-          cx: fmt(sx),
-          cy: fmt(sy),
-          r: 0.14,
+      const cw = spin.angleDeg >= 0;
+      const spinOpacity = spin.dimmed ? 0.25 : 1;
+      const r = Math.min(0.24, Math.max(0.15, Math.sqrt(Math.max(spin.area, 0.04) / Math.PI) * 0.62));
+      const startRad = cw ? (-125 * Math.PI) / 180 : (-55 * Math.PI) / 180;
+      const sweepRad = cw ? (260 * Math.PI) / 180 : (-260 * Math.PI) / 180;
+      const endRad = startRad + sweepRad;
+      const ax1 = sx + r * Math.cos(startRad);
+      const ay1 = sy + r * Math.sin(startRad);
+      const ax2 = sx + r * Math.cos(endRad);
+      const ay2 = sy + r * Math.sin(endRad);
+      const sweepFlag = cw ? 1 : 0;
+      const arcD = `M ${fmt(ax1)} ${fmt(ay1)} A ${fmt(r)} ${fmt(r)} 0 1 ${sweepFlag} ${fmt(ax2)} ${fmt(ay2)}`;
+
+      const spinG = svgEl('g', { opacity: spinOpacity });
+      spinG.appendChild(
+        svgEl('path', {
+          d: arcD,
           fill: 'none',
-          stroke: '#090e1c',
-          'stroke-width': 0.06,
-          'stroke-dasharray': '0.18 0.08',
+          stroke: 'rgba(9, 14, 28, 0.9)',
+          'stroke-width': 0.068,
+          'stroke-linecap': 'round',
         }),
       );
-      this.previewLayer.appendChild(
-        svgEl('circle', {
-          cx: fmt(sx),
-          cy: fmt(sy),
-          r: 0.14,
+      spinG.appendChild(
+        svgEl('path', {
+          d: arcD,
           fill: 'none',
           stroke: spin.color,
-          'stroke-width': 0.034,
-          'stroke-dasharray': '0.18 0.08',
+          'stroke-width': 0.036,
+          'stroke-linecap': 'round',
         }),
       );
+
+      // Directional arrowhead tangent to end of circular arc
+      const tanRad = endRad + (cw ? Math.PI / 2 : -Math.PI / 2);
+      const tux = Math.cos(tanRad);
+      const tuy = Math.sin(tanRad);
+      const tipX = ax2 + tux * 0.04;
+      const tipY = ay2 + tuy * 0.04;
+      const headLen = 0.115;
+      const headHalfW = 0.065;
+      const baseX = tipX - tux * headLen;
+      const baseY = tipY - tuy * headLen;
+      const pnx = -tuy;
+      const pny = tux;
+      spinG.appendChild(
+        svgEl('path', {
+          d: `M ${fmt(tipX)} ${fmt(tipY)} L ${fmt(baseX + pnx * headHalfW)} ${fmt(baseY + pny * headHalfW)} L ${fmt(baseX - pnx * headHalfW)} ${fmt(baseY - pny * headHalfW)} Z`,
+          fill: spin.color,
+          stroke: '#090e1c',
+          'stroke-width': 0.016,
+          'stroke-linejoin': 'round',
+        }),
+      );
+
+      // Clean center angle badge (e.g. "72°" or "144°")
+      const labelTxt = `${Math.abs(Math.round(spin.angleDeg))}°`;
+      spinG.appendChild(
+        svgEl('rect', {
+          x: fmt(sx - 0.145),
+          y: fmt(sy - 0.085),
+          width: 0.29,
+          height: 0.17,
+          rx: 0.075,
+          fill: 'rgba(9, 14, 28, 0.92)',
+          stroke: spin.color,
+          'stroke-width': 0.018,
+        }),
+      );
+      const degEl = svgEl('text', {
+        x: fmt(sx),
+        y: fmt(sy),
+        class: 'spin-angle-text',
+      });
+      degEl.textContent = labelTxt;
+      spinG.appendChild(degEl);
+      this.previewLayer.appendChild(spinG);
     }
   }
 
@@ -673,6 +834,7 @@ export class PuzzleSvgRenderer {
     statuses?: Record<string, CircleStatus>,
   ): void {
     this.cancelAnimation();
+    this.scrubCache = null;
     this.currentSpec = state.spec;
     this.currentState = state;
     this.currentStatuses = statuses ?? getAllCircleStatuses(state);
@@ -682,8 +844,72 @@ export class PuzzleSvgRenderer {
     this.drawRimsAndLabels(state.spec, this.currentStatuses, highlight.blockedCircleId);
   }
 
+  private applyMovingTransform(
+    angleDeg: number,
+    pivot: { x: number; y: number },
+    flipAxis: MirrorAxis | undefined,
+    u: number,
+  ): void {
+    const px = pivot.x;
+    const svgPy = -pivot.y;
+    if (flipAxis) {
+      const scale = Math.max(0.001, Math.abs(Math.cos(Math.PI * u)));
+      const sx = flipAxis === 'y' ? scale : 1;
+      const sy = flipAxis === 'x' ? scale : 1;
+      this.movingLayer.setAttribute(
+        'transform',
+        `translate(${px.toFixed(4)} ${svgPy.toFixed(4)}) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(${(-px).toFixed(4)} ${(-svgPy).toFixed(4)})`,
+      );
+    } else {
+      const curDeg = angleDeg * u;
+      this.movingLayer.setAttribute(
+        'transform',
+        `rotate(${curDeg.toFixed(3)} ${px.toFixed(4)} ${svgPy.toFixed(4)})`,
+      );
+    }
+  }
+
   /**
-   * Smoothly animate a turn from `fromState` to `toState`, then snap cleanly to `toState`.
+   * Render a continuous mid-turn frame at fraction `frac` in (0, 1) of `step` starting from
+   * `fromState`. Caches the base SVG DOM per (fromState, step, flip-half) so dragging the
+   * scrubber inside a move updates only a single `transform` attribute at 60 fps.
+   */
+  public renderScrubFrame(
+    fromState: PuzzleState,
+    step: ExecutedStep,
+    frac: number,
+    statuses?: Record<string, CircleStatus>,
+  ): void {
+    this.cancelAnimation();
+    const u = Math.max(0, Math.min(1, frac));
+    if (step.fastForwarded) {
+      this.render(u >= 0.5 ? step.stateAfter : fromState, {}, statuses);
+      return;
+    }
+
+    const half: 0 | 1 = step.flipAxis && u >= 0.5 ? 1 : 0;
+    const hitCache =
+      this.scrubCache !== null &&
+      this.scrubCache.fromState === fromState &&
+      this.scrubCache.step === step &&
+      this.scrubCache.half === half;
+
+    if (!hitCache) {
+      this.currentSpec = fromState.spec;
+      this.currentState = fromState;
+      this.currentStatuses = statuses ?? getAllCircleStatuses(fromState);
+      this.updateViewBox(fromState.spec);
+      const drawState = half === 1 ? step.stateAfter : fromState;
+      this.drawPieces(drawState, new Set(), new Set(step.movedPieceIds));
+      this.drawRimsAndLabels(fromState.spec, this.currentStatuses, undefined);
+      this.scrubCache = { fromState, step, half };
+    }
+
+    this.applyMovingTransform(step.angleDeg, step.pivot, step.flipAxis, u);
+  }
+
+  /**
+   * Smoothly animate a turn from `startFrac` to `endFrac` (default 0 → 1), then snap cleanly.
    */
   public animateTurn(
     anim: TurnAnimationSpec,
@@ -694,8 +920,19 @@ export class PuzzleSvgRenderer {
     const prevStatuses =
       this.currentState === anim.fromState ? this.currentStatuses : undefined;
     this.cancelAnimation();
-    if (anim.durationMs <= 16 || Math.abs(anim.angleDeg) < 1e-4) {
-      this.render(anim.toState, highlightAfter, statusesAfter);
+    this.scrubCache = null;
+
+    const startFrac = anim.startFrac ?? 0;
+    const endFrac = anim.endFrac ?? 1;
+    const finalState = endFrac >= 0.5 ? anim.toState : anim.fromState;
+
+    if (
+      anim.durationMs <= 16 ||
+      Math.abs(endFrac - startFrac) < 1e-4 ||
+      (!anim.flipAxis && Math.abs(anim.angleDeg) < 1e-4)
+    ) {
+      this.render(finalState, highlightAfter, statusesAfter);
+      anim.onProgress?.(endFrac);
       onDone?.();
       return;
     }
@@ -706,49 +943,38 @@ export class PuzzleSvgRenderer {
     this.updateViewBox(anim.fromState.spec);
 
     const movedSet = new Set(anim.movedPieceIds);
-    this.drawPieces(anim.fromState, new Set(), movedSet);
+    let curHalf: 0 | 1 = anim.flipAxis && startFrac >= 0.5 ? 1 : 0;
+    this.drawPieces(curHalf === 1 ? anim.toState : anim.fromState, new Set(), movedSet);
     this.drawRimsAndLabels(
       anim.fromState.spec,
       this.currentStatuses,
       undefined,
     );
+    this.applyMovingTransform(anim.angleDeg, anim.pivot, anim.flipAxis, startFrac);
 
     let startTime: number | null = null;
-    const { x: px, y: py } = anim.pivot;
-    const svgPy = -py;
-    let swappedFlipHalf = false;
 
     const tick = (now: number) => {
       if (startTime === null) startTime = now;
       const t = Math.min(1, (now - startTime) / anim.durationMs);
+      const u = startFrac + (endFrac - startFrac) * t;
+
       if (anim.flipAxis) {
-        // Constant-angular-velocity 3D flip projection: cos(pi * t) folds 1 -> 0, swaps at midpoint, unfolds 0 -> 1
-        if (t >= 0.5 && !swappedFlipHalf) {
-          swappedFlipHalf = true;
-          this.drawPieces(anim.toState, new Set(), movedSet);
+        const nextHalf: 0 | 1 = u >= 0.5 ? 1 : 0;
+        if (nextHalf !== curHalf) {
+          curHalf = nextHalf;
+          this.drawPieces(curHalf === 1 ? anim.toState : anim.fromState, new Set(), movedSet);
         }
-        const scale = Math.max(0.001, Math.abs(Math.cos(Math.PI * t)));
-        const sx = anim.flipAxis === 'y' ? scale : 1;
-        const sy = anim.flipAxis === 'x' ? scale : 1;
-        this.movingLayer.setAttribute(
-          'transform',
-          `translate(${px.toFixed(4)} ${svgPy.toFixed(4)}) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(${(-px).toFixed(4)} ${(-svgPy).toFixed(4)})`,
-        );
-      } else {
-        // Smooth constant-velocity rotation (no aggressive easing spikes or sluggish tails)
-        const curDeg = anim.angleDeg * t;
-        this.movingLayer.setAttribute(
-          'transform',
-          `rotate(${curDeg.toFixed(3)} ${px.toFixed(4)} ${svgPy.toFixed(4)})`,
-        );
       }
+      this.applyMovingTransform(anim.angleDeg, anim.pivot, anim.flipAxis, u);
+      anim.onProgress?.(u);
 
       if (t < 1) {
         this.animFrameId = requestAnimationFrame(tick);
       } else {
         this.animFrameId = null;
         this.movingLayer.removeAttribute('transform');
-        this.render(anim.toState, highlightAfter, statusesAfter);
+        this.render(finalState, highlightAfter, statusesAfter);
         onDone?.();
       }
     };

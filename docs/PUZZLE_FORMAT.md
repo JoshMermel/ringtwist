@@ -60,6 +60,7 @@ Every entry in `axes` defines playable turn axes (IDs `A`–`W`; `X`, `Y`, `Z` a
   "layers": [0.68, 1],
   "stops": 6,
   "region": "inside",
+  "discovered": false,
   "color": "#ef4444",
   "labelPos": [-1.2, 0]
 }
@@ -70,6 +71,7 @@ Every entry in `axes` defines playable turn axes (IDs `A`–`W`; `X`, `Y`, `Z` a
   - array of explicit CW stop angles in degrees (`[0, 36, 108, ...]`), or
   - `{ "steps": [36, 72, ...] }` (cumulative CW increments summing to 360°).
 - `region` (optional): `"inside"` (default) or `"outside"` (rotates everything *outside* the circle, as in ThinkFun Moonspinner).
+- `discovered` (optional, supported on both explicit axes and `ring` generators): marks an emergent internal grip (like **Cube4you OctoCrystal**'s `I–P`) that is excluded from the initial silhouette/cuts, stays hidden while blocked, and highlights in amber-gold whenever pieces align to unlock it.
 
 ### Ring Generator
 Generates $N$ evenly spaced axes around a center:
@@ -173,8 +175,7 @@ Attach oriented multi-color wedge stickers to a piece (which rotate with the pie
   "coloring": [
     {
       "type": "venn",
-      "circles": ["A", "B"],
-      "palette": { "10": "#ef4444", "01": "#38bdf8", "11": "#facc15" }
+      "colors": { "A": "#ef4444", "B": "#38bdf8", "AB": "#facc15" }
     }
   ],
   "sampleAlgorithms": [
