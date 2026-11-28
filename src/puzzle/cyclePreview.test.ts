@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { reflectRegion, rotateRegion } from '../geom/arcRegion.ts';
+import {
+  parseInlineMacroFocus,
+  setInlineMacroFocusInSource,
+} from '../lang/focusDirectives.ts';
 import { decodeShareHash, encodeShareHash } from '../ui/storage.ts';
 import { buildPuzzle } from './builder.ts';
 import { getPuzzleSpec } from './catalog.ts';
 import {
   computeMacroCyclePreview,
+  getPuzzlePieceTypeCatalog,
   pieceShapeType,
   toggleFocusTypeAtPoint,
 } from './cyclePreview.ts';
@@ -55,8 +60,28 @@ describe('macro piece-cycle preview', () => {
     expect(zInvPrev.spins[0].angleDeg).toBe(-72);
     expect(zInvPrev.summary).toContain('↺ 72°');
 
-    // On a single-color puzzle with a symmetric center piece (e.g. 4-Circle Clover / Roto 36),
-    // rotating a solid-color piece in place should NOT emit bogus moved arrows
+    // Any slot of an oriented piece type (e.g. an outer solid pentagon on Geranium Plus)
+    // should ALSO report its exact rotation-in-place spin angle, even when currently occupied
+    // by a solid-color piece (because another piece of that type has orientation).
+    const big3Pure = "[[A3', D3], [z': [A3: C4' [E4: C3] C]]]";
+    const rot8 = "[A3' D B4', D3]";
+    const cspinPure = `[${rot8}, ${big3Pure}]`;
+    const cspinCenter = computeMacroCyclePreview(state, cspinPure, [], 'cspin_pure');
+    expect(cspinCenter.ok).toBe(true);
+    expect(cspinCenter.arrows.length).toBe(0);
+    // Commutator [rot8, big3_pure] twists the central pentagon (+72°) AND a solid outer pentagon (-72°)!
+    expect(cspinCenter.spins.length).toBe(2);
+    const spinAngles = cspinCenter.spins.map((s) => s.angleDeg).sort((a, b) => a - b);
+    expect(spinAngles).toEqual([-72, 72]);
+
+    // Pure big3_pure is a clean 3-cycle of big pentagons with zero stationary spins
+    const big3Prev = computeMacroCyclePreview(state, big3Pure, [], 'big3_pure');
+    expect(big3Prev.ok).toBe(true);
+    expect(big3Prev.arrows.length).toBe(3);
+    expect(big3Prev.spins.length).toBe(0);
+
+    // On a single-color puzzle where NO piece of the center shape type has orientation (e.g. Roto 36),
+    // rotating a solid-color piece in place should STILL NOT emit bogus moved arrows or spins
     const r36 = buildPuzzle(getPuzzleSpec('roto-36'));
     const r36Spin = computeMacroCyclePreview(r36, 'A', [], 'turnA');
     expect(r36Spin.ok).toBe(true);
@@ -83,27 +108,41 @@ describe('macro piece-cycle preview', () => {
     expect(pentType.hasArrows).toBe(true);
     expect(pentType.hasSpins).toBe(true);
 
-    // Click an outer pentagon -> focuses ONLY the pentagon piece type!
+    // Click an outer pentagon -> focuses ONLY the canonical named "big_pent" piece type!
     const pentArrow = zFull.arrows.find((a) => a.shapeType === pentType.shapeType)!;
-    const focus1 = toggleFocusTypeAtPoint(undefined, gp, zFull, pentArrow.from);
-    expect(focus1).toEqual([pentType.shapeType]);
+    const focus1 = toggleFocusTypeAtPoint(undefined, gp, zFull, pentArrow.from, gp);
+    expect(focus1).toEqual(['big_pent']);
 
     // Normal hover with focusTypes fully hides all non-pentagon pieces while keeping pentagon arrows + center spin
-    const focused = computeMacroCyclePreview(gp, 'z', [], 'rot', { focusTypes: focus1! });
+    const focused = computeMacroCyclePreview(gp, 'z', [], 'rot', {
+      focusTypes: focus1!,
+      solvedState: gp,
+    });
     const expectedPentArrows = zFull.arrows.filter((a) => a.shapeType === pentType.shapeType).length;
     expect(focused.arrows.length).toBe(expectedPentArrows);
     expect(focused.spins.length).toBe(1);
     expect(focused.hiddenCount).toBe(zFull.arrows.length - expectedPentArrows);
     expect(focused.summary).toContain('hidden');
 
+    // Legacy raw shapeType hash also still works alongside semantic names
+    const legacyFocused = computeMacroCyclePreview(gp, 'z', [], 'rot', {
+      focusTypes: [pentType.shapeType],
+      solvedState: gp,
+    });
+    expect(legacyFocused.arrows.length).toBe(expectedPentArrows);
+
     // Inverse macro with the exact same focusTypes highlights the exact same piece type!
-    const invFocused = computeMacroCyclePreview(gp, "z'", [], "rot'", { focusTypes: focus1! });
+    const invFocused = computeMacroCyclePreview(gp, "z'", [], "rot'", {
+      focusTypes: focus1!,
+      solvedState: gp,
+    });
     expect(invFocused.arrows.length).toBe(expectedPentArrows);
     expect(invFocused.spins.length).toBe(1);
 
     // Focus-picking mode keeps non-focused piece types as `dimmed: true`
     const pickView = computeMacroCyclePreview(gp, 'z', [], 'rot', {
       focusTypes: focus1!,
+      solvedState: gp,
       includeDimmed: true,
     });
     expect(pickView.arrows.length).toBe(zFull.arrows.length);
@@ -116,8 +155,75 @@ describe('macro piece-cycle preview', () => {
     const otherPent = zFull.arrows.find(
       (a) => a.shapeType === pentType.shapeType && a.pieceId !== pentArrow.pieceId,
     )!;
-    const focusCleared = toggleFocusTypeAtPoint(focus1!, gp, zFull, otherPent.from);
+    const focusCleared = toggleFocusTypeAtPoint(focus1!, gp, zFull, otherPent.from, gp);
     expect(focusCleared).toEqual([]);
+  });
+
+  it('resolves named pieceTypes on Geranium family and parses/edits // @focus directives cleanly', () => {
+    const gp = buildPuzzle(getPuzzleSpec('geranium-plus'));
+    const gpCatalog = getPuzzlePieceTypeCatalog(gp);
+    expect(gpCatalog.map((c) => [c.id, c.totalCount])).toEqual([
+      ['big_pent', 6],
+      ['petal', 15],
+      ['small_pent', 10],
+      ['kite', 15],
+      ['tri', 40],
+    ]);
+
+    const gStd = buildPuzzle(getPuzzleSpec('geranium'));
+    expect(getPuzzlePieceTypeCatalog(gStd).map((c) => c.id)).toEqual([
+      'big_pent',
+      'shield',
+      'petal',
+      't_piece',
+      'tri',
+    ]);
+
+    // Unnamed puzzle falls back cleanly to area-ranked type1, type2, ...
+    const two = buildPuzzle(getPuzzleSpec('two-circle'));
+    expect(getPuzzlePieceTypeCatalog(two).map((c) => c.id)[0]).toBe('type1');
+
+    // Parse section-level and per-line // @focus directives
+    const script = [
+      '// === Phase 1: Kites ===',
+      '// @focus kite, small_pent',
+      "sep = s9b [z2': s10b'] // 19t: Kite(2,2) + SP(3)",
+      '',
+      '// === Phase 3: Big Pentagons ===',
+      '// @focus big_pent',
+      'big3 = g4 // 4t: BigPent(3)',
+      'petal3 = rot8 // @focus petal, big_pent — 8t: Petal(3)',
+      'show_all = g4 // @focus all',
+      '// @focus all',
+      'tri3 = (p8)2',
+    ].join('\n');
+
+    expect(parseInlineMacroFocus(script)).toEqual({
+      sep: ['kite', 'small_pent'],
+      big3: ['big_pent'],
+      petal3: ['petal', 'big_pent'],
+    });
+
+    // Updating inline macro with existing prose comment prepends `@focus ... — ` cleanly
+    const edited1 = setInlineMacroFocusInSource(script, 'sep', ['kite']);
+    expect(edited1).toContain("sep = s9b [z2': s10b'] // @focus kite — 19t: Kite(2,2) + SP(3)");
+    expect(parseInlineMacroFocus(edited1).sep).toEqual(['kite']);
+
+    // Updating inline macro that already has `@focus` replaces tokens while keeping prose
+    const edited2 = setInlineMacroFocusInSource(edited1, 'petal3', ['petal']);
+    expect(edited2).toContain('petal3 = rot8 // @focus petal — 8t: Petal(3)');
+
+    // Clearing focus on a macro under an active section directive writes `@focus all`
+    const edited3 = setInlineMacroFocusInSource(edited2, 'big3', []);
+    expect(edited3).toContain('big3 = g4 // @focus all — 4t: BigPent(3)');
+    expect(parseInlineMacroFocus(edited3).big3).toBeUndefined();
+
+    // Adding and then clearing focus on a bare macro line adds and cleanly removes `// @focus`
+    const edited4 = setInlineMacroFocusInSource(edited3, 'tri3', ['tri']);
+    expect(edited4).toContain('tri3 = (p8)2 // @focus tri');
+    const edited5 = setInlineMacroFocusInSource(edited4, 'tri3', []);
+    expect(edited5).toContain('tri3 = (p8)2');
+    expect(edited5).not.toContain('tri3 = (p8)2 //');
   });
 });
 

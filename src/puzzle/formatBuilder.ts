@@ -765,6 +765,15 @@ export function compileRingTwistDoc(doc: RingTwistPuzzleDoc): PuzzleSpec {
       }
     : undefined;
 
+  const pieceTypes = doc.pieceTypes?.map((pt) => ({
+    id: pt.id,
+    ...(pt.label ? { label: pt.label } : {}),
+    probe: {
+      x: evalNumExpr(pt.probe[0], env),
+      y: evalNumExpr(pt.probe[1], env),
+    },
+  }));
+
   const spec: PuzzleSpec = {
     id: doc.id,
     name: doc.name,
@@ -774,6 +783,7 @@ export function compileRingTwistDoc(doc: RingTwistPuzzleDoc): PuzzleSpec {
     symmetryStepDeg,
     ...(symmetryCenter ? { symmetryCenter } : {}),
     ...(viewBounds ? { viewBounds } : {}),
+    ...(pieceTypes && pieceTypes.length > 0 ? { pieceTypes } : {}),
     ...(doc.sampleAlgorithms ? { sampleAlgorithms: doc.sampleAlgorithms } : {}),
     customBuilder: (s) => buildPiecesFromRingTwistDoc(doc, s, env),
   };

@@ -24,6 +24,9 @@ Unlike legacy line-script formats that address pieces by fragile creation indice
   "cuts": [ ... ],
   "coloring": [ ... ],
   "stickers": [ ... ],
+  "pieceTypes": [
+    { "id": "big_pent", "label": "Big Pentagon", "probe": [0, 0] }
+  ],
   "sampleAlgorithms": [
     { "name": "Commutator", "alg": "[A, B]", "note": "Optional tooltip" }
   ]
@@ -150,6 +153,24 @@ Attach oriented multi-color wedge stickers to a piece (which rotate with the pie
   }
 ]
 ```
+
+---
+
+## `pieceTypes` (Optional)
+
+Give human-readable names to congruent piece shape classes using a single interior `[x, y]` probe point per shape (automatically matching every rotated or reflected congruent piece). These names appear on the `🎯` focus-picker chips and can be referenced directly in plain-text script comments via `// @focus <id1>, <id2>`:
+
+```json
+"pieceTypes": [
+  { "id": "big_pent",   "label": "Big Pentagon",   "probe": [0, 0] },
+  { "id": "petal",      "label": "Petal",          "probe": [0.0422, 0.6743] },
+  { "id": "small_pent", "label": "Small Pentagon", "probe": [-0.5878, 0.8408] },
+  { "id": "kite",       "label": "Kite",           "probe": [-1.0633, 0.6545] },
+  { "id": "tri",        "label": "Triangle",       "probe": [0, 1.1772] }
+]
+```
+
+Puzzles without explicit `pieceTypes` automatically receive deterministic area-ranked fallback IDs (`type1`, `type2`, … largest first).
 
 ---
 

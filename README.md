@@ -20,7 +20,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
   - Supports **discovered grips** (`discovered: true`, e.g. OctoCrystal's emergent internal grips `I–P`) that stay hidden while blocked and appear automatically in amber-gold whenever pieces align to unlock them.
 - **Explore & Solve Modes**: Switch between **Explore** (start solved, build & analyze sequences) and **Solve** (deterministic seeded scrambles up to 1,000 moves, **Solve Stack** milestone checkpoints, timer, move counter, Undo, and a toggleable **👁 Solved** reference overlay).
 - **Group-Theory Fast-Forward & Order Analyzer**: Detects shape-preserving permutations (jumping huge repeats in $O(n)$ via cycle powers with exact `BigInt` prime-factor order reduction) and state-hash cycles, plus one-click **Analyze Order** for any algorithm, selection, or macro.
-- **Macro Library, Piece-Type Hover Previews & URL Sharing**: Save reusable macros per puzzle (`localStorage`), hover any macro (or `Inv '`) for live piece-cycle arrows and directional rotation-in-place angle badges (`↻ 72°`), click `🎯` to focus specific congruent piece shapes (`focusTypes`, with `Alt`-hover to peek all), import/export JSON, and share puzzles (including custom JSON puzzles!) + algorithms + macros via live URL hashes (`#p=...`).
+- **Macro Library, Named Piece-Type Hover Previews & URL Sharing**: Save reusable macros per puzzle (`localStorage`) or define them inline (`name = expr`), hover any macro (or `Inv '`) for live piece-cycle arrows and directional rotation-in-place angle badges (`↻ 72°`, shown for every slot of an oriented piece type), and filter noisy macros by congruent piece shape via `🎯` or portable plain-text `// @focus big_pent, kite` comments (section-level or per-macro; clicking `🎯` on an inline macro updates its `// @focus` right in the script; `Alt`-hover peeks at all pieces). Import/export JSON and share puzzles (including custom JSON puzzles!) + algorithms + macros via live URL hashes (`#p=...`).
 - **Declarative `ringtwist/v1` Format & Puzzle JSON Studio**: Design new 2D circle puzzles or inspect/fork any built-in puzzle directly in the browser via **Choose a Puzzle → `+ Custom JSON`** (or `{ }` on any card) with live validation, starter templates, SVG preview, `localStorage` persistence, and shareable URLs. See [`docs/PUZZLE_FORMAT.md`](docs/PUZZLE_FORMAT.md).
 - **Twizzle-Style Continuous Scrubbing & Mouse Input**: Drag the timeline scrubber smoothly through turns (stays parked mid-turn on release; Play and Step smoothly continue or rewind from any angle), logarithmic `0.25×–4.0×` speed control, cursor-synced preview, and click/scroll input with automatic move coalescing and cancellation (`B` + `B'` cancels, `B` + `B` → `B2`).
 
@@ -87,6 +87,7 @@ Inspired by [Twizzle](https://alpha.twizzle.net/explore/?puzzle=3x3x3) for algor
 
 ```text
 // Comments start with // or #
+// @focus big_pent      // Section-level hover filter for macros below (or per-line)
 conj = [A: D3]          // Inline macro: A D3 A'
 [z: conj]               // Conjugate by 1 whole-puzzle rotation CW (72° on Geranium)
 [A3, E3]2               // Commutator repeated twice: (A3 E3 A3' E3')2

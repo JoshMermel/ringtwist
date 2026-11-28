@@ -341,6 +341,12 @@ export const OCTOCRYSTAL_DOC: RingTwistPuzzleDoc = {
       ],
     },
   ],
+  pieceTypes: [
+    { id: 'inner_quad', label: 'Inner Quad', probe: [0.5, 1.2071] },
+    { id: 'mid_quad', label: 'Mid Quad', probe: [0.0301, 0.9875] },
+    { id: 'outer_quad', label: 'Outer Quad', probe: [0.2854, 1.6889] },
+    { id: 'petal', label: 'Petal', probe: [0.8536, 1.3536] },
+  ],
   sampleAlgorithms: [
     {
       name: 'Discovered grip demo (A2 D\' G P3)',

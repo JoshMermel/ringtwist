@@ -8,11 +8,16 @@ import {
   analyzeAlgorithm,
   evaluateProgram,
 } from './lang/evaluator.ts';
+import {
+  parseInlineMacroFocus,
+  setInlineMacroFocusInSource,
+} from './lang/focusDirectives.ts';
 import { buildPuzzle } from './puzzle/builder.ts';
 import { PUZZLE_CATALOG, getPuzzleSpec } from './puzzle/catalog.ts';
 import {
   CyclePreviewResult,
   computeMacroCyclePreview,
+  resolveFocusTypeSet,
   toggleFocusType,
   toggleFocusTypeAtPoint,
 } from './puzzle/cyclePreview.ts';
@@ -153,6 +158,7 @@ class RingTwistApp {
   private solvedPeekVisible = false;
   private solvedPeekExpanded = false;
   private macroHoverEnabled = true;
+  private inlineFocusTypes: Record<string, string[]> = {};
   private editingFocusMacroName: string | null = null;
   private cyclePreviewCache = new Map<string, CyclePreviewResult>();
   private lastMacroListKey = '';
@@ -230,8 +236,10 @@ class RingTwistApp {
     // bare `#p=<id>` preserves the user's saved mode and sessions.
     if (shared?.scrambleSeed) {
       this.uiMode = 'solve';
+      saveUiMode('solve');
     } else if (shared?.hasSharedAlg) {
       this.uiMode = 'explorer';
+      saveUiMode('explorer');
     } else {
       this.uiMode = loadUiMode();
     }
@@ -423,10 +431,13 @@ class RingTwistApp {
     saveLastPuzzleId(this.currentSpec.id);
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = shared.macros ?? loadMacros(this.currentSpec.id);
+    this.inlineFocusTypes = {};
     if (shared.scrambleSeed) {
       this.uiMode = 'solve';
+      saveUiMode('solve');
     } else if (shared.hasSharedAlg) {
       this.uiMode = 'explorer';
+      saveUiMode('explorer');
     }
     this.loadPuzzleSessions(this.currentSpec.id, shared);
     this.lastMacroListKey = '';
@@ -905,8 +916,16 @@ class RingTwistApp {
       }
 
       const existingIdx = this.macros.findIndex((m) => m.name === name);
-      if (existingIdx >= 0) this.macros[existingIdx] = { ...this.macros[existingIdx], body };
-      else this.macros.push({ name, body });
+      if (existingIdx >= 0) {
+        this.macros[existingIdx] = { ...this.macros[existingIdx], body };
+      } else {
+        const inheritedFocus = this.inlineFocusTypes[name];
+        this.macros.push({
+          name,
+          body,
+          ...(inheritedFocus?.length ? { focusTypes: inheritedFocus } : {}),
+        });
+      }
       saveMacros(this.currentSpec.id, this.macros);
       this.cyclePreviewCache.clear();
       this.macroNameInput.value = '';
@@ -1034,6 +1053,13 @@ class RingTwistApp {
     }
   }
 
+  private syncCleanPuzzleHash(): void {
+    const clean = `#p=${encodeURIComponent(this.currentSpec.id)}`;
+    if (window.location.hash !== clean) {
+      window.history.replaceState(null, '', clean);
+    }
+  }
+
   private switchUiMode(mode: UiMode): void {
     if (mode === this.uiMode) return;
     this.flushPendingEval();
@@ -1053,6 +1079,8 @@ class RingTwistApp {
 
     this.uiMode = mode;
     saveUiMode(mode);
+    // Strip any one-shot share params (&s=, &a=, &m=) so refreshing stays in this mode
+    this.syncCleanPuzzleHash();
     this.applyUiModeChrome();
 
     if (mode === 'solve') {
@@ -1191,6 +1219,7 @@ class RingTwistApp {
     this.completionDismissed = false;
     this.resetTimer();
     this.editor.setValue('');
+    this.syncCleanPuzzleHash();
     this.reevaluate(true, { suppressAutoStart: true });
     this.persistCurrentSessions();
     this.showToast(`Scrambled with seed "${this.solveSeed}" (${this.solveScrambleMoves} moves)`);
@@ -1237,6 +1266,7 @@ class RingTwistApp {
     this.commitMilestoneLabelInput.value = '';
     this.solveActiveAlg = '';
     this.editor.setValue('');
+    this.syncCleanPuzzleHash();
     this.reevaluate(true, { suppressAutoStart: true });
     this.showToast(`Committed "${label}" (${this.compiledMilestones[this.compiledMilestones.length - 1].steps.length} moves)`);
   }
@@ -1427,6 +1457,7 @@ class RingTwistApp {
     if (!res) {
       res = computeMacroCyclePreview(curState, algSource, this.getMergedMacros(), label, {
         focusTypes: activeFocus,
+        solvedState: this.solvedState,
       });
       if (this.cyclePreviewCache.size >= 64) {
         const firstKey = this.cyclePreviewCache.keys().next().value;
@@ -1448,14 +1479,20 @@ class RingTwistApp {
     }
   }
 
-  // ---- Interactive Per-Macro Piece-Type Focus Picker ----
+  // ---- Interactive Per-Macro Piece-Type Focus Picker (Saved & Inline Macros) ----
+
+  private getMacroFocusTypes(macroName: string): string[] | undefined {
+    const saved = this.macros.find((m) => m.name === macroName);
+    if (saved) return saved.focusTypes;
+    return this.inlineFocusTypes[macroName];
+  }
 
   private enterFocusPickMode(macroName: string): void {
     if (this.editingFocusMacroName === macroName) {
       this.exitFocusPickMode();
       return;
     }
-    const entry = this.macros.find((m) => m.name === macroName);
+    const entry = this.getMergedMacros().find((m) => m.name === macroName);
     if (!entry) return;
     this.stopPlayback();
     if (!this.isAtIntegerPos()) {
@@ -1481,16 +1518,41 @@ class RingTwistApp {
 
   private updateMacroFocusTypes(macroName: string, nextFocusTypes: string[]): void {
     const idx = this.macros.findIndex((m) => m.name === macroName);
-    if (idx < 0) return;
-    const entry = this.macros[idx];
-    if (nextFocusTypes.length > 0) {
-      this.macros[idx] = { ...entry, focusTypes: nextFocusTypes };
-    } else {
-      const { focusTypes: _removed, ...rest } = entry;
-      this.macros[idx] = rest;
+    if (idx >= 0) {
+      const entry = this.macros[idx];
+      if (nextFocusTypes.length > 0) {
+        this.macros[idx] = { ...entry, focusTypes: nextFocusTypes };
+      } else {
+        const { focusTypes: _removed, ...rest } = entry;
+        this.macros[idx] = rest;
+      }
+      saveMacros(this.currentSpec.id, this.macros);
+      this.cyclePreviewCache.clear();
+      this.renderFocusPickOverlay();
+      this.lastMacroListKey = '';
+      this.renderMacroList();
+      return;
     }
-    saveMacros(this.currentSpec.id, this.macros);
-    this.cyclePreviewCache.clear();
+
+    // Inline macro: write/update `// @focus ...` directly on the macro's definition line in the editor
+    const curSrc = this.editor.getValue();
+    const nextSrc = setInlineMacroFocusInSource(curSrc, macroName, nextFocusTypes);
+    if (nextSrc !== curSrc) {
+      const ta = this.editor.textarea;
+      const scrollTop = ta.scrollTop;
+      const selStart = Math.min(ta.selectionStart ?? nextSrc.length, nextSrc.length);
+      const selEnd = Math.min(ta.selectionEnd ?? nextSrc.length, nextSrc.length);
+      this.editor.setValue(nextSrc);
+      ta.selectionStart = selStart;
+      ta.selectionEnd = selEnd;
+      ta.scrollTop = scrollTop;
+      this.syncCleanPuzzleHash();
+      this.cyclePreviewCache.clear();
+      this.reevaluate(false, { suppressAutoStart: true });
+    } else {
+      this.inlineFocusTypes = parseInlineMacroFocus(curSrc);
+      this.cyclePreviewCache.clear();
+    }
     this.renderFocusPickOverlay();
     this.lastMacroListKey = '';
     this.renderMacroList();
@@ -1498,7 +1560,7 @@ class RingTwistApp {
 
   private handleFocusPickClick(pt: { x: number; y: number }): void {
     if (!this.editingFocusMacroName) return;
-    const entry = this.macros.find((m) => m.name === this.editingFocusMacroName);
+    const entry = this.getMergedMacros().find((m) => m.name === this.editingFocusMacroName);
     if (!entry) {
       this.exitFocusPickMode();
       return;
@@ -1509,33 +1571,42 @@ class RingTwistApp {
       entry.body,
       this.getMergedMacros(),
       entry.name,
+      { solvedState: this.solvedState },
     );
     if (!fullPreview.ok || fullPreview.blocked) return;
 
-    const nextFocus = toggleFocusTypeAtPoint(entry.focusTypes, curState, fullPreview, pt);
+    const currentTypes = this.getMacroFocusTypes(entry.name);
+    const nextFocus = toggleFocusTypeAtPoint(
+      currentTypes,
+      curState,
+      fullPreview,
+      pt,
+      this.solvedState,
+    );
     if (nextFocus === null) return;
     this.updateMacroFocusTypes(entry.name, nextFocus);
   }
 
   private renderFocusPickOverlay(): void {
     if (!this.editingFocusMacroName) return;
-    const entry = this.macros.find((m) => m.name === this.editingFocusMacroName);
+    const entry = this.getMergedMacros().find((m) => m.name === this.editingFocusMacroName);
     if (!entry) {
       this.exitFocusPickMode();
       return;
     }
+    const currentFocusTypes = this.getMacroFocusTypes(entry.name);
     const curState = this.getDisplayedState();
     const res = computeMacroCyclePreview(
       curState,
       entry.body,
       this.getMergedMacros(),
       entry.name,
-      { focusTypes: entry.focusTypes, includeDimmed: true },
+      { focusTypes: currentFocusTypes, solvedState: this.solvedState, includeDimmed: true },
     );
     this.renderer.setCyclePreview(res);
 
-    const selectedSet = new Set(entry.focusTypes ?? []);
-    const selCount = selectedSet.size;
+    const selectedShapes = resolveFocusTypeSet(this.solvedState, currentFocusTypes);
+    const selCount = selectedShapes.size;
     this.focusPickBarEl.hidden = false;
     this.focusPickBarEl.innerHTML = `
       <div class="focus-pick-header">
@@ -1560,18 +1631,25 @@ class RingTwistApp {
       chipsEl.innerHTML = `<span class="focus-pick-count">${res.blocked ? escapeHtml(res.summary) : 'No pieces moved from current state'}</span>`;
     } else {
       for (const pt of res.pieceTypes) {
-        const isSelected = selectedSet.has(pt.shapeType);
+        const isSelected = selectedShapes.has(pt.shapeType);
         const isDimmed = selCount > 0 && !isSelected;
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = `focus-shape-chip${isSelected ? ' selected' : ''}${isDimmed ? ' dimmed' : ''}`;
-        btn.title = `${isSelected ? 'Unfocus' : 'Focus'} this piece shape (${pt.count} ${pt.count === 1 ? 'piece' : 'pieces'} affected)`;
+        btn.title = `${isSelected ? 'Unfocus' : 'Focus'} ${pt.label} (@focus ${pt.id}) — ${pt.count} ${pt.count === 1 ? 'piece' : 'pieces'} affected`;
         btn.appendChild(renderPieceSilhouetteSvg(pt.sampleRegion));
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'focus-shape-name';
+        nameSpan.textContent = pt.id;
         const countSpan = document.createElement('span');
+        countSpan.className = 'focus-shape-count';
         countSpan.textContent = `×${pt.count}`;
-        btn.appendChild(countSpan);
+        btn.append(nameSpan, countSpan);
         btn.addEventListener('click', () => {
-          this.updateMacroFocusTypes(entry.name, toggleFocusType(entry.focusTypes, pt.shapeType));
+          this.updateMacroFocusTypes(
+            entry.name,
+            toggleFocusType(currentFocusTypes, pt.id, this.solvedState),
+          );
         });
         chipsEl.appendChild(btn);
       }
@@ -1681,7 +1759,12 @@ class RingTwistApp {
 
   private renderMacroList(): void {
     const inlineEntries = Object.entries(this.evalResult.inlineMacros);
-    const key = JSON.stringify([this.macros, inlineEntries]);
+    const key = JSON.stringify([
+      this.macros,
+      inlineEntries,
+      this.inlineFocusTypes,
+      this.editingFocusMacroName,
+    ]);
     if (key === this.lastMacroListKey) return;
     this.lastMacroListKey = key;
 
@@ -1694,8 +1777,9 @@ class RingTwistApp {
     }
 
     const addRow = (entry: MacroLibraryEntry, isInline: boolean) => {
-      const focusCount = entry.focusTypes?.length ?? 0;
-      const isEditingFocus = !isInline && this.editingFocusMacroName === entry.name;
+      const focusTypes = isInline ? this.inlineFocusTypes[entry.name] : entry.focusTypes;
+      const focusCount = focusTypes?.length ?? 0;
+      const isEditingFocus = this.editingFocusMacroName === entry.name;
       const row = document.createElement('div');
       row.className = `${isInline ? 'macro-item inline' : 'macro-item'}${isEditingFocus ? ' editing-focus' : ''}`;
       row.innerHTML = `
@@ -1710,15 +1794,11 @@ class RingTwistApp {
           <button class="btn btn-sm" data-act="insert" title="Insert ${escapeHtml(entry.name)} at cursor">Insert</button>
           <button class="btn btn-sm" data-act="inv" title="Insert inverse ${escapeHtml(entry.name)}' at cursor">Inv '</button>
           <button class="btn btn-sm" data-act="order" title="Analyze order from current puzzle state">Order</button>
-          ${
-            isInline
-              ? ''
-              : `<button class="btn btn-sm macro-focus-btn${focusCount > 0 ? ' has-focus' : ''}${isEditingFocus ? ' active' : ''}" data-act="focus" title="${
-                  focusCount > 0
-                    ? `Focusing ${focusCount} piece ${focusCount === 1 ? 'type' : 'types'} on hover — click to edit (Alt-hover peeks all)`
-                    : 'Pick specific piece types to highlight on hover'
-                }">🎯${focusCount > 0 ? ` ${focusCount}` : ''}</button>`
-          }
+          <button class="btn btn-sm macro-focus-btn${focusCount > 0 ? ' has-focus' : ''}${isEditingFocus ? ' active' : ''}" data-act="focus" title="${
+            focusCount > 0
+              ? `Focusing ${focusCount} piece ${focusCount === 1 ? 'type' : 'types'} on hover — click to edit (Alt-hover peeks all)`
+              : 'Pick specific piece types to highlight on hover'
+          }">🎯${focusCount > 0 ? ` ${focusCount}` : ''}</button>
           ${isInline ? '' : '<button class="btn btn-sm btn-danger" data-act="del" title="Delete macro">×</button>'}
         </div>
       `;
@@ -1729,10 +1809,10 @@ class RingTwistApp {
 
       const bindPreview = (el: HTMLElement, alg: string, lbl: string) => {
         el.addEventListener('mouseenter', (ev) =>
-          this.previewMacroCycles(alg, lbl, entry.focusTypes, (ev as MouseEvent).altKey),
+          this.previewMacroCycles(alg, lbl, focusTypes, (ev as MouseEvent).altKey),
         );
         el.addEventListener('mouseleave', () => this.clearCyclePreview());
-        el.addEventListener('focus', () => this.previewMacroCycles(alg, lbl, entry.focusTypes));
+        el.addEventListener('focus', () => this.previewMacroCycles(alg, lbl, focusTypes));
         el.addEventListener('blur', () => this.clearCyclePreview());
       };
       bindPreview(metaEl, entry.body, entry.name);
@@ -1791,9 +1871,10 @@ class RingTwistApp {
 
     this.currentSpec = this.findPuzzleSpec(puzzleId);
     saveLastPuzzleId(this.currentSpec.id);
-    window.history.replaceState(null, '', `#p=${encodeURIComponent(this.currentSpec.id)}`);
+    this.syncCleanPuzzleHash();
     this.solvedState = this.getOrBuildPuzzle(this.currentSpec);
     this.macros = loadMacros(this.currentSpec.id);
+    this.inlineFocusTypes = {};
     this.loadPuzzleSessions(this.currentSpec.id);
     this.lastMacroListKey = '';
 
@@ -1827,6 +1908,7 @@ class RingTwistApp {
 
   private scheduleReevaluate(): void {
     this.cancelPendingEval();
+    this.syncCleanPuzzleHash();
     this.evalDebounceId = window.setTimeout(() => {
       this.evalDebounceId = null;
       this.reevaluate(true);
@@ -1844,6 +1926,7 @@ class RingTwistApp {
     const src = this.editor.getValue();
     if (this.uiMode === 'solve') this.solveActiveAlg = src;
     else this.exploreAlg = src;
+    this.inlineFocusTypes = parseInlineMacroFocus(src);
 
     this.evalResult = evaluateProgram(this.getActiveEvalBaseState(), src, this.macros, {
       solvedReference: this.solvedState,
@@ -2439,6 +2522,8 @@ class RingTwistApp {
     const nextText = this.editor.getValue();
     if (this.uiMode === 'solve') this.solveActiveAlg = nextText;
     else this.exploreAlg = nextText;
+    this.inlineFocusTypes = parseInlineMacroFocus(nextText);
+    this.syncCleanPuzzleHash();
 
     this.evalResult = evaluateProgram(
       this.getActiveEvalBaseState(),

@@ -1795,6 +1795,21 @@ code {
   flex-shrink: 0;
 }
 
+.focus-shape-name {
+  color: inherit;
+  font-weight: 600;
+}
+
+.focus-shape-count {
+  opacity: 0.72;
+  font-size: 10.5px;
+}
+
+.tok-directive {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
 .macro-focus-btn.has-focus {
   border-color: rgba(56, 189, 248, 0.65);
   color: #bae6fd;

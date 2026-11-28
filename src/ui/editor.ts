@@ -145,8 +145,18 @@ export class AlgorithmEditor {
     while (i < n) {
       const ch = src[i];
       if (ch === '#' || (ch === '/' && src[i + 1] === '/')) {
+        const lineStart = i;
         while (i < n && src[i] !== '\n') {
           syntax[i++] = 'tok-comment';
+        }
+        // Subtly highlight `@focus` / `@milestone` directives inside comments
+        const commentLine = src.slice(lineStart, i);
+        const dirRe = /@(?:focus|milestone|active)\b/gi;
+        let m: RegExpExecArray | null;
+        while ((m = dirRe.exec(commentLine)) !== null) {
+          for (let k = lineStart + m.index; k < lineStart + m.index + m[0].length; k++) {
+            syntax[k] = 'tok-directive';
+          }
         }
         continue;
       }

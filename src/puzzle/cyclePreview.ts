@@ -10,7 +10,20 @@ import {
 import { Point, dist } from '../geom/math.ts';
 import { MacroLibraryEntry, evaluateProgram } from '../lang/evaluator.ts';
 import { pieceStickerKey } from './engine.ts';
-import { Piece, PuzzleState } from './types.ts';
+import { Piece, PuzzleSpec, PuzzleState } from './types.ts';
+
+export interface PuzzlePieceTypeEntry {
+  /** Short canonical ID used in `@focus` directives & storage (e.g. "big_pent" or fallback "type1"). */
+  id: string;
+  /** Human-readable display label (e.g. "Big Pentagon" or "type1"). */
+  label: string;
+  /** Underlying Euclidean congruence signature `pieceShapeType(region)`. */
+  shapeType: string;
+  /** Total pieces of this shape on the solved puzzle. */
+  totalCount: number;
+  sampleRegion: ArcRegion;
+  sampleArea: number;
+}
 
 export interface CycleArrow {
   pieceId: number;
@@ -37,6 +50,10 @@ export interface CycleSpin {
 }
 
 export interface MovedPieceTypeSummary {
+  /** Canonical short ID used in `@focus` directives (e.g. "big_pent" or fallback "type1"). */
+  id: string;
+  /** Human-readable display label (e.g. "Big Pentagon"). */
+  label: string;
   shapeType: string;
   count: number;
   sampleRegion: ArcRegion;
@@ -46,8 +63,10 @@ export interface MovedPieceTypeSummary {
 }
 
 export interface CyclePreviewOptions {
-  /** Optional congruent piece shape-type IDs selecting which piece types to highlight. */
+  /** Optional piece-type IDs (e.g. ["big_pent", "kite"]) or legacy shape hashes to highlight. */
   focusTypes?: string[];
+  /** Solved reference state used to resolve named `spec.pieceTypes` probes (defaults to `state`). */
+  solvedState?: PuzzleState;
   /**
    * When true (interactive focus-picking mode), non-focused piece types are kept with
    * `dimmed: true` so the user can see and click them to toggle focus; when false (normal hover),
@@ -157,22 +176,42 @@ function pieceVisualCenter(region: ArcRegion): Point {
 
 /**
  * Compute exact signed CW rotation angle in degrees within (-180, 180]
- * for a multi-stickered piece that rotated in place.
+ * for a piece that rotated in place (uses stickers when present, or geometric
+ * edge tracking when the piece belongs to an oriented piece shape type).
  */
-function computeStickerSpinCwDeg(pBefore: Piece, pAfter: Piece, center: Point): number {
+function computePieceSpinCwDeg(
+  pBefore: Piece,
+  pAfter: Piece,
+  center: Point,
+  isReflected: boolean,
+): number {
   const s0 = pBefore.stickers?.[0];
   const s1 = pAfter.stickers?.[0];
-  if (!s0 || !s1) return 0;
-  const m0 = edgePointAt(s0.arc, 0.5);
-  const m1 = edgePointAt(s1.arc, 0.5);
+  if (s0 && s1) {
+    if (pieceStickerKey(pBefore) === pieceStickerKey(pAfter)) return 0;
+    const m0 = edgePointAt(s0.arc, 0.5);
+    const m1 = edgePointAt(s1.arc, 0.5);
+    const a0 = Math.atan2(m0.y - center.y, m0.x - center.x);
+    const a1 = Math.atan2(m1.y - center.y, m1.x - center.x);
+    let cwDeg = (-(a1 - a0) * 180) / Math.PI;
+    cwDeg = (((cwDeg % 360) + 540) % 360) - 180;
+    const rounded = Math.round(cwDeg);
+    return rounded === -180 ? 180 : rounded;
+  }
+
+  if (isReflected) return 0;
+  const e0 = pBefore.region.edges[0];
+  const e1 = pAfter.region.edges[0];
+  if (!e0 || !e1) return 0;
+  const m0 = edgePointAt(e0, 0.5);
+  const m1 = edgePointAt(e1, 0.5);
   const a0 = Math.atan2(m0.y - center.y, m0.x - center.x);
   const a1 = Math.atan2(m1.y - center.y, m1.x - center.x);
   // Math coords are +y up (CCW positive), so CW degrees = -(a1 - a0)
   let cwDeg = (-(a1 - a0) * 180) / Math.PI;
   cwDeg = (((cwDeg % 360) + 540) % 360) - 180;
   const rounded = Math.round(cwDeg);
-  if (rounded === -180) return 180;
-  return rounded;
+  return rounded === -180 ? 180 : rounded;
 }
 
 export function formatSpinAngle(angleDeg: number): string {
@@ -181,16 +220,160 @@ export function formatSpinAngle(angleDeg: number): string {
   return angleDeg >= 0 ? `↻ ${abs}°` : `↺ ${abs}°`;
 }
 
-/** Toggle a single `shapeType` in a macro's `focusTypes` list. */
+const pieceTypeCatalogCache = new WeakMap<PuzzleSpec, PuzzlePieceTypeEntry[]>();
+
+/**
+ * Compute (and cache per PuzzleSpec) the complete list of congruent piece shape classes
+ * on a puzzle, sorted largest-first, binding any named `spec.pieceTypes` probes and
+ * assigning deterministic fallback IDs (`type1`, `type2`, ...) to unnamed shapes.
+ */
+export function getPuzzlePieceTypeCatalog(solvedState: PuzzleState): PuzzlePieceTypeEntry[] {
+  const cached = pieceTypeCatalogCache.get(solvedState.spec);
+  if (cached) return cached;
+
+  const groups = new Map<
+    string,
+    { shapeType: string; totalCount: number; sampleRegion: ArcRegion; sampleArea: number }
+  >();
+  for (const p of solvedState.pieces) {
+    const st = pieceShapeType(p.region);
+    const existing = groups.get(st);
+    if (existing) {
+      existing.totalCount++;
+    } else {
+      groups.set(st, {
+        shapeType: st,
+        totalCount: 1,
+        sampleRegion: p.region,
+        sampleArea: p.area,
+      });
+    }
+  }
+
+  // Bind any explicit `spec.pieceTypes` probe definitions to their matching shapeType
+  const namedByShape = new Map<string, { id: string; label: string }>();
+  const usedIds = new Set<string>();
+  for (const def of solvedState.spec.pieceTypes ?? []) {
+    const piece = solvedState.pieces.find((p) => pointInRegion(def.probe, p.region));
+    if (!piece) continue;
+    const st = pieceShapeType(piece.region);
+    if (!namedByShape.has(st)) {
+      namedByShape.set(st, { id: def.id, label: def.label ?? def.id });
+      usedIds.add(def.id.toLowerCase());
+    }
+  }
+
+  const sorted = Array.from(groups.values()).sort((a, b) => b.sampleArea - a.sampleArea);
+  let nextFallback = 1;
+  const catalog: PuzzlePieceTypeEntry[] = sorted.map((g) => {
+    const named = namedByShape.get(g.shapeType);
+    if (named) {
+      return {
+        id: named.id,
+        label: named.label,
+        shapeType: g.shapeType,
+        totalCount: g.totalCount,
+        sampleRegion: g.sampleRegion,
+        sampleArea: g.sampleArea,
+      };
+    }
+    let fallbackId = `type${nextFallback++}`;
+    while (usedIds.has(fallbackId.toLowerCase())) {
+      fallbackId = `type${nextFallback++}`;
+    }
+    usedIds.add(fallbackId.toLowerCase());
+    return {
+      id: fallbackId,
+      label: fallbackId,
+      shapeType: g.shapeType,
+      totalCount: g.totalCount,
+      sampleRegion: g.sampleRegion,
+      sampleArea: g.sampleArea,
+    };
+  });
+
+  pieceTypeCatalogCache.set(solvedState.spec, catalog);
+  return catalog;
+}
+
+/**
+ * Resolve a list of focus tokens (semantic IDs like "big_pent", labels, fallback "type1",
+ * or legacy raw `pieceShapeType` hashes) into the matching set of `shapeType` signatures.
+ */
+export function resolveFocusTypeSet(
+  solvedState: PuzzleState,
+  tokens: string[] | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  if (!tokens || tokens.length === 0) return out;
+  const catalog = getPuzzlePieceTypeCatalog(solvedState);
+  const byId = new Map<string, string>();
+  const byLabel = new Map<string, string>();
+  const validShapes = new Set<string>();
+  for (const entry of catalog) {
+    byId.set(entry.id.toLowerCase(), entry.shapeType);
+    byLabel.set(entry.label.toLowerCase(), entry.shapeType);
+    validShapes.add(entry.shapeType);
+  }
+  for (const raw of tokens) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+    const mapped = byId.get(lower) ?? byLabel.get(lower);
+    if (mapped) {
+      out.add(mapped);
+    } else if (validShapes.has(trimmed)) {
+      out.add(trimmed);
+    } else {
+      // Preserve unknown raw shapeType in case caller passed a direct hash
+      out.add(trimmed);
+    }
+  }
+  return out;
+}
+
+/** Map a geometric `shapeType` signature to its canonical focus ID (e.g. "big_pent" or "type1"). */
+export function shapeTypeToFocusId(solvedState: PuzzleState, shapeType: string): string {
+  const catalog = getPuzzlePieceTypeCatalog(solvedState);
+  return catalog.find((c) => c.shapeType === shapeType)?.id ?? shapeType;
+}
+
+/**
+ * Toggle a single piece type (given by `shapeType` hash or canonical ID) in `currentTypes`,
+ * returning clean deduplicated canonical IDs (e.g. `["big_pent", "kite"]`) when `solvedState` is provided.
+ */
 export function toggleFocusType(
   currentTypes: string[] | undefined,
-  shapeType: string,
+  shapeTypeOrId: string,
+  solvedState?: PuzzleState,
 ): string[] {
-  const list = currentTypes ? [...currentTypes] : [];
-  if (list.includes(shapeType)) {
-    return list.filter((t) => t !== shapeType);
+  if (!solvedState) {
+    const list = currentTypes ? [...currentTypes] : [];
+    if (list.includes(shapeTypeOrId)) {
+      return list.filter((t) => t !== shapeTypeOrId);
+    }
+    return [...list, shapeTypeOrId];
   }
-  return [...list, shapeType];
+
+  const catalog = getPuzzlePieceTypeCatalog(solvedState);
+  const targetSet = resolveFocusTypeSet(solvedState, [shapeTypeOrId]);
+  const targetShape = Array.from(targetSet)[0] ?? shapeTypeOrId;
+  const activeShapes = resolveFocusTypeSet(solvedState, currentTypes);
+
+  if (activeShapes.has(targetShape)) {
+    activeShapes.delete(targetShape);
+  } else {
+    activeShapes.add(targetShape);
+  }
+
+  // Emit canonical IDs in puzzle catalog order (largest first)
+  const out: string[] = [];
+  for (const entry of catalog) {
+    if (activeShapes.has(entry.shapeType)) {
+      out.push(entry.id);
+    }
+  }
+  return out;
 }
 
 /**
@@ -202,6 +385,7 @@ export function toggleFocusTypeAtPoint(
   state: PuzzleState,
   fullPreview: CyclePreviewResult,
   pt: Point,
+  solvedState?: PuzzleState,
 ): string[] | null {
   const affectedTypes = new Set(fullPreview.pieceTypes.map((t) => t.shapeType));
   if (affectedTypes.size === 0) return null;
@@ -211,7 +395,7 @@ export function toggleFocusTypeAtPoint(
     if (!pointInRegion(pt, p.region)) continue;
     const st = pieceShapeType(p.region);
     if (affectedTypes.has(st)) {
-      return toggleFocusType(currentTypes, st);
+      return toggleFocusType(currentTypes, st, solvedState ?? state);
     }
   }
 
@@ -232,7 +416,7 @@ export function toggleFocusTypeAtPoint(
       bestType = s.shapeType;
     }
   }
-  return bestType ? toggleFocusType(currentTypes, bestType) : null;
+  return bestType ? toggleFocusType(currentTypes, bestType, solvedState ?? state) : null;
 }
 
 /**
@@ -280,6 +464,17 @@ export function computeMacroCyclePreview(
   }
 
   const afterById = new Map(ev.finalState.pieces.map((p) => [p.id, p]));
+  // Any piece shape type that has at least one oriented (stickered) piece anywhere on the puzzle
+  // is treated as oriented at EVERY slot of that shape type (so e.g. spinning an outer solid
+  // pentagon slot on Geranium Plus still shows its exact rotation-in-place badge).
+  const orientedShapeTypes = new Set<string>();
+  for (const p of state.pieces) {
+    if (p.stickers && p.stickers.length > 0) {
+      orientedShapeTypes.add(pieceShapeType(p.region));
+    }
+  }
+  const isReflected = ev.steps.filter((s) => Boolean(s.flipAxis)).length % 2 === 1;
+
   const moved: {
     pieceId: number;
     from: Point;
@@ -293,6 +488,11 @@ export function computeMacroCyclePreview(
   const allSpins: CycleSpin[] = [];
   const typeMap = new Map<string, MovedPieceTypeSummary>();
 
+  const refState = options.solvedState ?? state;
+  const catalogByShape = new Map(
+    getPuzzlePieceTypeCatalog(refState).map((entry) => [entry.shapeType, entry]),
+  );
+
   const recordType = (
     shapeType: string,
     region: ArcRegion,
@@ -305,7 +505,10 @@ export function computeMacroCyclePreview(
       if (kind === 'arrow') existing.hasArrows = true;
       else existing.hasSpins = true;
     } else {
+      const meta = catalogByShape.get(shapeType);
       typeMap.set(shapeType, {
+        id: meta?.id ?? shapeType,
+        label: meta?.label ?? shapeType,
         shapeType,
         count: 1,
         sampleRegion: region,
@@ -324,16 +527,12 @@ export function computeMacroCyclePreview(
     const from = pieceVisualCenter(pBefore.region);
 
     if (fromKey === toKey) {
-      // Piece remained in the exact same geometric slot: only flag an in-place
-      // rotation if it has distinguishable orientation stickers that actually changed.
-      if (
-        pBefore.stickers &&
-        pBefore.stickers.length > 0 &&
-        pieceStickerKey(pBefore) !== pieceStickerKey(pAfter)
-      ) {
-        const angleDeg = computeStickerSpinCwDeg(pBefore, pAfter, from);
+      // Piece remained in the exact same geometric slot: show rotation-in-place if its
+      // shape type has orientation anywhere on the puzzle (even if this slot is solid-colored).
+      const shapeType = pieceShapeType(pBefore.region);
+      if (orientedShapeTypes.has(shapeType)) {
+        const angleDeg = computePieceSpinCwDeg(pBefore, pAfter, from, isReflected);
         if (angleDeg !== 0) {
-          const shapeType = pieceShapeType(pBefore.region);
           allSpins.push({
             pieceId: pBefore.id,
             point: from,
@@ -362,23 +561,21 @@ export function computeMacroCyclePreview(
         toKey,
       });
       recordType(shapeType, pBefore.region, pBefore.area, 'arrow');
-    } else if (
-      pBefore.stickers &&
-      pBefore.stickers.length > 0 &&
-      pieceStickerKey(pBefore) !== pieceStickerKey(pAfter)
-    ) {
-      const angleDeg = computeStickerSpinCwDeg(pBefore, pAfter, from);
-      if (angleDeg !== 0) {
-        const shapeType = pieceShapeType(pBefore.region);
-        allSpins.push({
-          pieceId: pBefore.id,
-          point: from,
-          area: pBefore.area,
-          shapeType,
-          angleDeg,
-          color: '#facc15',
-        });
-        recordType(shapeType, pBefore.region, pBefore.area, 'spin');
+    } else {
+      const shapeType = pieceShapeType(pBefore.region);
+      if (orientedShapeTypes.has(shapeType)) {
+        const angleDeg = computePieceSpinCwDeg(pBefore, pAfter, from, isReflected);
+        if (angleDeg !== 0) {
+          allSpins.push({
+            pieceId: pBefore.id,
+            point: from,
+            area: pBefore.area,
+            shapeType,
+            angleDeg,
+            color: '#facc15',
+          });
+          recordType(shapeType, pBefore.region, pBefore.area, 'spin');
+        }
       }
     }
   }
@@ -505,7 +702,7 @@ export function computeMacroCyclePreview(
   let activeMovedCount = moved.length;
 
   if (hasFocus && focusTypes) {
-    const focusSet = new Set(focusTypes);
+    const focusSet = resolveFocusTypeSet(refState, focusTypes);
 
     if (options.includeDimmed) {
       arrows = allArrows.map((a) =>

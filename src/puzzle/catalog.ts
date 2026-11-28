@@ -89,6 +89,13 @@ export const GERANIUM_PLUS: PuzzleSpec = {
     'Exact 86-piece VeryPuzzle Geranium Plus (36° stops): unbandaged overlap shields & outer T-channels, 5 outer intersection pentagons, and an oriented 5-color central pentagon.',
   circles: makeRingCircles(5, 1.0, EXACT_GERANIUM_RADIUS, 10, GERANIUM_PLUS_COLORS, 90),
   symmetryStepDeg: 72,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: 0, y: 0 } },
+    { id: 'petal', label: 'Petal', probe: { x: 0.0422, y: 0.6743 } },
+    { id: 'small_pent', label: 'Small Pentagon', probe: { x: -0.5878, y: 0.8408 } },
+    { id: 'kite', label: 'Kite', probe: { x: -1.0633, y: 0.6545 } },
+    { id: 'tri', label: 'Triangle', probe: { x: 0, y: 1.1772 } },
+  ],
   customBuilder: (spec) => buildExactGeraniumPieces(spec, 'plus'),
   sampleAlgorithms: [
     {
@@ -132,6 +139,13 @@ export const GERANIUM_STANDARD: PuzzleSpec = {
     90,
   ),
   symmetryStepDeg: 72,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: 0, y: 0 } },
+    { id: 'shield', label: 'Shield', probe: { x: -0.8257, y: 0.7317 } },
+    { id: 'petal', label: 'Petal', probe: { x: 0.0422, y: 0.6743 } },
+    { id: 't_piece', label: 'T-Piece', probe: { x: 0, y: 1.8682 } },
+    { id: 'tri', label: 'Triangle', probe: { x: 0, y: 1.1772 } },
+  ],
   customBuilder: (spec) => buildExactGeraniumPieces(spec, 'standard'),
   sampleAlgorithms: [
     {
@@ -173,6 +187,13 @@ export const SUPER_GERANIUM_PLUS: PuzzleSpec = {
     ),
   ],
   symmetryStepDeg: 72,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: 0, y: 0 } },
+    { id: 'petal', label: 'Petal', probe: { x: 0.6544, y: 1.7863 } },
+    { id: 'small_pent', label: 'Small Pentagon', probe: { x: 0.9698, y: 1.2833 } },
+    { id: 'kite', label: 'Kite', probe: { x: 1.2449, y: 1.7135 } },
+    { id: 'tri', label: 'Triangle', probe: { x: 1.1196, y: 1.9818 } },
+  ],
   customBuilder: (spec) => buildExactSuperGeraniumPieces(spec, 'plus'),
   sampleAlgorithms: [
     {
@@ -218,6 +239,13 @@ export const SUPER_GERANIUM: PuzzleSpec = {
     ),
   ],
   symmetryStepDeg: 72,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: 0, y: 0 } },
+    { id: 'shield', label: 'Shield', probe: { x: 0.2379, y: 1.0773 } },
+    { id: 'petal', label: 'Petal', probe: { x: 0.4305, y: 0.5207 } },
+    { id: 't_piece', label: 'T-Piece', probe: { x: 1.0981, y: 1.5114 } },
+    { id: 'tri', label: 'Triangle', probe: { x: 0.6919, y: 0.9524 } },
+  ],
   customBuilder: (spec) => buildExactSuperGeraniumPieces(spec, 'standard'),
   sampleAlgorithms: [
     {
@@ -270,6 +298,13 @@ export const POCKET_GERANIUM: PuzzleSpec = {
     },
   ],
   symmetryStepDeg: 0,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: -1.1132, y: 0.7328 } },
+    { id: 'shield', label: 'Shield', probe: { x: -1.0095, y: 0.3026 } },
+    { id: 't_piece', label: 'T-Piece', probe: { x: -0.1044, y: 0.5013 } },
+    { id: 'petal', label: 'Petal', probe: { x: 0.2132, y: 0.6993 } },
+    { id: 'tri', label: 'Triangle', probe: { x: 0.4457, y: 0.9009 } },
+  ],
   customBuilder: (spec) => buildExactPocketGeraniumPieces(spec),
   sampleAlgorithms: [
     {
@@ -304,6 +339,13 @@ export const MINI_GERANIUM_PLUS: PuzzleSpec = {
     { id: 'B', cx: 34 / 50, cy: 0, r: 1.0, stopsDeg: [0, 108, 216, 252], color: '#84cc16' },
   ],
   symmetryStepDeg: 0,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: -1.0794, y: 0.5852 } },
+    { id: 'petal', label: 'Petal', probe: { x: -0.6335, y: 0.6993 } },
+    { id: 'small_pent', label: 'Small Pentagon', probe: { x: -0.4068, y: 0.339 } },
+    { id: 'kite', label: 'Kite', probe: { x: -0.2101, y: 0.6467 } },
+    { id: 'tri', label: 'Triangle', probe: { x: -0.866, y: 0.9009 } },
+  ],
   customBuilder: (spec) => buildExactMiniGeraniumPieces(spec, 'plus'),
   sampleAlgorithms: [
     {
@@ -333,6 +375,13 @@ export const MINI_GERANIUM: PuzzleSpec = {
     { id: 'B', cx: 34 / 50, cy: 0, r: 1.0, stopsDeg: [0, 108, 216, 252], color: '#84cc16' },
   ],
   symmetryStepDeg: 0,
+  pieceTypes: [
+    { id: 'big_pent', label: 'Big Pentagon', probe: { x: -1.0794, y: 0.5852 } },
+    { id: 'shield', label: 'Shield', probe: { x: -0.4203, y: 0.1798 } },
+    { id: 't_piece', label: 'T-Piece', probe: { x: -0.3158, y: -0.5013 } },
+    { id: 'petal', label: 'Petal', probe: { x: -0.6335, y: 0.6993 } },
+    { id: 'tri', label: 'Triangle', probe: { x: -0.866, y: 0.9009 } },
+  ],
   customBuilder: (spec) => buildExactMiniGeraniumPieces(spec, 'standard'),
   sampleAlgorithms: [
     {

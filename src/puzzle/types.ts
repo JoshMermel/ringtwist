@@ -103,6 +103,15 @@ export interface PuzzleColoringContext {
   symmetryCenter: Point;
 }
 
+export interface PieceTypeDef {
+  /** Short identifier used in `@focus` directives & saved macro metadata (e.g. "big_pent", "kite", "tri"). */
+  id: string;
+  /** Optional human-readable display label (e.g. "Big Pentagon"). */
+  label?: string;
+  /** Interior point in solved puzzle coordinates identifying one piece of this congruent shape class. */
+  probe: Point;
+}
+
 export interface PuzzleSpec {
   id: string;
   name: string;
@@ -112,6 +121,8 @@ export interface PuzzleSpec {
   /** Whole-puzzle rotational symmetry step in degrees CW (e.g. 72 for 5-fold). */
   symmetryStepDeg: number;
   symmetryCenter?: Point;
+  /** Optional named congruent piece-type classes (for `@focus` directives and focus-picker chips). */
+  pieceTypes?: PieceTypeDef[];
   /** Optional orbit-slicing steps to carve pieces created by valid rotations. */
   orbitSlices?: OrbitSliceStep[];
   /** Optional explicit virtual cutting circles (e.g. for targeted unbandaging). */

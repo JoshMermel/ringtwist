@@ -228,6 +228,15 @@ export interface CenterWedgesStickerRule {
 
 export type StickerRule = CenterWedgesStickerRule;
 
+export interface PieceTypeInput {
+  /** Short identifier used in `@focus` directives (e.g. "big_pent", "kite", "tri"). */
+  id: string;
+  /** Optional display label (e.g. "Big Pentagon"). */
+  label?: string;
+  /** Interior point [x, y] in solved coordinates selecting one piece of this congruent shape class. */
+  probe: [NumExpr, NumExpr];
+}
+
 export interface RingTwistPuzzleDoc {
   format: 'ringtwist/v1';
   id: string;
@@ -243,6 +252,7 @@ export interface RingTwistPuzzleDoc {
   cuts?: CutOp[];
   coloring?: ColoringRule[];
   stickers?: StickerRule[];
+  pieceTypes?: PieceTypeInput[];
   sampleAlgorithms?: { name: string; alg: string; note?: string }[];
 }
 
@@ -647,6 +657,24 @@ export function validateRingTwistDoc(
         doc.viewBounds.forEach((v) => evalNumExpr(v, env));
       }
     }
+    if (doc.pieceTypes !== undefined) {
+      if (!Array.isArray(doc.pieceTypes)) {
+        errors.push('"pieceTypes" must be an array of { id, label?, probe: [x, y] }');
+      } else {
+        for (const pt of doc.pieceTypes) {
+          if (!pt || typeof pt !== 'object' || typeof pt.id !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(pt.id)) {
+            errors.push('Each pieceType requires an identifier "id" (letters, digits, "_", "-")');
+            break;
+          }
+          if (!Array.isArray(pt.probe) || pt.probe.length !== 2) {
+            errors.push(`pieceType "${pt.id}" requires a 2-tuple "probe": [x, y]`);
+            break;
+          }
+          evalNumExpr(pt.probe[0], env);
+          evalNumExpr(pt.probe[1], env);
+        }
+      }
+    }
     if (errors.length > 0) return { ok: false, errors };
     return { ok: true, doc };
   } catch (err) {
@@ -751,6 +779,15 @@ export function exportPuzzleToRingTwistDoc(
     axes,
     cuts: [{ op: 'closure', moves: closureMoves, maxIters: 8 }],
     coloring: [{ type: 'default' }, { type: 'points', probes }],
+    ...(spec.pieceTypes && spec.pieceTypes.length > 0
+      ? {
+          pieceTypes: spec.pieceTypes.map((pt) => ({
+            id: pt.id,
+            ...(pt.label ? { label: pt.label } : {}),
+            probe: [roundNice(pt.probe.x), roundNice(pt.probe.y)] as [number, number],
+          })),
+        }
+      : {}),
     ...(spec.sampleAlgorithms ? { sampleAlgorithms: spec.sampleAlgorithms } : {}),
   };
 }
